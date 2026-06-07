@@ -1,0 +1,20 @@
+[package]
+version = "0.1.0"
+category = "Simulation"
+title = "A1Z D405 Runtime"
+description = "A1Z-local Isaac Sim runtime extension for D405 asset semantics and ROS2 publishing."
+authors = ["OpenAI"]
+keywords = ["a1z", "d405", "isaac", "ros2", "camera"]
+writeTarget.kit = true
+
+[dependencies]
+"isaacsim.core.nodes" = {}
+"isaacsim.ros2.bridge" = {}
+"omni.graph" = {}
+"omni.usd" = {}
+"omni.timeline" = {}
+"omni.replicator.core" = {}
+"omni.syntheticdata" = {}
+
+[[python.module]]
+name = "a1z.d405.runtime"
