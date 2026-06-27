@@ -1,0 +1,245 @@
+[0.000000] (-) TimerEvent: {}
+[0.000270] (a1z_d405) JobQueued: {'identifier': 'a1z_d405', 'dependencies': OrderedDict()}
+[0.000332] (a1z_msgs) JobQueued: {'identifier': 'a1z_msgs', 'dependencies': OrderedDict()}
+[0.000386] (a1z_open_vocab) JobQueued: {'identifier': 'a1z_open_vocab', 'dependencies': OrderedDict()}
+[0.000430] (a1z_motion) JobQueued: {'identifier': 'a1z_motion', 'dependencies': OrderedDict([('a1z_msgs', '/workspace/A1Z/ros2_ws/install/a1z_msgs')])}
+[0.000449] (a1z_msgs) JobStarted: {'identifier': 'a1z_msgs'}
+[0.003625] (a1z_d405) JobStarted: {'identifier': 'a1z_d405'}
+[0.005763] (a1z_open_vocab) JobStarted: {'identifier': 'a1z_open_vocab'}
+[0.008165] (a1z_msgs) JobProgress: {'identifier': 'a1z_msgs', 'progress': 'cmake'}
+[0.008413] (a1z_msgs) JobProgress: {'identifier': 'a1z_msgs', 'progress': 'build'}
+[0.008718] (a1z_msgs) Command: {'cmd': ['/usr/bin/cmake', '--build', '/workspace/A1Z/ros2_ws/build/a1z_msgs', '--', '-j24', '-l24'], 'cwd': '/workspace/A1Z/ros2_ws/build/a1z_msgs', 'env': OrderedDict([('A1Z_TCP_PORT', '18080'), ('A1Z_REPO_ROOT', '/workspace/A1Z'), ('A1Z_D405_COLOR_FRAME_ID', 'd405_color_optical_frame'), ('HOSTNAME', 'th1rt3en-lab'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/root'), ('OLDPWD', '/workspace/A1Z/ros2_ws'), ('ROS_PYTHON_VERSION', '3'), ('A1Z_SDK_DIR', '/workspace/A1Z/vendor/GALAXEA-A1Z'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'), ('A1Z_CONTROL_URDF', '/workspace/A1Z/build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_control.urdf'), ('LANG', 'C.UTF-8'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('DEBIAN_FRONTEND', 'noninteractive'), ('A1Z_D405_DEPTH_FRAME_ID', 'd405_depth_optical_frame'), ('PWD', '/workspace/A1Z/ros2_ws/build/a1z_msgs'), ('A1Z_TCP_HOST', '127.0.0.1'), ('LC_ALL', 'C.UTF-8'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('A1Z_D405_LINK_FRAME', 'd405_link'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[0.100310] (-) TimerEvent: {}
+[0.102154] (a1z_msgs) StdoutLine: {'line': b'[  3%] Built target a1z_msgs__cpp\n'}
+[0.102633] (a1z_msgs) StdoutLine: {'line': b'[ 12%] Built target a1z_msgs__rosidl_generator_c\n'}
+[0.102693] (a1z_msgs) StdoutLine: {'line': b'[ 15%] Built target a1z_msgs__rs\n'}
+[0.102946] (a1z_msgs) StdoutLine: {'line': b'[ 15%] Built target ament_cmake_python_copy_a1z_msgs\n'}
+[0.102988] (a1z_msgs) StdoutLine: {'line': b'[ 50%] Built target a1z_msgs__rosidl_typesupport_fastrtps_cpp\n'}
+[0.103022] (a1z_msgs) StdoutLine: {'line': b'[ 50%] Built target a1z_msgs__rosidl_typesupport_introspection_cpp\n'}
+[0.103055] (a1z_msgs) StdoutLine: {'line': b'[ 50%] Built target a1z_msgs__rosidl_typesupport_introspection_c\n'}
+[0.103086] (a1z_msgs) StdoutLine: {'line': b'[ 53%] Built target a1z_msgs__rosidl_typesupport_fastrtps_c\n'}
+[0.103117] (a1z_msgs) StdoutLine: {'line': b'[ 62%] Built target a1z_msgs__rosidl_typesupport_c\n'}
+[0.103147] (a1z_msgs) StdoutLine: {'line': b'[ 71%] Built target a1z_msgs__rosidl_typesupport_cpp\n'}
+[0.103179] (a1z_msgs) StdoutLine: {'line': b'[ 71%] Built target a1z_msgs\n'}
+[0.103210] (a1z_msgs) StdoutLine: {'line': b'[ 75%] Built target a1z_msgs__py\n'}
+[0.103242] (a1z_msgs) StdoutLine: {'line': b'[ 81%] Built target a1z_msgs__rosidl_generator_py\n'}
+[0.103273] (a1z_msgs) StdoutLine: {'line': b'[100%] Built target a1z_msgs__rosidl_typesupport_fastrtps_c__pyext\n'}
+[0.103304] (a1z_msgs) StdoutLine: {'line': b'[100%] Built target a1z_msgs__rosidl_typesupport_c__pyext\n'}
+[0.103334] (a1z_msgs) StdoutLine: {'line': b'[100%] Built target a1z_msgs__rosidl_typesupport_introspection_c__pyext\n'}
+[0.131565] (a1z_msgs) StdoutLine: {'line': b'running egg_info\n'}
+[0.131871] (a1z_msgs) StdoutLine: {'line': b'writing a1z_msgs.egg-info/PKG-INFO\n'}
+[0.131989] (a1z_msgs) StdoutLine: {'line': b'writing dependency_links to a1z_msgs.egg-info/dependency_links.txt\n'}
+[0.132060] (a1z_msgs) StdoutLine: {'line': b'writing top-level names to a1z_msgs.egg-info/top_level.txt\n'}
+[0.132812] (a1z_msgs) StdoutLine: {'line': b"reading manifest file 'a1z_msgs.egg-info/SOURCES.txt'\n"}
+[0.133059] (a1z_msgs) StdoutLine: {'line': b"writing manifest file 'a1z_msgs.egg-info/SOURCES.txt'\n"}
+[0.146070] (a1z_msgs) StdoutLine: {'line': b'[100%] Built target ament_cmake_python_build_a1z_msgs_egg\n'}
+[0.193237] (a1z_msgs) CommandEnded: {'returncode': 0}
+[0.193553] (a1z_msgs) JobProgress: {'identifier': 'a1z_msgs', 'progress': 'install'}
+[0.198664] (a1z_msgs) Command: {'cmd': ['/usr/bin/cmake', '--install', '/workspace/A1Z/ros2_ws/build/a1z_msgs'], 'cwd': '/workspace/A1Z/ros2_ws/build/a1z_msgs', 'env': OrderedDict([('A1Z_TCP_PORT', '18080'), ('A1Z_REPO_ROOT', '/workspace/A1Z'), ('A1Z_D405_COLOR_FRAME_ID', 'd405_color_optical_frame'), ('HOSTNAME', 'th1rt3en-lab'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/root'), ('OLDPWD', '/workspace/A1Z/ros2_ws'), ('ROS_PYTHON_VERSION', '3'), ('A1Z_SDK_DIR', '/workspace/A1Z/vendor/GALAXEA-A1Z'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'), ('A1Z_CONTROL_URDF', '/workspace/A1Z/build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_control.urdf'), ('LANG', 'C.UTF-8'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('DEBIAN_FRONTEND', 'noninteractive'), ('A1Z_D405_DEPTH_FRAME_ID', 'd405_depth_optical_frame'), ('PWD', '/workspace/A1Z/ros2_ws/build/a1z_msgs'), ('A1Z_TCP_HOST', '127.0.0.1'), ('LC_ALL', 'C.UTF-8'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('A1Z_D405_LINK_FRAME', 'd405_link'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[0.200394] (-) TimerEvent: {}
+[0.203295] (a1z_msgs) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[0.203387] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/ament_index/resource_index/rosidl_interfaces/a1z_msgs\n'}
+[0.203436] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs\n'}
+[0.203471] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action\n'}
+[0.203510] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/move_end_effector.h\n'}
+[0.203534] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail\n'}
+[0.203569] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__struct.h\n'}
+[0.203596] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__functions.h\n'}
+[0.203617] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__type_support.h\n'}
+[0.203636] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__functions.c\n'}
+[0.203655] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg\n'}
+[0.203674] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg/rosidl_generator_c__visibility_control.h\n'}
+[0.203699] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/environment/library_path.sh\n'}
+[0.203719] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/environment/library_path.dsv\n'}
+[0.203743] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/lib/liba1z_msgs__rosidl_generator_c.so\n'}
+[0.203777] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs\n'}
+[0.203812] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action\n'}
+[0.203834] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail\n'}
+[0.203870] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__rosidl_typesupport_fastrtps_c.h\n'}
+[0.203891] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg\n'}
+[0.203913] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg/rosidl_typesupport_fastrtps_c__visibility_control.h\n'}
+[0.203943] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/lib/liba1z_msgs__rosidl_typesupport_fastrtps_c.so\n'}
+[0.204016] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs\n'}
+[0.204044] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action\n'}
+[0.204073] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail\n'}
+[0.204107] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__struct.hpp\n'}
+[0.204147] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__builder.hpp\n'}
+[0.204176] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__traits.hpp\n'}
+[0.204204] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__type_support.hpp\n'}
+[0.204243] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/move_end_effector.hpp\n'}
+[0.204265] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg\n'}
+[0.204294] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg/rosidl_generator_cpp__visibility_control.hpp\n'}
+[0.204327] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs\n'}
+[0.204346] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action\n'}
+[0.204365] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail\n'}
+[0.204392] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__rosidl_typesupport_fastrtps_cpp.hpp\n'}
+[0.204411] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/dds_fastrtps\n'}
+[0.204430] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg\n'}
+[0.204455] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h\n'}
+[0.204482] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/lib/liba1z_msgs__rosidl_typesupport_fastrtps_cpp.so\n'}
+[0.204510] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs\n'}
+[0.204548] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action\n'}
+[0.204574] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail\n'}
+[0.204592] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__rosidl_typesupport_introspection_c.h\n'}
+[0.204611] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__type_support.c\n'}
+[0.204648] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg\n'}
+[0.204668] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/msg/rosidl_typesupport_introspection_c__visibility_control.h\n'}
+[0.204686] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/lib/liba1z_msgs__rosidl_typesupport_introspection_c.so\n'}
+[0.204769] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/lib/liba1z_msgs__rosidl_typesupport_c.so\n'}
+[0.204961] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs\n'}
+[0.205012] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action\n'}
+[0.205045] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail\n'}
+[0.205076] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__rosidl_typesupport_introspection_cpp.hpp\n'}
+[0.205140] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/include/a1z_msgs/a1z_msgs/action/detail/move_end_effector__type_support.cpp\n'}
+[0.205171] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/lib/liba1z_msgs__rosidl_typesupport_introspection_cpp.so\n'}
+[0.205464] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/lib/liba1z_msgs__rosidl_typesupport_cpp.so\n'}
+[0.205503] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/environment/pythonpath.sh\n'}
+[0.205532] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/environment/pythonpath.dsv\n'}
+[0.205559] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs-0.1.0-py3.10.egg-info\n'}
+[0.205588] (a1z_msgs) StdoutLine: {'line': b'-- Installing: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs-0.1.0-py3.10.egg-info/PKG-INFO\n'}
+[0.205617] (a1z_msgs) StdoutLine: {'line': b'-- Installing: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs-0.1.0-py3.10.egg-info/SOURCES.txt\n'}
+[0.205645] (a1z_msgs) StdoutLine: {'line': b'-- Installing: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs-0.1.0-py3.10.egg-info/dependency_links.txt\n'}
+[0.205709] (a1z_msgs) StdoutLine: {'line': b'-- Installing: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs-0.1.0-py3.10.egg-info/top_level.txt\n'}
+[0.205809] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs\n'}
+[0.205856] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/action\n'}
+[0.205892] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/action/_move_end_effector_s.c\n'}
+[0.205932] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/action/_move_end_effector.py\n'}
+[0.205964] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/action/__init__.py\n'}
+[0.205995] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/liba1z_msgs__rosidl_generator_py.so\n'}
+[0.206025] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/a1z_msgs_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.206055] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/_a1z_msgs_s.ep.rosidl_typesupport_c.c\n'}
+[0.206085] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/a1z_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.206115] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/_a1z_msgs_s.ep.rosidl_typesupport_introspection_c.c\n'}
+[0.206144] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/a1z_msgs_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.206176] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/_a1z_msgs_s.ep.rosidl_typesupport_fastrtps_c.c\n'}
+[0.206204] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/__init__.py\n'}
+[0.223053] (a1z_msgs) StdoutLine: {'line': b"Listing '/workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs'...\n"}
+[0.223186] (a1z_msgs) StdoutLine: {'line': b"Listing '/workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/action'...\n"}
+[0.225923] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/a1z_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.226051] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/a1z_msgs_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.226182] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages/a1z_msgs/a1z_msgs_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so\n'}
+[0.226312] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/lib/liba1z_msgs__rosidl_generator_py.so\n'}
+[0.226393] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/ament_index/resource_index/rust_packages/a1z_msgs\n'}
+[0.226431] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/rust\n'}
+[0.226475] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/rust/src\n'}
+[0.226531] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/rust/src/action\n'}
+[0.226576] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/rust/src/action/rmw.rs\n'}
+[0.226630] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/rust/src/lib.rs\n'}
+[0.226675] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/rust/src/action.rs\n'}
+[0.226713] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/rust/Cargo.toml\n'}
+[0.226764] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/rust/build.rs\n'}
+[0.226810] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/action/MoveEndEffector.idl\n'}
+[0.226854] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/action/MoveEndEffector.action\n'}
+[0.226883] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/ament_index/resource_index/package_run_dependencies/a1z_msgs\n'}
+[0.226911] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/ament_index/resource_index/parent_prefix_path/a1z_msgs\n'}
+[0.226939] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/environment/ament_prefix_path.sh\n'}
+[0.226966] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/environment/ament_prefix_path.dsv\n'}
+[0.227003] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/environment/path.sh\n'}
+[0.227039] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/environment/path.dsv\n'}
+[0.227077] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/local_setup.bash\n'}
+[0.227106] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/local_setup.sh\n'}
+[0.227147] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/local_setup.zsh\n'}
+[0.227183] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/local_setup.dsv\n'}
+[0.227211] (a1z_msgs) StdoutLine: {'line': b'-- Installing: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.dsv\n'}
+[0.227254] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/ament_index/resource_index/packages/a1z_msgs\n'}
+[0.227282] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/export_a1z_msgs__rosidl_generator_cExport.cmake\n'}
+[0.227324] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/export_a1z_msgs__rosidl_generator_cExport-noconfig.cmake\n'}
+[0.227353] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/export_a1z_msgs__rosidl_typesupport_fastrtps_cExport.cmake\n'}
+[0.227393] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/export_a1z_msgs__rosidl_typesupport_fastrtps_cExport-noconfig.cmake\n'}
+[0.227421] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/export_a1z_msgs__rosidl_generator_cppExport.cmake\n'}
+[0.227463] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/export_a1z_msgs__rosidl_typesupport_fastrtps_cppExport.cmake\n'}
+[0.227490] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/export_a1z_msgs__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake\n'}
+[0.227532] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgs__rosidl_typesupport_introspection_cExport.cmake\n'}
+[0.227560] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgs__rosidl_typesupport_introspection_cExport-noconfig.cmake\n'}
+[0.227600] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgs__rosidl_typesupport_cExport.cmake\n'}
+[0.227643] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgs__rosidl_typesupport_cExport-noconfig.cmake\n'}
+[0.227685] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgs__rosidl_typesupport_introspection_cppExport.cmake\n'}
+[0.227722] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgs__rosidl_typesupport_introspection_cppExport-noconfig.cmake\n'}
+[0.227781] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgs__rosidl_typesupport_cppExport.cmake\n'}
+[0.227830] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgs__rosidl_typesupport_cppExport-noconfig.cmake\n'}
+[0.227857] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/export_a1z_msgs__rosidl_generator_pyExport.cmake\n'}
+[0.227885] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/export_a1z_msgs__rosidl_generator_pyExport-noconfig.cmake\n'}
+[0.227912] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/rosidl_cmake-extras.cmake\n'}
+[0.227940] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/ament_cmake_export_dependencies-extras.cmake\n'}
+[0.227967] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/ament_cmake_export_include_directories-extras.cmake\n'}
+[0.227994] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/ament_cmake_export_libraries-extras.cmake\n'}
+[0.228022] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/ament_cmake_export_targets-extras.cmake\n'}
+[0.228049] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake\n'}
+[0.228076] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake\n'}
+[0.228104] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgsConfig.cmake\n'}
+[0.228133] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/cmake/a1z_msgsConfig-version.cmake\n'}
+[0.228160] (a1z_msgs) StdoutLine: {'line': b'-- Up-to-date: /workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.xml\n'}
+[0.229291] (a1z_msgs) CommandEnded: {'returncode': 0}
+[0.240295] (a1z_msgs) JobEnded: {'identifier': 'a1z_msgs', 'rc': 0}
+[0.241583] (a1z_motion) JobStarted: {'identifier': 'a1z_motion'}
+[0.300489] (-) TimerEvent: {}
+[0.358064] (a1z_d405) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/a1z_d405', 'build', '--build-base', '/workspace/A1Z/ros2_ws/build/a1z_d405/build', 'install', '--record', '/workspace/A1Z/ros2_ws/build/a1z_d405/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/workspace/A1Z/ros2_ws/src/a1z_d405', 'env': {'A1Z_TCP_PORT': '18080', 'A1Z_REPO_ROOT': '/workspace/A1Z', 'A1Z_D405_COLOR_FRAME_ID': 'd405_color_optical_frame', 'HOSTNAME': 'th1rt3en-lab', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/root', 'OLDPWD': '/workspace/A1Z/ros2_ws', 'ROS_PYTHON_VERSION': '3', 'A1Z_SDK_DIR': '/workspace/A1Z/vendor/GALAXEA-A1Z', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'A1Z_CONTROL_URDF': '/workspace/A1Z/build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_control.urdf', 'LANG': 'C.UTF-8', 'AMENT_PREFIX_PATH': '/opt/ros/humble', 'DEBIAN_FRONTEND': 'noninteractive', 'A1Z_D405_DEPTH_FRAME_ID': 'd405_depth_optical_frame', 'PWD': '/workspace/A1Z/ros2_ws/build/a1z_d405', 'A1Z_TCP_HOST': '127.0.0.1', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/workspace/A1Z/ros2_ws/build/a1z_d405/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'A1Z_D405_LINK_FRAME': 'd405_link', 'COLCON': '1'}, 'shell': False}
+[0.359666] (a1z_open_vocab) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/a1z_open_vocab', 'build', '--build-base', '/workspace/A1Z/ros2_ws/build/a1z_open_vocab/build', 'install', '--record', '/workspace/A1Z/ros2_ws/build/a1z_open_vocab/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/workspace/A1Z/ros2_ws/src/a1z_open_vocab', 'env': {'A1Z_TCP_PORT': '18080', 'A1Z_REPO_ROOT': '/workspace/A1Z', 'A1Z_D405_COLOR_FRAME_ID': 'd405_color_optical_frame', 'HOSTNAME': 'th1rt3en-lab', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/root', 'OLDPWD': '/workspace/A1Z/ros2_ws', 'ROS_PYTHON_VERSION': '3', 'A1Z_SDK_DIR': '/workspace/A1Z/vendor/GALAXEA-A1Z', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'A1Z_CONTROL_URDF': '/workspace/A1Z/build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_control.urdf', 'LANG': 'C.UTF-8', 'AMENT_PREFIX_PATH': '/opt/ros/humble', 'DEBIAN_FRONTEND': 'noninteractive', 'A1Z_D405_DEPTH_FRAME_ID': 'd405_depth_optical_frame', 'PWD': '/workspace/A1Z/ros2_ws/build/a1z_open_vocab', 'A1Z_TCP_HOST': '127.0.0.1', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/workspace/A1Z/ros2_ws/build/a1z_open_vocab/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'A1Z_D405_LINK_FRAME': 'd405_link', 'COLCON': '1'}, 'shell': False}
+[0.400561] (-) TimerEvent: {}
+[0.440700] (a1z_open_vocab) StdoutLine: {'line': b'running egg_info\n'}
+[0.441014] (a1z_open_vocab) StdoutLine: {'line': b'writing ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/PKG-INFO\n'}
+[0.441134] (a1z_open_vocab) StdoutLine: {'line': b'writing dependency_links to ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/dependency_links.txt\n'}
+[0.441191] (a1z_open_vocab) StdoutLine: {'line': b'writing entry points to ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/entry_points.txt\n'}
+[0.441232] (a1z_open_vocab) StdoutLine: {'line': b'writing requirements to ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/requires.txt\n'}
+[0.441269] (a1z_open_vocab) StdoutLine: {'line': b'writing top-level names to ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/top_level.txt\n'}
+[0.441857] (a1z_open_vocab) StdoutLine: {'line': b"reading manifest file '../../build/a1z_open_vocab/a1z_open_vocab.egg-info/SOURCES.txt'\n"}
+[0.442173] (a1z_open_vocab) StdoutLine: {'line': b"writing manifest file '../../build/a1z_open_vocab/a1z_open_vocab.egg-info/SOURCES.txt'\n"}
+[0.442212] (a1z_open_vocab) StdoutLine: {'line': b'running build\n'}
+[0.442248] (a1z_open_vocab) StdoutLine: {'line': b'running build_py\n'}
+[0.442356] (a1z_open_vocab) StdoutLine: {'line': b'running install\n'}
+[0.442482] (a1z_open_vocab) StdoutLine: {'line': b'running install_lib\n'}
+[0.442999] (a1z_open_vocab) StdoutLine: {'line': b'running install_data\n'}
+[0.443086] (a1z_open_vocab) StdoutLine: {'line': b'running install_egg_info\n'}
+[0.444251] (a1z_open_vocab) StdoutLine: {'line': b"removing '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages/a1z_open_vocab-0.1.0-py3.10.egg-info' (and everything under it)\n"}
+[0.444403] (a1z_open_vocab) StdoutLine: {'line': b'Copying ../../build/a1z_open_vocab/a1z_open_vocab.egg-info to /workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages/a1z_open_vocab-0.1.0-py3.10.egg-info\n'}
+[0.444690] (a1z_open_vocab) StdoutLine: {'line': b'running install_scripts\n'}
+[0.453830] (a1z_open_vocab) StdoutLine: {'line': b'Installing vision_request script to /workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/a1z_open_vocab\n'}
+[0.454036] (a1z_open_vocab) StdoutLine: {'line': b"writing list of installed files to '/workspace/A1Z/ros2_ws/build/a1z_open_vocab/install.log'\n"}
+[0.464211] (a1z_d405) StdoutLine: {'line': b'running egg_info\n'}
+[0.464468] (a1z_d405) StdoutLine: {'line': b'writing ../../build/a1z_d405/a1z_d405.egg-info/PKG-INFO\n'}
+[0.464606] (a1z_d405) StdoutLine: {'line': b'writing dependency_links to ../../build/a1z_d405/a1z_d405.egg-info/dependency_links.txt\n'}
+[0.464656] (a1z_d405) StdoutLine: {'line': b'writing entry points to ../../build/a1z_d405/a1z_d405.egg-info/entry_points.txt\n'}
+[0.464695] (a1z_d405) StdoutLine: {'line': b'writing requirements to ../../build/a1z_d405/a1z_d405.egg-info/requires.txt\n'}
+[0.464731] (a1z_d405) StdoutLine: {'line': b'writing top-level names to ../../build/a1z_d405/a1z_d405.egg-info/top_level.txt\n'}
+[0.465760] (a1z_d405) StdoutLine: {'line': b"reading manifest file '../../build/a1z_d405/a1z_d405.egg-info/SOURCES.txt'\n"}
+[0.465993] (a1z_open_vocab) CommandEnded: {'returncode': 0}
+[0.466366] (a1z_d405) StdoutLine: {'line': b"writing manifest file '../../build/a1z_d405/a1z_d405.egg-info/SOURCES.txt'\n"}
+[0.466451] (a1z_d405) StdoutLine: {'line': b'running build\n'}
+[0.466510] (a1z_d405) StdoutLine: {'line': b'running build_py\n'}
+[0.466552] (a1z_d405) StdoutLine: {'line': b'running install\n'}
+[0.466590] (a1z_d405) StdoutLine: {'line': b'running install_lib\n'}
+[0.467990] (a1z_d405) StdoutLine: {'line': b'running install_data\n'}
+[0.468066] (a1z_d405) StdoutLine: {'line': b'running install_egg_info\n'}
+[0.469188] (a1z_d405) StdoutLine: {'line': b"removing '/workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405-0.1.0-py3.10.egg-info' (and everything under it)\n"}
+[0.469823] (a1z_d405) StdoutLine: {'line': b'Copying ../../build/a1z_d405/a1z_d405.egg-info to /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405-0.1.0-py3.10.egg-info\n'}
+[0.469927] (a1z_d405) StdoutLine: {'line': b'running install_scripts\n'}
+[0.470054] (a1z_open_vocab) JobEnded: {'identifier': 'a1z_open_vocab', 'rc': 0}
+[0.482644] (a1z_motion) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/a1z_motion', 'build', '--build-base', '/workspace/A1Z/ros2_ws/build/a1z_motion/build', 'install', '--record', '/workspace/A1Z/ros2_ws/build/a1z_motion/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/workspace/A1Z/ros2_ws/src/a1z_motion', 'env': {'A1Z_TCP_PORT': '18080', 'A1Z_REPO_ROOT': '/workspace/A1Z', 'A1Z_D405_COLOR_FRAME_ID': 'd405_color_optical_frame', 'HOSTNAME': 'th1rt3en-lab', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/workspace/A1Z/ros2_ws/install/a1z_msgs/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/root', 'OLDPWD': '/workspace/A1Z/ros2_ws', 'ROS_PYTHON_VERSION': '3', 'A1Z_SDK_DIR': '/workspace/A1Z/vendor/GALAXEA-A1Z', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'A1Z_CONTROL_URDF': '/workspace/A1Z/build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_control.urdf', 'LANG': 'C.UTF-8', 'AMENT_PREFIX_PATH': '/workspace/A1Z/ros2_ws/install/a1z_msgs:/opt/ros/humble', 'DEBIAN_FRONTEND': 'noninteractive', 'A1Z_D405_DEPTH_FRAME_ID': 'd405_depth_optical_frame', 'PWD': '/workspace/A1Z/ros2_ws/build/a1z_motion', 'A1Z_TCP_HOST': '127.0.0.1', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/workspace/A1Z/ros2_ws/build/a1z_motion/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_motion/lib/python3.10/site-packages:/workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'A1Z_D405_LINK_FRAME': 'd405_link', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/workspace/A1Z/ros2_ws/install/a1z_msgs'}, 'shell': False}
+[0.484495] (a1z_d405) StdoutLine: {'line': b'Installing d405_bridge script to /workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405\n'}
+[0.484709] (a1z_d405) StdoutLine: {'line': b"writing list of installed files to '/workspace/A1Z/ros2_ws/build/a1z_d405/install.log'\n"}
+[0.500617] (-) TimerEvent: {}
+[0.504415] (a1z_d405) CommandEnded: {'returncode': 0}
+[0.507999] (a1z_d405) JobEnded: {'identifier': 'a1z_d405', 'rc': 0}
+[0.564929] (a1z_motion) StdoutLine: {'line': b'running egg_info\n'}
+[0.565095] (a1z_motion) StdoutLine: {'line': b'writing ../../build/a1z_motion/a1z_motion.egg-info/PKG-INFO\n'}
+[0.565135] (a1z_motion) StdoutLine: {'line': b'writing dependency_links to ../../build/a1z_motion/a1z_motion.egg-info/dependency_links.txt\n'}
+[0.565171] (a1z_motion) StdoutLine: {'line': b'writing entry points to ../../build/a1z_motion/a1z_motion.egg-info/entry_points.txt\n'}
+[0.565204] (a1z_motion) StdoutLine: {'line': b'writing requirements to ../../build/a1z_motion/a1z_motion.egg-info/requires.txt\n'}
+[0.565235] (a1z_motion) StdoutLine: {'line': b'writing top-level names to ../../build/a1z_motion/a1z_motion.egg-info/top_level.txt\n'}
+[0.565536] (a1z_motion) StdoutLine: {'line': b"reading manifest file '../../build/a1z_motion/a1z_motion.egg-info/SOURCES.txt'\n"}
+[0.565879] (a1z_motion) StdoutLine: {'line': b"writing manifest file '../../build/a1z_motion/a1z_motion.egg-info/SOURCES.txt'\n"}
+[0.565972] (a1z_motion) StdoutLine: {'line': b'running build\n'}
+[0.566005] (a1z_motion) StdoutLine: {'line': b'running build_py\n'}
+[0.566145] (a1z_motion) StdoutLine: {'line': b'running install\n'}
+[0.566260] (a1z_motion) StdoutLine: {'line': b'running install_lib\n'}
+[0.567286] (a1z_motion) StdoutLine: {'line': b'running install_data\n'}
+[0.567345] (a1z_motion) StdoutLine: {'line': b'running install_egg_info\n'}
+[0.568096] (a1z_motion) StdoutLine: {'line': b"removing '/workspace/A1Z/ros2_ws/install/a1z_motion/lib/python3.10/site-packages/a1z_motion-0.1.0-py3.10.egg-info' (and everything under it)\n"}
+[0.568246] (a1z_motion) StdoutLine: {'line': b'Copying ../../build/a1z_motion/a1z_motion.egg-info to /workspace/A1Z/ros2_ws/install/a1z_motion/lib/python3.10/site-packages/a1z_motion-0.1.0-py3.10.egg-info\n'}
+[0.568518] (a1z_motion) StdoutLine: {'line': b'running install_scripts\n'}
+[0.577965] (a1z_motion) StdoutLine: {'line': b'Installing motion_executor script to /workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion\n'}
+[0.578094] (a1z_motion) StdoutLine: {'line': b'Installing robot_state script to /workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion\n'}
+[0.578247] (a1z_motion) StdoutLine: {'line': b"writing list of installed files to '/workspace/A1Z/ros2_ws/build/a1z_motion/install.log'\n"}
+[0.590748] (a1z_motion) CommandEnded: {'returncode': 0}
+[0.594591] (a1z_motion) JobEnded: {'identifier': 'a1z_motion', 'rc': 0}
+[0.595124] (-) EventReactorShutdown: {}

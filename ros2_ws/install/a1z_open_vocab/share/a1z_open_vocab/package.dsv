@@ -1,0 +1,6 @@
+source;share/a1z_open_vocab/hook/pythonpath.ps1
+source;share/a1z_open_vocab/hook/pythonpath.dsv
+source;share/a1z_open_vocab/hook/pythonpath.sh
+source;share/a1z_open_vocab/hook/ament_prefix_path.ps1
+source;share/a1z_open_vocab/hook/ament_prefix_path.dsv
+source;share/a1z_open_vocab/hook/ament_prefix_path.sh

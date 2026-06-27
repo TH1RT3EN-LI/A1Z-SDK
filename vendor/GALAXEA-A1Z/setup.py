@@ -5,7 +5,6 @@ setuptools.setup(
     version="0.0.1",
     description="SDK for the A1Z 6-DOF robotic arm",
     packages=setuptools.find_packages(),
-    package_data={"a1z": ["robot_models/a1z/*.urdf", "config/*.json"]},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

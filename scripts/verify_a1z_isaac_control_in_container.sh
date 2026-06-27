@@ -34,7 +34,7 @@ VERIFY_PID="$(
     export A1Z_WORLD_USD='$WORLD_USD'
     export A1Z_SOCKET_PATH='$VERIFY_SOCKET_PATH'
     export A1Z_WITH_GRIPPER='${A1Z_WITH_GRIPPER:-1}'
-    export A1Z_ISAAC_ARTICULATION_ROOT='${A1Z_ISAAC_ARTICULATION_ROOT:-/World/A1Z_G1Z/root_joint}'
+    export A1Z_ISAAC_ARTICULATION_ROOT='${A1Z_ISAAC_ARTICULATION_ROOT:-/World/A1Z_G1Z/Geometry}'
     export A1Z_ISAAC_CONTROL_FREQ_HZ='${A1Z_ISAAC_CONTROL_FREQ_HZ:-60}'
     nohup /isaac-sim/runheadless.sh \
       --/app/livestream/publicEndpointAddress='$SERVER_IP' \

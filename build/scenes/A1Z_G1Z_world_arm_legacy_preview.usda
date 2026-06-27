@@ -1,0 +1,142 @@
+#usda 1.0
+(
+    subLayers = [
+        @A1Z_G1Z_world.usd@
+    ]
+)
+
+over "World"
+{
+    over "A1Z_G1Z"
+    {
+        over "root_joint"
+        {
+            over "Looks"
+            {
+                over "material_C0C0C0"
+                {
+                    over "Shader"
+                    {
+                        color3f inputs:diffuse_color_constant = (0.72, 0.74, 0.75)
+                    }
+                }
+
+                def Material "material_515154_preview"
+                {
+                    token outputs:mdl:displacement.connect = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview/Shader.outputs:out>
+                    token outputs:mdl:surface.connect = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview/Shader.outputs:out>
+                    token outputs:mdl:volume.connect = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview/Shader.outputs:out>
+
+                    def Shader "Shader"
+                    {
+                        uniform token info:implementationSource = "sourceAsset"
+                        uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+                        uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+                        color3f inputs:diffuse_color_constant = (0.32, 0.32, 0.33)
+                        token outputs:out
+                    }
+                }
+            }
+
+            over "base_link"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+
+            over "arm_link1"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+
+            over "arm_link2"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+
+            over "arm_link3"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_C0C0C0> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+
+            over "arm_link4"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+
+            over "arm_link5"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+
+            over "arm_link6"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+
+            over "d405_link"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+
+            over "gripper_finger_left_link"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+
+            over "gripper_finger_rIght_link"
+            {
+                over "visuals"
+                {
+                    rel material:binding = </World/A1Z_G1Z/root_joint/Looks/material_515154_preview> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+            }
+        }
+    }
+}

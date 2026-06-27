@@ -12,7 +12,7 @@ newline-terminated JSON response:
   Response: {"ok": true,  "data": {...}}
          or {"ok": false, "error": "<message>"}
 
-Commands: status | move | command | gripper | dance | stop | info
+Commands: status | move | gripper | dance | stop | info
 """
 
 import json
@@ -21,12 +21,12 @@ import signal
 import socket
 import threading
 import time
-from typing import Optional
 
 import numpy as np
 
-from a1z.config import get_default_backend, get_default_can_channel, get_socket_path
-from a1z.robots.get_robot import create_a1z_robot
+from a1z.robots.get_robot import get_a1z_robot
+
+SOCKET_PATH = "/tmp/a1z.sock"
 
 
 def _deg(*angles: float) -> np.ndarray:
@@ -116,28 +116,6 @@ class RobotServer:
         pos_deg = np.rad2deg(self._robot.get_joint_pos()[:6]).tolist()
         return {"ok": True, "data": {"pos_deg": [round(v, 2) for v in pos_deg]}}
 
-    def _cmd_command(self, args: dict) -> dict:
-        joints = args.get("joints")
-        if joints is None:
-            return {"ok": False, "error": "command requires 'joints' (6 joint values in degrees)"}
-        if len(joints) != 6:
-            return {"ok": False, "error": "joints must be a list of 6 values (degrees)"}
-
-        target = np.deg2rad(np.array(joints, dtype=np.float64))
-        data: dict = {
-            "target_deg": [round(float(v), 2) for v in joints],
-        }
-
-        if self._with_gripper and "gripper" in args:
-            value = float(args["gripper"])
-            if not 0.0 <= value <= 1.0:
-                return {"ok": False, "error": "gripper must be in [0.0, 1.0]"}
-            target = np.append(target, value)
-            data["gripper"] = round(value, 3)
-
-        self._robot.command_joint_pos(target)
-        return {"ok": True, "data": data}
-
     def _cmd_gripper(self, args: dict) -> dict:
         if not self._with_gripper:
             return {"ok": False, "error": "Server was started without --with-gripper"}
@@ -172,79 +150,20 @@ class RobotServer:
         return {"ok": True, "data": {"message": "Stopping server"}}
 
     def _cmd_info(self, _args: dict) -> dict:
-        info = self._robot.get_robot_info()
-        raw_joint_limits = info.get("joint_limits")
-        joint_limits = []
-        if raw_joint_limits is not None:
-            joint_limits = np.asarray(raw_joint_limits, dtype=np.float64).reshape(-1, 2)
-        arm_joint_limits = joint_limits[:6]
-        joint_limits_deg = {
-            f"J{i + 1}": [round(np.rad2deg(lo), 1), round(np.rad2deg(hi), 1)]
-            for i, (lo, hi) in enumerate(arm_joint_limits)
-        }
-        data = {
-            "backend": info.get("backend", "socketcan"),
-            "presets": sorted(PRESETS),
-            "dance_moves": list(DANCE_MOVES),
-            "joint_limits_deg": joint_limits_deg,
-            "control_mode": info.get("control_mode"),
-        }
-        if info.get("with_gripper"):
-            data["gripper_range"] = [0.0, 1.0]
-        if info.get("articulation_root_prim"):
-            data["articulation_root_prim"] = info["articulation_root_prim"]
-        if info.get("dof_names"):
-            data["dof_names"] = list(info["dof_names"])
-        arm_joint_indices = None
-        if info.get("arm_joint_indices") is not None:
-            arm_joint_indices = np.asarray(info["arm_joint_indices"], dtype=np.int64).reshape(-1)
-            data["arm_joint_indices"] = arm_joint_indices.tolist()
-        if info.get("gripper_joint_indices") is not None:
-            data["gripper_joint_indices"] = (
-                np.asarray(info["gripper_joint_indices"], dtype=np.int64).reshape(-1).tolist()
-            )
-        if info.get("actual_kp") is not None:
-            actual_kp = np.asarray(info["actual_kp"], dtype=np.float64).reshape(-1)
-            if arm_joint_indices is not None and arm_joint_indices.size:
-                actual_kp = actual_kp[arm_joint_indices]
-            data["actual_kp"] = [round(float(v), 3) for v in actual_kp[:6]]
-        if info.get("actual_kd") is not None:
-            actual_kd = np.asarray(info["actual_kd"], dtype=np.float64).reshape(-1)
-            if arm_joint_indices is not None and arm_joint_indices.size:
-                actual_kd = actual_kd[arm_joint_indices]
-            data["actual_kd"] = [round(float(v), 3) for v in actual_kd[:6]]
-        if info.get("controller_kp") is not None:
-            controller_kp = np.asarray(info["controller_kp"], dtype=np.float64).reshape(-1)
-            data["controller_kp"] = [round(float(v), 3) for v in controller_kp[:6]]
-        if info.get("controller_kd") is not None:
-            controller_kd = np.asarray(info["controller_kd"], dtype=np.float64).reshape(-1)
-            data["controller_kd"] = [round(float(v), 3) for v in controller_kd[:6]]
-        if info.get("gravity_debug_q") is not None:
-            gravity_q = np.asarray(info["gravity_debug_q"], dtype=np.float64).reshape(-1)
-            data["gravity_debug_q_deg"] = [round(float(v), 3) for v in np.rad2deg(gravity_q[:6])]
-        if info.get("gravity_debug_qd") is not None:
-            gravity_qd = np.asarray(info["gravity_debug_qd"], dtype=np.float64).reshape(-1)
-            data["gravity_debug_qd"] = [round(float(v), 3) for v in gravity_qd[:6]]
-        if info.get("gravity_debug_pos_err") is not None:
-            gravity_pos_err = np.asarray(info["gravity_debug_pos_err"], dtype=np.float64).reshape(-1)
-            data["gravity_debug_pos_err_deg"] = [round(float(v), 3) for v in np.rad2deg(gravity_pos_err[:6])]
-        if info.get("gravity_debug_vel_err") is not None:
-            gravity_vel_err = np.asarray(info["gravity_debug_vel_err"], dtype=np.float64).reshape(-1)
-            data["gravity_debug_vel_err"] = [round(float(v), 3) for v in gravity_vel_err[:6]]
-        if info.get("gravity_debug_tau_id") is not None:
-            gravity_tau_id = np.asarray(info["gravity_debug_tau_id"], dtype=np.float64).reshape(-1)
-            data["gravity_debug_tau_id"] = [round(float(v), 3) for v in gravity_tau_id[:6]]
-        if info.get("gravity_debug_effort") is not None:
-            gravity_effort = np.asarray(info["gravity_debug_effort"], dtype=np.float64).reshape(-1)
-            data["gravity_debug_effort"] = [round(float(v), 3) for v in gravity_effort[:6]]
-        if info.get("effort_modes") is not None:
-            data["effort_modes"] = list(info["effort_modes"])
-        if info.get("command_pos") is not None:
-            cmd = np.asarray(info["command_pos"], dtype=np.float64).reshape(-1)
-            data["command_pos_deg"] = [round(float(v), 2) for v in np.rad2deg(cmd[:6])]
         return {
             "ok": True,
-            "data": data,
+            "data": {
+                "presets": sorted(PRESETS),
+                "dance_moves": list(DANCE_MOVES),
+                "joint_limits_deg": {
+                    "J1": [-120, 120],
+                    "J2": [0, 180],
+                    "J3": [-180, 0],
+                    "J4": [-85, 85],
+                    "J5": [-85, 85],
+                    "J6": [-115, 115],
+                },
+            },
         }
 
     # ------------------------------------------------------------------
@@ -254,7 +173,6 @@ class RobotServer:
     _HANDLERS = {
         "status":  _cmd_status,
         "move":    _cmd_move,
-        "command": _cmd_command,
         "gripper": _cmd_gripper,
         "dance":   _cmd_dance,
         "stop":    _cmd_stop,
@@ -287,8 +205,7 @@ class RobotServer:
         finally:
             conn.close()
 
-    def run(self, socket_path: Optional[str] = None) -> None:
-        socket_path = socket_path or get_socket_path()
+    def run(self, socket_path: str = SOCKET_PATH) -> None:
         if os.path.exists(socket_path):
             os.unlink(socket_path)
 
@@ -319,28 +236,17 @@ class RobotServer:
 # ------------------------------------------------------------------
 
 def serve(
-    can_channel: str = get_default_can_channel(),
+    can_channel: str = "can0",
     with_gripper: bool = False,
     gravity_mode: bool = False,
-    backend: Optional[str] = None,
-    socket_path: Optional[str] = None,
-    control_freq_hz: int = 250,
-    articulation_root_prim: Optional[str] = None,
 ) -> None:
     """Start the robot server in the foreground."""
-    backend_name = backend or get_default_backend()
-    print(
-        f"[a1z] Initialising arm  backend={backend_name}  can={can_channel}  "
-        f"gripper={'yes' if with_gripper else 'no'}"
-    )
-    robot = create_a1z_robot(
-        backend=backend_name,
+    print(f"[a1z] Initialising arm  can={can_channel}  gripper={'yes' if with_gripper else 'no'}")
+    robot = get_a1z_robot(
         can_channel=can_channel,
         zero_gravity_mode=gravity_mode,
         with_gripper=with_gripper,
         gravity_comp_factor=1.0,
-        control_freq_hz=control_freq_hz,
-        articulation_root_prim=articulation_root_prim,
     )
 
     server = RobotServer(robot, with_gripper=with_gripper)
@@ -355,7 +261,7 @@ def serve(
     print("[a1z] Arm ready.  Press Ctrl+C to stop.")
 
     try:
-        server.run(socket_path=socket_path)
+        server.run()
     finally:
         robot.stop()
         print("[a1z] Arm stopped.")

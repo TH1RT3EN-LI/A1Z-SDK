@@ -1,0 +1,44 @@
+running egg_info
+creating ../../build/a1z_d405/a1z_d405.egg-info
+writing ../../build/a1z_d405/a1z_d405.egg-info/PKG-INFO
+writing dependency_links to ../../build/a1z_d405/a1z_d405.egg-info/dependency_links.txt
+writing entry points to ../../build/a1z_d405/a1z_d405.egg-info/entry_points.txt
+writing requirements to ../../build/a1z_d405/a1z_d405.egg-info/requires.txt
+writing top-level names to ../../build/a1z_d405/a1z_d405.egg-info/top_level.txt
+writing manifest file '../../build/a1z_d405/a1z_d405.egg-info/SOURCES.txt'
+reading manifest file '../../build/a1z_d405/a1z_d405.egg-info/SOURCES.txt'
+writing manifest file '../../build/a1z_d405/a1z_d405.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /workspace/A1Z/ros2_ws/build/a1z_d405/build
+creating /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib
+creating /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405
+copying a1z_d405/config.py -> /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405
+copying a1z_d405/socket_client.py -> /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405
+copying a1z_d405/decode.py -> /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405
+copying a1z_d405/publisher.py -> /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405
+copying a1z_d405/__init__.py -> /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405
+running install
+running install_lib
+creating /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405
+copying /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405/config.py -> /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405
+copying /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405/socket_client.py -> /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405
+copying /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405/decode.py -> /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405
+copying /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405/publisher.py -> /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405
+copying /workspace/A1Z/ros2_ws/build/a1z_d405/build/lib/a1z_d405/__init__.py -> /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405
+byte-compiling /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405/config.py to config.cpython-310.pyc
+byte-compiling /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405/socket_client.py to socket_client.cpython-310.pyc
+byte-compiling /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405/decode.py to decode.cpython-310.pyc
+byte-compiling /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405/publisher.py to publisher.cpython-310.pyc
+byte-compiling /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405/__init__.py to __init__.cpython-310.pyc
+running install_data
+creating /workspace/A1Z/ros2_ws/install/a1z_d405/share/ament_index
+creating /workspace/A1Z/ros2_ws/install/a1z_d405/share/ament_index/resource_index
+creating /workspace/A1Z/ros2_ws/install/a1z_d405/share/ament_index/resource_index/packages
+copying resource/a1z_d405 -> /workspace/A1Z/ros2_ws/install/a1z_d405/share/ament_index/resource_index/packages
+copying package.xml -> /workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405
+running install_egg_info
+Copying ../../build/a1z_d405/a1z_d405.egg-info to /workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages/a1z_d405-0.1.0-py3.10.egg-info
+running install_scripts
+Installing d405_bridge script to /workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405
+writing list of installed files to '/workspace/A1Z/ros2_ws/build/a1z_d405/install.log'

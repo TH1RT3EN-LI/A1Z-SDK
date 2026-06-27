@@ -17,7 +17,7 @@ echo "CAN channel: $CAN_CHANNEL"
 echo
 
 "$ROOT_DIR/scripts/a1z_sdk_python_in_container.sh" -c '
-from a1z.config import get_default_backend, get_default_can_channel, get_socket_path
+from a1z_ext.config import get_default_backend, get_default_can_channel, get_socket_path
 print(f"default backend: {get_default_backend()}")
 print(f"default can: {get_default_can_channel()}")
 print(f"socket path: {get_socket_path()}")

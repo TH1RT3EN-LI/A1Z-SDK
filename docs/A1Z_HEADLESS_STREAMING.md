@@ -127,6 +127,13 @@ The default control socket inside the container is:
 /tmp/a1z.sock
 ```
 
+The current Docker-first ROS 2 integration path also uses the optional TCP
+listener exposed by the same in-process A1Z server:
+
+```bash
+0.0.0.0:18080
+```
+
 Once the stream is up, the current Isaac instance can be controlled from the host with:
 
 ```bash
@@ -135,6 +142,9 @@ Once the stream is up, the current Isaac instance can be controlled from the hos
 ./scripts/a1zctl_in_container.sh gripper 0.25
 ./scripts/a1zctl_in_container.sh stop
 ```
+
+An independent ROS 2 container can connect to the same Isaac-backed robot server
+over `A1Z_TCP_HOST` / `A1Z_TCP_PORT` without sharing `/tmp/a1z.sock`.
 
 Runtime inspection from the host:
 

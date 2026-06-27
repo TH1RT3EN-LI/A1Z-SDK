@@ -1,0 +1,63 @@
+// generated from rosidl_adapter/resource/action.idl.em
+// with input from a1z_msgs/action/MoveEndEffector.action
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/PoseStamped.idl"
+
+module a1z_msgs {
+  module action {
+    @verbatim (language="comment", text=
+      "Goal")
+    struct MoveEndEffector_Goal {
+      geometry_msgs::msg::PoseStamped goal_pose;
+
+      string end_effector_frame;
+
+      boolean command_gripper;
+
+      float gripper_opening;
+
+      float speed;
+
+      float position_tolerance_m;
+
+      float orientation_tolerance_rad;
+
+      float joint_margin_rad;
+
+      float max_joint_step_rad;
+
+      float min_target_z_m;
+
+      float max_target_z_m;
+    };
+    @verbatim (language="comment", text=
+      "Result")
+    struct MoveEndEffector_Result {
+      boolean success;
+
+      string status;
+
+      string failure_reason;
+
+      sequence<double> final_joint_positions_rad;
+
+      geometry_msgs::msg::PoseStamped final_pose;
+
+      float final_gripper_opening;
+
+      boolean ik_converged;
+
+      float position_error_m;
+
+      float orientation_error_rad;
+    };
+    @verbatim (language="comment", text=
+      "Feedback")
+    struct MoveEndEffector_Feedback {
+      string stage;
+
+      string message;
+    };
+  };
+};

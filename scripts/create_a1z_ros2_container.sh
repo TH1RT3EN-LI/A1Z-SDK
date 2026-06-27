@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+
+ROS_CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:-a1z-ros2-humble}"
+ROS_IMAGE_TAG="${A1Z_ROS2_IMAGE_TAG:-a1z-ros2-humble:local}"
+DOCKERFILE_PATH="$ROOT_DIR/docker/ros2-humble/Dockerfile"
+
+docker build -t "$ROS_IMAGE_TAG" -f "$DOCKERFILE_PATH" "$ROOT_DIR"
+
+if docker inspect "$ROS_CONTAINER_NAME" >/dev/null 2>&1; then
+  echo "ROS 2 container already exists: $ROS_CONTAINER_NAME"
+  exit 0
+fi
+
+docker create \
+  --name "$ROS_CONTAINER_NAME" \
+  --network host \
+  -v "$ROOT_DIR:/workspace/A1Z" \
+  -w /workspace/A1Z/ros2_ws \
+  "$ROS_IMAGE_TAG" \
+  bash -lc "sleep infinity" >/dev/null
+
+echo "Created ROS 2 container: $ROS_CONTAINER_NAME"

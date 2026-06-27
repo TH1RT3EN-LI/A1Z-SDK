@@ -1,0 +1,304 @@
+#usda 1.0
+(
+    customLayerData = {
+        string creator = "URDF USD Converter v0.1.3"
+    }
+    defaultPrim = "A1Z_G1Z"
+    doc = """Generated from Composed Stage of root layer /tmp/tmpbb4xqqhj/A1Z_G1Z.usdc
+
+
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_ysv9egkk/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+
+
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_ysv9egkk/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+
+
+Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
+"""
+    kilogramsPerUnit = 1
+    metersPerUnit = 1
+    subLayers = [
+        @./physics.usda@
+    ]
+    upAxis = "Z"
+)
+
+over "A1Z_G1Z"
+{
+    over "Physics"
+    {
+        def MjcActuator "arm_joint1_actuator"
+        {
+            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:biasType = "affine"
+            uniform double mjc:forceRange:max = 20
+            uniform double mjc:forceRange:min = -20
+            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:gainType = "fixed"
+            custom rel mjc:target
+            prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint1>
+        }
+
+        def MjcActuator "arm_joint2_actuator"
+        {
+            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:biasType = "affine"
+            uniform double mjc:forceRange:max = 25
+            uniform double mjc:forceRange:min = -25
+            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:gainType = "fixed"
+            custom rel mjc:target
+            prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint2>
+        }
+
+        def MjcActuator "arm_joint3_actuator"
+        {
+            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:biasType = "affine"
+            uniform double mjc:forceRange:max = 20
+            uniform double mjc:forceRange:min = -20
+            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:gainType = "fixed"
+            custom rel mjc:target
+            prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint3>
+        }
+
+        def MjcActuator "arm_joint4_actuator"
+        {
+            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:biasType = "affine"
+            uniform double mjc:forceRange:max = 9
+            uniform double mjc:forceRange:min = -9
+            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:gainType = "fixed"
+            custom rel mjc:target
+            prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint4>
+        }
+
+        def MjcActuator "arm_joint5_actuator"
+        {
+            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:biasType = "affine"
+            uniform double mjc:forceRange:max = 3.5
+            uniform double mjc:forceRange:min = -3.5
+            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:gainType = "fixed"
+            custom rel mjc:target
+            prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint5>
+        }
+
+        def MjcActuator "arm_joint6_actuator"
+        {
+            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:biasType = "affine"
+            uniform double mjc:forceRange:max = 3.5
+            uniform double mjc:forceRange:min = -3.5
+            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:gainType = "fixed"
+            custom rel mjc:target
+            prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint6>
+        }
+
+        def MjcActuator "gripper_finger_left_joint_actuator"
+        {
+            uniform double[] mjc:biasPrm = [0, -260, -28, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:biasType = "affine"
+            uniform double mjc:forceRange:max = inf
+            uniform double mjc:forceRange:min = -inf
+            uniform double[] mjc:gainPrm = [260, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:gainType = "fixed"
+            custom rel mjc:target
+            prepend rel mjc:target = </A1Z_G1Z/Physics/gripper_finger_left_joint>
+        }
+
+        def MjcActuator "gripper_finger_rIght_joint_actuator"
+        {
+            uniform double[] mjc:biasPrm = [0, -260, -28, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:biasType = "affine"
+            uniform double mjc:forceRange:max = inf
+            uniform double mjc:forceRange:min = -inf
+            uniform double[] mjc:gainPrm = [260, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform token mjc:gainType = "fixed"
+            custom rel mjc:target
+            prepend rel mjc:target = </A1Z_G1Z/Physics/gripper_finger_rIght_joint>
+        }
+
+        over "root_joint"
+        {
+        }
+
+        over "arm_joint1" (
+            delete apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+        }
+
+        over "arm_joint2" (
+            delete apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+        }
+
+        over "arm_joint3" (
+            delete apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+        }
+
+        over "arm_joint4" (
+            delete apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+        }
+
+        over "arm_joint5" (
+            delete apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+        }
+
+        over "arm_joint6" (
+            delete apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
+        )
+        {
+        }
+
+        over "d405_mount_joint"
+        {
+        }
+
+        over "gripper_finger_left_joint" (
+            delete apiSchemas = ["PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
+        )
+        {
+        }
+
+        over "gripper_finger_rIght_joint" (
+            delete apiSchemas = ["PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
+        )
+        {
+        }
+    }
+
+    over "Geometry"
+    {
+        over "base_link"
+        {
+            over "arm_link1"
+            {
+                over "arm_link2"
+                {
+                    over "arm_link3"
+                    {
+                        over "arm_link4"
+                        {
+                            over "arm_link5"
+                            {
+                                over "arm_link6"
+                                {
+                                    over "d405_link"
+                                    {
+                                        over "d405"
+                                        {
+                                        }
+
+                                        over "box"
+                                        {
+                                        }
+                                    }
+
+                                    over "gripper_finger_left_link"
+                                    {
+                                        over "gripper_finger_left_link"
+                                        {
+                                        }
+
+                                        over "gripper_finger_left_link_1"
+                                        {
+                                        }
+                                    }
+
+                                    over "gripper_finger_rIght_link"
+                                    {
+                                        over "gripper_finger_rIght_link"
+                                        {
+                                        }
+
+                                        over "gripper_finger_rIght_link_1"
+                                        {
+                                        }
+                                    }
+
+                                    over "arm_link6"
+                                    {
+                                    }
+
+                                    over "arm_link6_1"
+                                    {
+                                    }
+                                }
+
+                                over "arm_link5"
+                                {
+                                }
+
+                                over "arm_link5_1"
+                                {
+                                }
+                            }
+
+                            over "arm_link4"
+                            {
+                            }
+
+                            over "arm_link4_1"
+                            {
+                            }
+                        }
+
+                        over "arm_link3"
+                        {
+                        }
+
+                        over "arm_link3_1"
+                        {
+                        }
+                    }
+
+                    over "arm_link2"
+                    {
+                    }
+
+                    over "arm_link2_1"
+                    {
+                    }
+                }
+
+                over "arm_link1"
+                {
+                }
+
+                over "arm_link1_1"
+                {
+                }
+            }
+
+            over "base_link"
+            {
+            }
+
+            over "base_link_1"
+            {
+            }
+        }
+    }
+
+    over "Materials"
+    {
+    }
+
+    over "VisualMaterials"
+    {
+    }
+}
+

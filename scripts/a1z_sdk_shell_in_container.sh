@@ -11,4 +11,4 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null ||
   docker start "$CONTAINER_NAME" >/dev/null
 fi
 
-exec docker exec -it -u ubuntu "$CONTAINER_NAME" bash -lc "source '$VENV_DIR/bin/activate' && cd /workspace/A1Z/vendor/GALAXEA-A1Z && exec bash"
+exec docker exec -it -u ubuntu "$CONTAINER_NAME" bash -lc "source '$VENV_DIR/bin/activate' && export PYTHONPATH=/workspace/A1Z/vendor/GALAXEA-A1Z:/workspace/A1Z\${PYTHONPATH:+:\$PYTHONPATH} && cd /workspace/A1Z && exec bash"

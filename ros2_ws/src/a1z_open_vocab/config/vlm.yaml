@@ -1,0 +1,27 @@
+a1z_vlm_request:
+  ros__parameters:
+    color_topic: /a1z/d405/color/image_raw
+    service_name: /a1z/open_vocab/request_vlm
+
+    # Temporary probe text. Prompt design will live above this transport layer.
+    request_text: Describe this image briefly.
+    system_text: ""
+    image_detail: auto
+    response_message_max_chars: 4096
+
+    # Switch providers by changing these values and exporting the matching key.
+    # When launched through a1z_open_vocab.launch.py, launch arguments for these
+    # provider fields override this YAML file.
+    # OpenAI defaults:
+    #   llm_provider: openai
+    #   llm_api_key_env: OPENAI_API_KEY
+    # Kimi/Moonshot defaults:
+    #   llm_provider: kimi
+    #   llm_api_key_env: MOONSHOT_API_KEY
+    llm_provider: openai
+    llm_model: ""
+    llm_base_url: ""
+    llm_api_key_env: ""
+    llm_timeout_s: 30.0
+    llm_max_tokens: 512
+    llm_temperature: 0.0

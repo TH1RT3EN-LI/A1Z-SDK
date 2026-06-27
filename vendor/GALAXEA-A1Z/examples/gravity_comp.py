@@ -2,7 +2,7 @@
 """Gravity compensation example for the A1Z arm.
 
 Usage:
-    # Zero-gravity (floating) mode, default URDF (A1Z_G1Z_control.urdf):
+    # Zero-gravity (floating) mode, default URDF (A1Z_2kg.urdf):
     python examples/gravity_comp.py
 
     # Use nogripper URDF, start with small gravity factor (recommended):

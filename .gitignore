@@ -7,6 +7,9 @@ __pycache__/
 .venv/
 .env
 
+# Local secrets.
+config/a1z_vlm.env
+
 scripts/__pycache__/
 tools/__pycache__/
 
@@ -15,6 +18,6 @@ vendor/GALAXEA-A1Z/.pytest_cache/
 vendor/GALAXEA-A1Z/.venv-contract/
 vendor/GALAXEA-A1Z/**/__pycache__/
 vendor/GALAXEA-A1Z/**/*.pyc
+vendor/vision/
 
-runtime/logs/
-runtime/isaac-sim-portable/
+runtime/

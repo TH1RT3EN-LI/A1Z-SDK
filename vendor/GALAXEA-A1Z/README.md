@@ -29,7 +29,7 @@ a1z/
 │   │   ├── server.py              # Unix socket 控制服务端
 │   │   └── kinematics.py          # FK/IK (Pinocchio)
 │   ├── robot_models/
-│   │   └── a1z/               # URDF 模型文件（默认 A1Z_G1Z_control.urdf）
+│   │   └── a1z/               # URDF 模型文件 (A1Z_G1Z.urdf 默认)
 │   └── utils/
 │       └── utils.py               # RateRecorder, 日志工具
 ├── examples/
@@ -51,9 +51,7 @@ a1z/
 
 - Python >= 3.10
 - Linux + SocketCAN（需硬件 CAN 接口）
-- URDF 模型文件（包内自带，见 `a1z/robot_models/a1z/`，默认使用 `A1Z_G1Z_control.urdf`）
-- SDK 默认控制模型为 6 轴主臂模型；夹爪作为独立 CAN 设备控制，不作为 Pinocchio 主链上的可动关节
-- SDK 控制默认参数（CAN 通道默认值、电机 ID、增益、扭矩裁剪等）集中在 `a1z/config/control_defaults.json`
+- URDF 模型文件（包内自带，见 `a1z/robot_models/a1z/`，默认使用 `A1Z_G1Z.urdf`，含夹爪末端）
 
 ### 安装 SDK
 
@@ -72,20 +70,6 @@ pip install .
 ```
 
 依赖会自动安装：`numpy`、`python-can>=4.0`、`pin`（Pinocchio）。
-
-如果在当前 A1Z Isaac Sim 开发容器中使用，可直接在宿主机仓库根目录执行：
-
-```bash
-./scripts/setup_a1z_sdk_in_container.sh
-```
-
-注意：真实机械臂控制仍要求宿主机先把 SocketCAN 接口（如 `can0`）配置并启动。
-
-默认容器/包装脚本参数位于仓库根目录：
-
-```bash
-config/a1z_container.env
-```
 
 ### 配置 CAN 总线（SocketCAN 模式）
 
@@ -113,7 +97,7 @@ sudo ip link set can0 up
 ### 使用 example 脚本
 
 ```bash
-# 零力漂浮（默认 URDF A1Z_G1Z_control.urdf）
+# 零力漂浮（默认 URDF A1Z_G1Z.urdf，含夹爪）
 
 # 从小补偿因子开始（推荐首次调试方式）
 python examples/gravity_comp.py --gravity_factor 0.3
@@ -143,12 +127,6 @@ python examples/teach_and_play.py record teach.json
 
 # 指定 CAN 口和采样频率
 python examples/teach_and_play.py --can can1 record teach.json --sample-hz 100
-
-# 使用 mock backend 做离线录制流程验证
-python examples/teach_and_play.py --backend mock record teach.json
-
-# 使用 Isaac backend（需在 Isaac Kit 进程内运行）
-python examples/teach_and_play.py --backend isaacsim --control-freq 60 record teach.json
 ```
 
 启动后机械臂进入零力漂浮模式，可自由拖拽：
@@ -178,12 +156,6 @@ python examples/teach_and_play.py play teach.json --loop
 
 # 指定 CAN 口
 python examples/teach_and_play.py --can can1 play teach.json
-
-# 使用 mock backend 回放
-python examples/teach_and_play.py --backend mock play teach.json
-
-# 使用 Isaac backend（需在 Isaac Kit 进程内运行）
-python examples/teach_and_play.py --backend isaacsim --control-freq 60 play teach.json
 ```
 
 启动后机械臂先运动到轨迹起点，按 Enter 开始回放：
@@ -204,10 +176,6 @@ python examples/teach_and_play.py --backend isaacsim --control-freq 60 play teac
 ```bash
 # 终端 1：启动服务端（含夹爪）
 python3 tools/a1zctl serve --with-gripper
-python3 tools/a1zctl serve --backend mock --with-gripper
-# Isaac Sim backend: run this only inside a live Isaac Kit process
-# Recommended entrypoint from this repo: scripts/open_a1z_world_with_a1z_sdk.py
-python3 tools/a1zctl serve --backend isaacsim --with-gripper --control-freq 60
 
 # 终端 2：发送控制指令
 python3 tools/a1zctl status              # 查看关节状态（含夹爪开度）
@@ -231,15 +199,13 @@ get_a1z_robot(
     gravity_comp_factor=1.0,      # 重力补偿比例 (0=关闭, 1=全补偿)
     zero_gravity_mode=True,       # True=零力漂浮, False=位置保持
     control_freq_hz=250,          # 控制回路频率 (Hz)
-    urdf_path=None,               # 覆盖 URDF 路径（仍应为 6 轴 control URDF）
+    urdf_path=None,               # 覆盖 URDF 路径
     default_kp=None,              # 覆盖默认位置增益
     default_kd=None,              # 覆盖默认速度增益
     with_gripper=False,           # True=启用夹爪 (CAN ID 0x07)
     gripper_max_torque=0.5,       # 夹爪最大夹持力矩 (Nm)，默认 0.5 Nm
 ) -> ArmRobot
 ```
-
-传入 `urdf_path` 时，仍应使用控制模型，例如 `A1Z_G1Z_control.urdf`。不要把 Isaac 仿真侧的 `A1Z_G1Z_isaac.urdf` 直接用于 SDK 主控制链，因为它包含可动夹爪关节。
 
 ### `ArmRobot` 主要方法
 
@@ -499,7 +465,7 @@ a1z/
 │   │   ├── server.py              # Unix socket control server
 │   │   └── kinematics.py          # FK/IK (Pinocchio)
 │   ├── robot_models/
-│   │   └── a1z/               # URDF model files (defaults to A1Z_G1Z_control.urdf)
+│   │   └── a1z/               # URDF model files (defaults to A1Z_G1Z.urdf)
 │   └── utils/
 │       └── utils.py               # RateRecorder, logging utilities
 ├── examples/
@@ -520,8 +486,7 @@ a1z/
 
 - Python >= 3.10
 - Linux + SocketCAN (hardware CAN interface required)
-- URDF model files (bundled, see `a1z/robot_models/a1z/`, defaults to `A1Z_G1Z_control.urdf`)
-- The SDK control model keeps the arm as a 6-DOF Pinocchio chain; the gripper is controlled as a separate CAN device rather than movable URDF joints
+- URDF model files (bundled, see `a1z/robot_models/a1z/`, defaults to `A1Z_G1Z.urdf` which includes the gripper)
 
 ### Install the SDK
 
@@ -566,7 +531,7 @@ sudo ip link set can0 up
 ### Example Scripts
 
 ```bash
-# Zero-force float (default URDF A1Z_G1Z_control.urdf)
+# Zero-force float (default URDF A1Z_G1Z.urdf, includes gripper)
 
 # Start with a small compensation factor (recommended for first-time setup)
 python examples/gravity_comp.py --gravity_factor 0.3
@@ -645,9 +610,6 @@ After playback (or Ctrl+C), the arm returns to zero and disables.
 ```bash
 # Terminal 1: start the server (with gripper)
 python3 tools/a1zctl serve --with-gripper
-python3 tools/a1zctl serve --backend mock --with-gripper
-# Isaac Sim backend: run this only inside a live Isaac Kit process
-python3 tools/a1zctl serve --backend isaacsim --with-gripper --control-freq 60
 
 # Terminal 2: send control commands
 python3 tools/a1zctl status              # show joint state (including gripper)

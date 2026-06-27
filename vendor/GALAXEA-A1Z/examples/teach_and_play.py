@@ -19,8 +19,8 @@ import time
 
 import numpy as np
 
-from a1z.robots.get_robot import create_a1z_robot
-from a1z.robots.trajectory import load_trajectory, save_trajectory
+from a1z.robots.arm_robot import ArmRobot
+from a1z.robots.get_robot import get_a1z_robot
 
 
 def _wait_enter(prompt: str) -> None:
@@ -29,20 +29,15 @@ def _wait_enter(prompt: str) -> None:
 
 
 def cmd_record(args: argparse.Namespace) -> None:
-    robot = create_a1z_robot(
-        backend=args.backend,
+    robot = get_a1z_robot(
         can_channel=args.can,
         zero_gravity_mode=True,
         gravity_comp_factor=1.0,
-        with_gripper=args.with_gripper,
-        control_freq_hz=args.control_freq,
-        articulation_root_prim=args.articulation_root,
     )
     signal.signal(signal.SIGINT, signal.default_int_handler)
 
     print("=" * 60)
     print("  A1Z Teach — Record")
-    print(f"  Backend:    {args.backend}")
     print(f"  CAN:        {args.can}")
     print(f"  Sample Hz:  {args.sample_hz}")
     print(f"  Save to:    {args.file}")
@@ -84,7 +79,7 @@ def cmd_record(args: argparse.Namespace) -> None:
         duration = trajectory[-1][0]
         print(f"[record] Recorded {len(trajectory)} frames ({duration:.2f}s).")
 
-        save_trajectory(trajectory, args.file)
+        ArmRobot.save_recording(trajectory, args.file)
         print(f"[record] Saved to {args.file}\n")
 
     except KeyboardInterrupt:
@@ -99,20 +94,15 @@ def cmd_record(args: argparse.Namespace) -> None:
 
 
 def cmd_play(args: argparse.Namespace) -> None:
-    robot = create_a1z_robot(
-        backend=args.backend,
+    robot = get_a1z_robot(
         can_channel=args.can,
         zero_gravity_mode=False,
         gravity_comp_factor=1.0,
-        with_gripper=args.with_gripper,
-        control_freq_hz=args.control_freq,
-        articulation_root_prim=args.articulation_root,
     )
     signal.signal(signal.SIGINT, signal.default_int_handler)
 
     print("=" * 60)
     print("  A1Z Teach — Play")
-    print(f"  Backend:    {args.backend}")
     print(f"  CAN:        {args.can}")
     print(f"  File:       {args.file}")
     print(f"  Speed:      {args.speed}x")
@@ -120,7 +110,7 @@ def cmd_play(args: argparse.Namespace) -> None:
     print("=" * 60)
 
     print(f"[play] Loading trajectory from {args.file}...")
-    trajectory = load_trajectory(args.file)
+    trajectory = ArmRobot.load_recording(args.file)
     duration = trajectory[-1][0] if trajectory else 0.0
     print(f"[play] Loaded {len(trajectory)} frames ({duration:.2f}s).\n")
 
@@ -160,19 +150,6 @@ def cmd_play(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="A1Z teach-and-play")
     parser.add_argument("--can", default="can0", help="CAN channel (default: can0)")
-    parser.add_argument(
-        "--backend",
-        default="socketcan",
-        choices=["socketcan", "mock", "isaacsim"],
-        help="Robot backend (default: socketcan)",
-    )
-    parser.add_argument("--with-gripper", action="store_true", help="Enable gripper control")
-    parser.add_argument("--control-freq", type=int, default=250, help="Backend control frequency")
-    parser.add_argument(
-        "--articulation-root",
-        default=None,
-        help="Isaac Sim articulation root prim path",
-    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_record = sub.add_parser("record", help="Record a trajectory and save to file")

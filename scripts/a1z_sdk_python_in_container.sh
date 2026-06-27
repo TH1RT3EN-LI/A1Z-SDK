@@ -14,6 +14,8 @@ for var_name in A1Z_CAN_CHANNEL A1Z_SOCKET_PATH A1Z_BACKEND; do
   fi
 done
 
+DOCKER_ENV_ARGS+=(-e "PYTHONPATH=/workspace/A1Z/vendor/GALAXEA-A1Z:/workspace/A1Z")
+
 if [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
   docker start "$CONTAINER_NAME" >/dev/null
 fi

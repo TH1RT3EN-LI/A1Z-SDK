@@ -1,5 +1,6 @@
 """A1Z arm robot implementation with gravity compensation."""
 
+import json
 import logging
 import threading
 import time
@@ -12,7 +13,6 @@ import numpy as np
 from a1z.dynamics.gravity_model import GravityModel
 from a1z.motor_drivers.motor_b_driver import MixedMotorChain
 from a1z.robots.gripper import Gripper
-from a1z.robots.trajectory import RecordingSession, Trajectory, load_trajectory, play_trajectory_blocking, save_trajectory
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,11 @@ class ArmRobot:
         self._running = False
         self._thread: Optional[threading.Thread] = None
 
-        self._recording = RecordingSession()
+        self._recording: bool = False
+        self._record_buffer: List[Tuple[float, np.ndarray]] = []
+        self._record_lock = threading.Lock()
+        self._record_last_t: float = 0.0
+        self._record_period: float = 1.0 / 50.0
 
     def num_dofs(self) -> int:
         return self._num_joints + (1 if self.gripper is not None else 0)
@@ -192,8 +196,6 @@ class ArmRobot:
         Raises:
             RuntimeError: If no gripper was attached at construction.
         """
-        if not self._running:
-            raise RuntimeError("Robot not running. Call start() first.")
         if self.gripper is None:
             raise RuntimeError("No gripper attached. Pass gripper= to get_a1z_robot().")
         self.gripper.command(value)
@@ -210,8 +212,6 @@ class ArmRobot:
         Accepts either a 6-element arm-only array or a 7-element array where
         pos[6] is the gripper normalized position in [0.0, 1.0].
         """
-        if not self._running:
-            raise RuntimeError("Robot not running. Call start() first.")
         if self.gripper is not None and len(pos) == self._num_joints + 1:
             arm_pos = self._clip_joint_pos(pos[:self._num_joints])
             with self._command_lock:
@@ -234,8 +234,6 @@ class ArmRobot:
         Args:
             joint_state: Dict with keys 'pos', 'vel', and optionally 'kp', 'kd'.
         """
-        if not self._running:
-            raise RuntimeError("Robot not running. Call start() first.")
         pos = self._clip_joint_pos(joint_state["pos"])
         with self._command_lock:
             self._command.pos = pos.copy()
@@ -271,16 +269,12 @@ class ArmRobot:
 
     def get_robot_info(self) -> Dict[str, Any]:
         return {
-            "backend": "socketcan",
             "num_joints": self._num_joints,
             "default_kp": self._default_kp.copy(),
             "default_kd": self._default_kd.copy(),
             "joint_limits": self._joint_limits,
             "gravity_comp_factor": self.gravity_comp_factor,
             "control_freq_hz": self._control_freq_hz,
-            "with_gripper": self.gripper is not None,
-            "zero_gravity_mode": self.zero_gravity_mode,
-            "control_mode": "gravity_comp_effort" if self.zero_gravity_mode else "position_hold",
         }
 
     @property
@@ -301,10 +295,6 @@ class ArmRobot:
         Gripper command is applied immediately; arm interpolation runs at speed.
         Blocks until the arm target is reached or close enough.
         """
-        if not self._running:
-            raise RuntimeError("Robot not running. Call start() first.")
-        if speed <= 0:
-            raise ValueError("speed must be > 0")
         gripper_target: Optional[float] = None
         if self.gripper is not None and len(target_pos) == self._num_joints + 1:
             gripper_target = float(np.clip(target_pos[self._num_joints], 0.0, 1.0))
@@ -369,26 +359,34 @@ class ArmRobot:
         """
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
-        self._recording.start(sample_hz)
+        with self._record_lock:
+            self._record_buffer = []
+            self._record_period = 1.0 / max(1, sample_hz)
+            self._record_last_t = 0.0
+            self._recording = True
         logger.info(f"Recording started at {sample_hz} Hz")
 
-    def stop_recording(self) -> Trajectory:
+    def stop_recording(self) -> List[Tuple[float, np.ndarray]]:
         """Stop recording and return the trajectory.
 
         Returns:
             List of (timestamp_s, joint_positions_rad) tuples with timestamps
             relative to the start of the recording.
         """
-        traj = self._recording.stop()
-        if not traj:
+        with self._record_lock:
+            self._recording = False
+            raw = list(self._record_buffer)
+        if not raw:
             logger.info("Recording stopped: 0 frames")
             return []
+        t0 = raw[0][0]
+        traj = [(t - t0, pos.copy()) for t, pos in raw]
         logger.info(f"Recording stopped: {len(traj)} frames, {traj[-1][0]:.2f}s")
         return traj
 
     def play_trajectory(
         self,
-        trajectory: Trajectory,
+        trajectory: List[Tuple[float, np.ndarray]],
         speed_factor: float = 1.0,
     ) -> None:
         """Play back a recorded trajectory.
@@ -405,21 +403,20 @@ class ArmRobot:
             raise ValueError("Empty trajectory")
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
-        prev_mode = self.zero_gravity_mode
-        self.set_gravity_mode(False)
-        try:
-            play_trajectory_blocking(
-                trajectory=trajectory,
-                speed_factor=speed_factor,
-                command_position=self.command_joint_pos,
-            )
-        finally:
-            if prev_mode != self.zero_gravity_mode:
-                self.set_gravity_mode(prev_mode)
+        if speed_factor <= 0:
+            raise ValueError("speed_factor must be > 0")
+
+        t0_play = time.time()
+        for t_rec, pos in trajectory:
+            t_target = t0_play + t_rec / speed_factor
+            self.command_joint_pos(pos)
+            sleep_t = t_target - time.time()
+            if sleep_t > 0:
+                time.sleep(sleep_t)
 
     @staticmethod
     def save_recording(
-        trajectory: Trajectory,
+        trajectory: List[Tuple[float, np.ndarray]],
         path: str,
     ) -> None:
         """Save a trajectory to a JSON file.
@@ -428,17 +425,25 @@ class ArmRobot:
             trajectory: As returned by stop_recording().
             path: Output file path (e.g. "teach.json").
         """
-        save_trajectory(trajectory, path)
+        data = {
+            "version": 1,
+            "num_joints": len(trajectory[0][1]) if trajectory else 6,
+            "frames": [[t, pos.tolist()] for t, pos in trajectory],
+        }
+        with open(path, "w") as f:
+            json.dump(data, f)
         logger.info(f"Saved {len(trajectory)} frames to {path}")
 
     @staticmethod
-    def load_recording(path: str) -> Trajectory:
+    def load_recording(path: str) -> List[Tuple[float, np.ndarray]]:
         """Load a trajectory from a JSON file saved by save_recording().
 
         Returns:
             List of (timestamp_s, joint_positions_rad) tuples.
         """
-        traj = load_trajectory(path)
+        with open(path) as f:
+            data = json.load(f)
+        traj = [(float(t), np.array(pos, dtype=np.float64)) for t, pos in data["frames"]]
         logger.info(f"Loaded {len(traj)} frames from {path}")
         return traj
 
@@ -525,9 +530,13 @@ class ArmRobot:
         self._read_state()
 
         # 2) Sample for teaching recording
-        with self._state_lock:
-            pos_snap = self._state.pos.copy()
-        self._recording.maybe_sample(now_s=t_now, pos=pos_snap)
+        if self._recording and t_now - self._record_last_t >= self._record_period:
+            with self._state_lock:
+                pos_snap = self._state.pos.copy()
+            with self._record_lock:
+                if self._recording:
+                    self._record_buffer.append((t_now, pos_snap))
+            self._record_last_t = t_now
 
         # 3) Get current command
         with self._command_lock:

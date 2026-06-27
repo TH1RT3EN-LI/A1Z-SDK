@@ -1,0 +1,3 @@
+[console_scripts]
+d405_bridge = a1z_d405.publisher:main
+

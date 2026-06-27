@@ -1,47 +1,76 @@
-"""Factory functions for creating A1Z robot backends."""
+"""Factory function for creating an A1Z ArmRobot."""
 
-from __future__ import annotations
-
+import os
+from pathlib import Path
 from typing import Optional
 
+import can
 import numpy as np
 
-from a1z.config import get_control_defaults, get_default_backend, get_default_can_channel
-from a1z.robots.mock_robot import MockArmRobot
-from a1z.robots.robot import Robot
+from a1z.dynamics.gravity_model import GravityModel
+from a1z.motor_drivers.motor_b_driver import MotorB, MotorBRanges, MixedMotorChain
+from a1z.motor_drivers.motor_a_driver import MotorA, MotorARanges
+from a1z.robots.arm_robot import ArmRobot
+from a1z.robots.gripper import Gripper, GRIPPER_CAN_ID, GRIPPER_MOTOR_RANGES
 
-_CONTROL_DEFAULTS = get_control_defaults()
-_DEFAULT_URDF_PATH = _CONTROL_DEFAULTS["default_control_urdf_path"]
-_NUM_JOINTS = int(_CONTROL_DEFAULTS["num_joints"])
-_MOTOR_A_JOINT_INDICES = _CONTROL_DEFAULTS["motor_a_joint_indices"]
-_MOTOR_B_JOINT_INDICES = _CONTROL_DEFAULTS["motor_b_joint_indices"]
-_MOTOR_A_IDS = _CONTROL_DEFAULTS["motor_a_ids"]
-_MOTOR_B_IDS = _CONTROL_DEFAULTS["motor_b_ids"]
+# Default URDF path (bundled inside the package)
+_DEFAULT_URDF_PATH = str(Path(__file__).parent.parent / "robot_models" / "a1z" / "A1Z_G1Z.urdf")
 
-_DEFAULT_KP = np.array(_CONTROL_DEFAULTS["default_kp"], dtype=np.float64)
-_DEFAULT_KD = np.array(_CONTROL_DEFAULTS["default_kd"], dtype=np.float64)
-_JOINT_SIGN = np.array(_CONTROL_DEFAULTS["joint_sign"], dtype=np.float64)
-_GRAVITY_TORQUE_SCALE = np.array(_CONTROL_DEFAULTS["gravity_torque_scale"], dtype=np.float64)
-_MAX_GRAVITY_TORQUE = np.array(_CONTROL_DEFAULTS["max_gravity_torque"], dtype=np.float64)
-_TORQUE_CLIP = np.array(_CONTROL_DEFAULTS["torque_clip"], dtype=np.float64)
-_MOTOR_A_KT = float(_CONTROL_DEFAULTS["motor_a_kt"])
+# Default A1Z configuration
+_NUM_JOINTS = 6
+_MOTOR_A_JOINT_INDICES = [0, 1, 2]
+_MOTOR_B_JOINT_INDICES = [3, 4, 5]
+_MOTOR_A_IDS = [0x01, 0x02, 0x03]
+_MOTOR_B_IDS = [0x04, 0x05, 0x06]
 
+_JOINT_LIMITS = [
+    (-2.094, 2.094),   # arm_joint1
+    (0.0,    3.142),   # arm_joint2
+    (-3.142, 0.0),     # arm_joint3
+    (-1.484, 1.484),   # arm_joint4
+    (-1.484, 1.484),   # arm_joint5
+    (-2.007, 2.007),   # arm_joint6
+]
 
-def _load_control_model(urdf: str):
-    from a1z.dynamics.gravity_model import GravityModel
+_DEFAULT_KP = np.array([30.0, 30.0, 30.0, 20.0, 5.0, 5.0])
+_DEFAULT_KD = np.array([1.0,  1.0,  1.0,  0.5,  0.5,  0.5])
+_JOINT_SIGN = np.array([1.0, 1.0, -1.0, 1.0, -1.0, 1.0])
+_GRAVITY_TORQUE_SCALE = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+_MAX_GRAVITY_TORQUE = np.array([50.0, 50.0, 50.0, 24.0, 10.0, 10.0])
+_TORQUE_CLIP = np.array([70.0, 70.0, 70.0, 27.0, 10.0, 10.0])
 
-    gravity_model = GravityModel(urdf)
-    if gravity_model.nq != _NUM_JOINTS or gravity_model.nv != _NUM_JOINTS:
-        raise ValueError(
-            f"Control URDF must expose exactly {_NUM_JOINTS} movable arm joints; "
-            f"got nq={gravity_model.nq}, nv={gravity_model.nv} from {urdf}. "
-            "Use the control model with fixed gripper joints, such as A1Z_G1Z_control.urdf."
-        )
-    return gravity_model, gravity_model.get_joint_limits()
+# MotorA ranges
+_MOTOR_A_RANGES = MotorARanges(
+    kp_min=0.0, kp_max=500.0,
+    kd_min=0.0, kd_max=5.0,
+    pos_min=-12.5, pos_max=12.5,
+    vel_min=-18.0, vel_max=18.0,
+    torque_min=-70.0, torque_max=70.0,
+    current_fb_min=-30.0, current_fb_max=30.0,
+)
+_MOTOR_A_KT = 2.8
+
+# MotorB default ranges (4310)
+_MOTOR_B_RANGES_DEFAULT = MotorBRanges(
+    pos_min=-12.5, pos_max=12.5,
+    vel_min=-30.0, vel_max=30.0,
+    torque_min=-10.0, torque_max=10.0,
+    kp_min=0.0, kp_max=500.0,
+    kd_min=0.0, kd_max=5.0,
+)
+
+# Joint 3 (arm_joint4) uses higher torque range
+_MOTOR_B_RANGES_JOINT3 = MotorBRanges(
+    pos_min=-12.5, pos_max=12.5,
+    vel_min=-10.0, vel_max=10.0,
+    torque_min=-28.0, torque_max=28.0,
+    kp_min=0.0, kp_max=500.0,
+    kd_min=0.0, kd_max=5.0,
+)
 
 
 def get_a1z_robot(
-    can_channel: str = get_default_can_channel(),
+    can_channel: str = "can0",
     gravity_comp_factor: float = 1.0,
     zero_gravity_mode: bool = True,
     control_freq_hz: int = 250,
@@ -51,40 +80,51 @@ def get_a1z_robot(
     default_kd: Optional[np.ndarray] = None,
     with_gripper: bool = False,
     gripper_max_torque: float = 2.0,
-):
-    """Create and return a configured SocketCAN-backed A1Z ArmRobot."""
-    import can
+) -> ArmRobot:
+    """Create and return a configured A1Z ArmRobot.
 
-    from a1z.motor_drivers.motor_a_driver import MotorA, MotorARanges
-    from a1z.motor_drivers.motor_b_driver import MotorB, MotorBRanges, MixedMotorChain
-    from a1z.robots.arm_robot import ArmRobot
-    from a1z.robots.gripper import GRIPPER_CAN_ID, GRIPPER_MOTOR_RANGES, Gripper
+    Args:
+        can_channel: CAN interface name (e.g. 'can0').
+        gravity_comp_factor: Gravity compensation scale (0=off, 1=full).
+        zero_gravity_mode: True for zero-gravity (floating) mode, False for
+                           position hold with PD + gravity comp.
+        control_freq_hz: Control loop frequency in Hz.
+        min_freq_hz: Minimum acceptable control frequency. Emergency stop if
+                     frequency stays below this for 3 consecutive check periods.
+        urdf_path: Override URDF path.
+        default_kp: Override default position gains.
+        default_kd: Override default velocity gains.
+        with_gripper: If True, attach a Gripper at CAN ID 0x07.
+        gripper_max_torque: Maximum gripping torque (Nm). Default 2.0 Nm.
+                            Passed to Gripper as i_des = max_torque / 11.0.
 
+    Returns:
+        Configured ArmRobot instance (call .start() to begin control).
+    """
     urdf = urdf_path or _DEFAULT_URDF_PATH
-    motor_a_ranges = MotorARanges(**_CONTROL_DEFAULTS["motor_a_ranges"])
-    motor_b_ranges_default = MotorBRanges(**_CONTROL_DEFAULTS["motor_b_default_ranges"])
-    motor_b_ranges_overrides = {
-        int(joint_idx): MotorBRanges(**ranges)
-        for joint_idx, ranges in _CONTROL_DEFAULTS["motor_b_joint_overrides"].items()
-    }
 
+    # Open CAN bus
     bus = can.interface.Bus(
         channel=can_channel,
         bustype="socketcan",
         bitrate=1_000_000,
     )
 
+    # Create MotorA motors
     motor_a_list = [
-        MotorA(motor_id=mid, bus=bus, ranges=motor_a_ranges)
+        MotorA(motor_id=mid, bus=bus, ranges=_MOTOR_A_RANGES)
         for mid in _MOTOR_A_IDS
     ]
 
+    # Create MotorB motors with per-joint ranges
+    motor_b_ranges_by_joint = {3: _MOTOR_B_RANGES_JOINT3}
     motor_b_list = []
     for i, mid in enumerate(_MOTOR_B_IDS):
         joint_idx = _MOTOR_B_JOINT_INDICES[i]
-        ranges = motor_b_ranges_overrides.get(joint_idx, motor_b_ranges_default)
+        ranges = motor_b_ranges_by_joint.get(joint_idx, _MOTOR_B_RANGES_DEFAULT)
         motor_b_list.append(MotorB(motor_id=mid, bus=bus, ranges=ranges))
 
+    # Build motor chain
     motor_chain = MixedMotorChain(
         motor_a_list=motor_a_list,
         motor_b_list=motor_b_list,
@@ -93,7 +133,8 @@ def get_a1z_robot(
         motor_a_kt=_MOTOR_A_KT,
     )
 
-    gravity_model, joint_limits = _load_control_model(urdf)
+    # Load gravity model
+    gravity_model = GravityModel(urdf)
 
     gripper = None
     if with_gripper:
@@ -113,116 +154,9 @@ def get_a1z_robot(
         torque_clip=_TORQUE_CLIP,
         default_kp=default_kp if default_kp is not None else _DEFAULT_KP,
         default_kd=default_kd if default_kd is not None else _DEFAULT_KD,
-        joint_limits=joint_limits,
+        joint_limits=_JOINT_LIMITS,
         gripper=gripper,
         control_freq_hz=control_freq_hz,
         min_freq_hz=min_freq_hz,
         motor_a_kt=_MOTOR_A_KT,
-    )
-
-
-def get_a1z_mock_robot(
-    gravity_comp_factor: float = 1.0,
-    zero_gravity_mode: bool = True,
-    control_freq_hz: int = 250,
-    urdf_path: Optional[str] = None,
-    default_kp: Optional[np.ndarray] = None,
-    default_kd: Optional[np.ndarray] = None,
-    with_gripper: bool = False,
-) -> MockArmRobot:
-    """Create and return a mock A1Z robot for offline validation."""
-    urdf = urdf_path or _DEFAULT_URDF_PATH
-    _gravity_model, joint_limits = _load_control_model(urdf)
-    return MockArmRobot(
-        num_joints=_NUM_JOINTS,
-        gravity_comp_factor=gravity_comp_factor,
-        zero_gravity_mode=zero_gravity_mode,
-        default_kp=default_kp if default_kp is not None else _DEFAULT_KP,
-        default_kd=default_kd if default_kd is not None else _DEFAULT_KD,
-        joint_limits=joint_limits,
-        with_gripper=with_gripper,
-        control_freq_hz=control_freq_hz,
-    )
-
-
-def get_a1z_isaacsim_robot(
-    control_freq_hz: int = 60,
-    with_gripper: bool = False,
-    articulation_root_prim: Optional[str] = None,
-    urdf_path: Optional[str] = None,
-    default_kp: Optional[np.ndarray] = None,
-    default_kd: Optional[np.ndarray] = None,
-    gravity_comp_factor: float = 1.0,
-    zero_gravity_mode: bool = False,
-):
-    """Create and return an Isaac Sim-backed A1Z robot."""
-    from a1z.robots.isaacsim_robot import IsaacSimArmRobot
-
-    return IsaacSimArmRobot(
-        num_joints=_NUM_JOINTS,
-        with_gripper=with_gripper,
-        control_freq_hz=control_freq_hz,
-        articulation_root_prim=articulation_root_prim,
-        default_kp=default_kp if default_kp is not None else _DEFAULT_KP,
-        default_kd=default_kd if default_kd is not None else _DEFAULT_KD,
-        urdf_path=urdf_path or _DEFAULT_URDF_PATH,
-        gravity_comp_factor=gravity_comp_factor,
-        zero_gravity_mode=zero_gravity_mode,
-        gravity_torque_scale=_GRAVITY_TORQUE_SCALE,
-        max_gravity_torque=_MAX_GRAVITY_TORQUE,
-        torque_clip=_TORQUE_CLIP,
-    )
-
-
-def create_a1z_robot(
-    backend: str = get_default_backend(),
-    can_channel: str = get_default_can_channel(),
-    gravity_comp_factor: float = 1.0,
-    zero_gravity_mode: bool = True,
-    control_freq_hz: int = 250,
-    min_freq_hz: float = 80.0,
-    urdf_path: Optional[str] = None,
-    default_kp: Optional[np.ndarray] = None,
-    default_kd: Optional[np.ndarray] = None,
-    with_gripper: bool = False,
-    gripper_max_torque: float = 2.0,
-    articulation_root_prim: Optional[str] = None,
-) -> Robot:
-    """Create the requested A1Z backend."""
-    if backend == "socketcan":
-        return get_a1z_robot(
-            can_channel=can_channel,
-            gravity_comp_factor=gravity_comp_factor,
-            zero_gravity_mode=zero_gravity_mode,
-            control_freq_hz=control_freq_hz,
-            min_freq_hz=min_freq_hz,
-            urdf_path=urdf_path,
-            default_kp=default_kp,
-            default_kd=default_kd,
-            with_gripper=with_gripper,
-            gripper_max_torque=gripper_max_torque,
-        )
-    if backend == "mock":
-        return get_a1z_mock_robot(
-            gravity_comp_factor=gravity_comp_factor,
-            zero_gravity_mode=zero_gravity_mode,
-            control_freq_hz=control_freq_hz,
-            urdf_path=urdf_path,
-            default_kp=default_kp,
-            default_kd=default_kd,
-            with_gripper=with_gripper,
-        )
-    if backend == "isaacsim":
-        return get_a1z_isaacsim_robot(
-            control_freq_hz=control_freq_hz,
-            with_gripper=with_gripper,
-            articulation_root_prim=articulation_root_prim,
-            urdf_path=urdf_path,
-            default_kp=default_kp,
-            default_kd=default_kd,
-            gravity_comp_factor=gravity_comp_factor,
-            zero_gravity_mode=zero_gravity_mode,
-        )
-    raise ValueError(
-        f"Unsupported A1Z backend '{backend}'. Expected one of: socketcan, mock, isaacsim"
     )

@@ -1,0 +1,102 @@
+{
+  "set_name": "a1z_trash_grasp_set_v1",
+  "description": "First-pass trash grasp assets for Isaac tabletop clutter scenes.",
+  "direct_assets": [
+    {
+      "id": "can_crushed",
+      "category": "can",
+      "source_provider": "Poly Pizza",
+      "source_page": "https://poly.pizza/m/F9RZE7EnWl",
+      "direct_glb": "https://static.poly.pizza/f8a372c6-3fb7-4446-b66d-a3723d9493f3.glb",
+      "title": "Crushed Soda Can",
+      "creator": "Thermo_DynAmics",
+      "license": "CC-BY 3.0",
+      "target_bbox_m": [0.095, 0.070, 0.045],
+      "suggested_collider": "convex_decomposition",
+      "suggested_mass_kg": 0.015,
+      "notes": "Good irregular can baseline."
+    },
+    {
+      "id": "can_upright",
+      "category": "can",
+      "source_provider": "Poly Pizza",
+      "source_page": "https://poly.pizza/m/YnowJvWqxE",
+      "direct_glb": "https://static.poly.pizza/e16e13cf-fbc4-48c8-9927-ae34920a498e.glb",
+      "title": "Can",
+      "creator": "Poly by Google",
+      "license": "CC0 1.0",
+      "target_bbox_m": [0.066, 0.066, 0.122],
+      "suggested_collider": "convex_hull",
+      "suggested_mass_kg": 0.014,
+      "notes": "Clean top-down can baseline."
+    },
+    {
+      "id": "bottle_plastic",
+      "category": "plastic_bottle",
+      "source_provider": "Poly Pizza",
+      "source_page": "https://poly.pizza/m/di8BdLR1M8S",
+      "direct_glb": "https://static.poly.pizza/de99ad4e-faf0-478c-860e-7ea70d5a963e.glb",
+      "title": "Bottle (Plastic)",
+      "creator": "Poly by Google",
+      "license": "CC-BY 3.0",
+      "target_bbox_m": [0.070, 0.070, 0.220],
+      "suggested_collider": "convex_hull",
+      "suggested_mass_kg": 0.022,
+      "notes": "Plastic bottle baseline, suitable for side grasps."
+    },
+    {
+      "id": "bottle_water",
+      "category": "plastic_bottle",
+      "source_provider": "Poly Pizza",
+      "source_page": "https://poly.pizza/m/KpxDpidn1Z",
+      "direct_glb": "https://static.poly.pizza/3ebef9a3-c2df-49ee-abe1-df38b5777bcd.glb",
+      "title": "Water Bottle",
+      "creator": "Quaternius",
+      "license": "CC0 1.0",
+      "target_bbox_m": [0.065, 0.065, 0.210],
+      "suggested_collider": "convex_hull",
+      "suggested_mass_kg": 0.020,
+      "notes": "Cheap CC0 bottle for quick iteration."
+    },
+    {
+      "id": "paper_debris",
+      "category": "paper",
+      "source_provider": "Poly Pizza",
+      "source_page": "https://poly.pizza/m/MujITy1NRR",
+      "direct_glb": "https://static.poly.pizza/11eab449-ceb6-4d45-9151-bd4d1e288e56.glb",
+      "title": "Debris Papers",
+      "creator": "Quaternius",
+      "license": "CC0 1.0",
+      "target_bbox_m": [0.180, 0.180, 0.010],
+      "suggested_collider": "thin_box_or_convex_hull",
+      "suggested_mass_kg": 0.005,
+      "notes": "Good as paper clutter, weak as a single-object grasp benchmark."
+    }
+  ],
+  "manual_assets": [
+    {
+      "id": "tall_can_of_soda",
+      "category": "can",
+      "source_provider": "Sketchfab",
+      "source_page": "https://sketchfab.com/3d-models/tall-can-of-soda-7e75020e8759498082d99c95c2fae84d",
+      "license_hint": "CC-BY",
+      "notes": "2K PBR, better visual realism than Poly Pizza can assets."
+    },
+    {
+      "id": "dirty_plastic_bottle",
+      "category": "plastic_bottle",
+      "source_provider": "Sketchfab",
+      "source_page": "https://sketchfab.com/3d-models/low-poly-dirty-plastic-bottle-game-ready-8c86a495c46c4b30b0ea42a61b417d05",
+      "license_hint": "CC-BY",
+      "notes": "2048 textures, visually stronger bottle benchmark."
+    },
+    {
+      "id": "crumbled_paper",
+      "category": "paper_ball",
+      "source_provider": "Sketchfab",
+      "source_page": "https://sketchfab.com/3d-models/crumbled-paper-c1a4b48d49dd402eb5731c93f130ce23",
+      "license_hint": "CC-BY",
+      "notes": "Best match to a graspable paper-ball style target."
+    }
+  ]
+}

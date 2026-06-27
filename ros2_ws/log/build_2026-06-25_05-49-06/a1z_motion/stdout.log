@@ -1,0 +1,21 @@
+running egg_info
+writing ../../build/a1z_motion/a1z_motion.egg-info/PKG-INFO
+writing dependency_links to ../../build/a1z_motion/a1z_motion.egg-info/dependency_links.txt
+writing entry points to ../../build/a1z_motion/a1z_motion.egg-info/entry_points.txt
+writing requirements to ../../build/a1z_motion/a1z_motion.egg-info/requires.txt
+writing top-level names to ../../build/a1z_motion/a1z_motion.egg-info/top_level.txt
+reading manifest file '../../build/a1z_motion/a1z_motion.egg-info/SOURCES.txt'
+writing manifest file '../../build/a1z_motion/a1z_motion.egg-info/SOURCES.txt'
+running build
+running build_py
+running install
+running install_lib
+running install_data
+copying launch/a1z_motion.launch.py -> /workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/launch
+running install_egg_info
+removing '/workspace/A1Z/ros2_ws/install/a1z_motion/lib/python3.10/site-packages/a1z_motion-0.1.0-py3.10.egg-info' (and everything under it)
+Copying ../../build/a1z_motion/a1z_motion.egg-info to /workspace/A1Z/ros2_ws/install/a1z_motion/lib/python3.10/site-packages/a1z_motion-0.1.0-py3.10.egg-info
+running install_scripts
+Installing motion_executor script to /workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion
+Installing robot_state script to /workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion
+writing list of installed files to '/workspace/A1Z/ros2_ws/build/a1z_motion/install.log'

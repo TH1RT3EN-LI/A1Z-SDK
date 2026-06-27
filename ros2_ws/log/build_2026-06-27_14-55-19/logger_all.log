@@ -1,0 +1,313 @@
+[0.048s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'build']
+[0.048s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=False, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=24, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0x7851f05f2260>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x7851f05f1db0>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x7851f05f1db0>>, mixin_verb=('build',))
+[0.093s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[0.093s] INFO:colcon.colcon_metadata.package_discovery.colcon_meta:Using configuration from '/root/.colcon/metadata/default/Gazebo.meta'
+[0.093s] INFO:colcon.colcon_metadata.package_discovery.colcon_meta:Using configuration from '/root/.colcon/metadata/default/fastdds.meta'
+[0.093s] INFO:colcon.colcon_metadata.package_discovery.colcon_meta:Using configuration from '/root/.colcon/metadata/default/fastrtps.meta'
+[0.093s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[0.093s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[0.093s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[0.093s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) discover
+[0.093s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[0.093s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/workspace/A1Z/ros2_ws'
+[0.093s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.094s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore'
+[0.094s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore_ament_install'
+[0.094s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_pkg']
+[0.094s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_pkg'
+[0.094s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_meta']
+[0.094s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_meta'
+[0.094s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ros']
+[0.094s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ros'
+[0.098s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['cmake', 'python']
+[0.098s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'cmake'
+[0.098s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python'
+[0.098s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['python_setup_py']
+[0.098s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python_setup_py'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extension 'ignore'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(build) ignored
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extension 'ignore'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(install) ignored
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extension 'ignore'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(log) ignored
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extensions ['ignore', 'ignore_ament_install']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extension 'ignore'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extension 'ignore_ament_install'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extensions ['colcon_pkg']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extension 'colcon_pkg'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extensions ['colcon_meta']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extension 'colcon_meta'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extensions ['ros']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extension 'ros'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extensions ['cmake', 'python']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extension 'cmake'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extension 'python'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extensions ['python_setup_py']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(rviz) by extension 'python_setup_py'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['ignore', 'ignore_ament_install']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'ignore'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'ignore_ament_install'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['colcon_pkg']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'colcon_pkg'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['colcon_meta']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'colcon_meta'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['ros']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'ros'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['cmake', 'python']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'cmake'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'python'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extensions ['python_setup_py']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src) by extension 'python_setup_py'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_d405) by extensions ['ignore', 'ignore_ament_install']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_d405) by extension 'ignore'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_d405) by extension 'ignore_ament_install'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_d405) by extensions ['colcon_pkg']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_d405) by extension 'colcon_pkg'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_d405) by extensions ['colcon_meta']
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_d405) by extension 'colcon_meta'
+[0.099s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_d405) by extensions ['ros']
+[0.100s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_d405) by extension 'ros'
+[0.101s] DEBUG:colcon.colcon_core.package_identification:Package 'src/a1z_d405' with type 'ros.ament_python' and name 'a1z_d405'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_motion) by extensions ['ignore', 'ignore_ament_install']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_motion) by extension 'ignore'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_motion) by extension 'ignore_ament_install'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_motion) by extensions ['colcon_pkg']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_motion) by extension 'colcon_pkg'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_motion) by extensions ['colcon_meta']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_motion) by extension 'colcon_meta'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_motion) by extensions ['ros']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_motion) by extension 'ros'
+[0.101s] DEBUG:colcon.colcon_core.package_identification:Package 'src/a1z_motion' with type 'ros.ament_python' and name 'a1z_motion'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_msgs) by extensions ['ignore', 'ignore_ament_install']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_msgs) by extension 'ignore'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_msgs) by extension 'ignore_ament_install'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_msgs) by extensions ['colcon_pkg']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_msgs) by extension 'colcon_pkg'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_msgs) by extensions ['colcon_meta']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_msgs) by extension 'colcon_meta'
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_msgs) by extensions ['ros']
+[0.101s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_msgs) by extension 'ros'
+[0.102s] DEBUG:colcon.colcon_core.package_identification:Package 'src/a1z_msgs' with type 'ros.ament_cmake' and name 'a1z_msgs'
+[0.102s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_open_vocab) by extensions ['ignore', 'ignore_ament_install']
+[0.102s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_open_vocab) by extension 'ignore'
+[0.102s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_open_vocab) by extension 'ignore_ament_install'
+[0.102s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_open_vocab) by extensions ['colcon_pkg']
+[0.102s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_open_vocab) by extension 'colcon_pkg'
+[0.102s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_open_vocab) by extensions ['colcon_meta']
+[0.102s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_open_vocab) by extension 'colcon_meta'
+[0.102s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_open_vocab) by extensions ['ros']
+[0.102s] Level 1:colcon.colcon_core.package_identification:_identify(src/a1z_open_vocab) by extension 'ros'
+[0.102s] DEBUG:colcon.colcon_core.package_identification:Package 'src/a1z_open_vocab' with type 'ros.ament_python' and name 'a1z_open_vocab'
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) discover
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) using defaults
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) discover
+[0.102s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) using defaults
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_d405' build argument 'cmake_args' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_d405' build argument 'cmake_target' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_d405' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_d405' build argument 'cmake_clean_cache' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_d405' build argument 'cmake_clean_first' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_d405' build argument 'cmake_force_configure' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_d405' build argument 'ament_cmake_args' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_d405' build argument 'catkin_cmake_args' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_d405' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.112s] DEBUG:colcon.colcon_core.verb:Building package 'a1z_d405' with the following arguments: {'ament_cmake_args': None, 'build_base': '/workspace/A1Z/ros2_ws/build/a1z_d405', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/workspace/A1Z/ros2_ws/install/a1z_d405', 'merge_install': False, 'path': '/workspace/A1Z/ros2_ws/src/a1z_d405', 'symlink_install': False, 'test_result_base': None}
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_msgs' build argument 'cmake_args' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_msgs' build argument 'cmake_target' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_msgs' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_msgs' build argument 'cmake_clean_cache' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_msgs' build argument 'cmake_clean_first' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_msgs' build argument 'cmake_force_configure' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_msgs' build argument 'ament_cmake_args' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_msgs' build argument 'catkin_cmake_args' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_msgs' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.112s] DEBUG:colcon.colcon_core.verb:Building package 'a1z_msgs' with the following arguments: {'ament_cmake_args': None, 'build_base': '/workspace/A1Z/ros2_ws/build/a1z_msgs', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/workspace/A1Z/ros2_ws/install/a1z_msgs', 'merge_install': False, 'path': '/workspace/A1Z/ros2_ws/src/a1z_msgs', 'symlink_install': False, 'test_result_base': None}
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_open_vocab' build argument 'cmake_args' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_open_vocab' build argument 'cmake_target' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_open_vocab' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_open_vocab' build argument 'cmake_clean_cache' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_open_vocab' build argument 'cmake_clean_first' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_open_vocab' build argument 'cmake_force_configure' from command line to 'False'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_open_vocab' build argument 'ament_cmake_args' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_open_vocab' build argument 'catkin_cmake_args' from command line to 'None'
+[0.112s] Level 5:colcon.colcon_core.verb:set package 'a1z_open_vocab' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.112s] DEBUG:colcon.colcon_core.verb:Building package 'a1z_open_vocab' with the following arguments: {'ament_cmake_args': None, 'build_base': '/workspace/A1Z/ros2_ws/build/a1z_open_vocab', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/workspace/A1Z/ros2_ws/install/a1z_open_vocab', 'merge_install': False, 'path': '/workspace/A1Z/ros2_ws/src/a1z_open_vocab', 'symlink_install': False, 'test_result_base': None}
+[0.113s] Level 5:colcon.colcon_core.verb:set package 'a1z_motion' build argument 'cmake_args' from command line to 'None'
+[0.113s] Level 5:colcon.colcon_core.verb:set package 'a1z_motion' build argument 'cmake_target' from command line to 'None'
+[0.113s] Level 5:colcon.colcon_core.verb:set package 'a1z_motion' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.113s] Level 5:colcon.colcon_core.verb:set package 'a1z_motion' build argument 'cmake_clean_cache' from command line to 'False'
+[0.113s] Level 5:colcon.colcon_core.verb:set package 'a1z_motion' build argument 'cmake_clean_first' from command line to 'False'
+[0.113s] Level 5:colcon.colcon_core.verb:set package 'a1z_motion' build argument 'cmake_force_configure' from command line to 'False'
+[0.113s] Level 5:colcon.colcon_core.verb:set package 'a1z_motion' build argument 'ament_cmake_args' from command line to 'None'
+[0.113s] Level 5:colcon.colcon_core.verb:set package 'a1z_motion' build argument 'catkin_cmake_args' from command line to 'None'
+[0.113s] Level 5:colcon.colcon_core.verb:set package 'a1z_motion' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.113s] DEBUG:colcon.colcon_core.verb:Building package 'a1z_motion' with the following arguments: {'ament_cmake_args': None, 'build_base': '/workspace/A1Z/ros2_ws/build/a1z_motion', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/workspace/A1Z/ros2_ws/install/a1z_motion', 'merge_install': False, 'path': '/workspace/A1Z/ros2_ws/src/a1z_motion', 'symlink_install': False, 'test_result_base': None}
+[0.113s] INFO:colcon.colcon_core.executor:Executing jobs using 'parallel' executor
+[0.114s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete
+[0.114s] INFO:colcon.colcon_ros.task.ament_cmake.build:Building ROS package in '/workspace/A1Z/ros2_ws/src/a1z_msgs' with build type 'ament_cmake'
+[0.114s] INFO:colcon.colcon_cmake.task.cmake.build:Building CMake package in '/workspace/A1Z/ros2_ws/src/a1z_msgs'
+[0.115s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.115s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.115s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.117s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/workspace/A1Z/ros2_ws/src/a1z_d405' with build type 'ament_python'
+[0.117s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_d405', 'ament_prefix_path')
+[0.117s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/hook/ament_prefix_path.ps1'
+[0.117s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/hook/ament_prefix_path.dsv'
+[0.117s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/hook/ament_prefix_path.sh'
+[0.118s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.118s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.118s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/workspace/A1Z/ros2_ws/src/a1z_open_vocab' with build type 'ament_python'
+[0.119s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_open_vocab', 'ament_prefix_path')
+[0.119s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/hook/ament_prefix_path.ps1'
+[0.119s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/hook/ament_prefix_path.dsv'
+[0.119s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/hook/ament_prefix_path.sh'
+[0.119s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.119s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.122s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/workspace/A1Z/ros2_ws/build/a1z_msgs': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /workspace/A1Z/ros2_ws/build/a1z_msgs -- -j24 -l24
+[0.219s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/workspace/A1Z/ros2_ws/src/a1z_d405'
+[0.219s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.219s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.309s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/workspace/A1Z/ros2_ws/src/a1z_open_vocab'
+[0.310s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.310s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.314s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/workspace/A1Z/ros2_ws/build/a1z_msgs' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /workspace/A1Z/ros2_ws/build/a1z_msgs -- -j24 -l24
+[0.320s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/workspace/A1Z/ros2_ws/build/a1z_msgs': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /workspace/A1Z/ros2_ws/build/a1z_msgs
+[0.352s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(a1z_msgs)
+[0.353s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/workspace/A1Z/ros2_ws/build/a1z_msgs' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /workspace/A1Z/ros2_ws/build/a1z_msgs
+[0.354s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs' for CMake module files
+[0.354s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs' for CMake config files
+[0.355s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_msgs', 'cmake_prefix_path')
+[0.355s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/cmake_prefix_path.ps1'
+[0.355s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/cmake_prefix_path.dsv'
+[0.355s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/cmake_prefix_path.sh'
+[0.356s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/lib'
+[0.356s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_msgs', 'ld_library_path_lib')
+[0.356s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/ld_library_path_lib.ps1'
+[0.356s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/ld_library_path_lib.dsv'
+[0.357s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/ld_library_path_lib.sh'
+[0.357s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/bin'
+[0.357s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/lib/pkgconfig/a1z_msgs.pc'
+[0.357s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/lib/python3.10/site-packages'
+[0.357s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/bin'
+[0.357s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.ps1'
+[0.358s] INFO:colcon.colcon_core.shell:Creating package descriptor '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.dsv'
+[0.358s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.sh'
+[0.358s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.bash'
+[0.359s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.zsh'
+[0.359s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/workspace/A1Z/ros2_ws/install/a1z_msgs/share/colcon-core/packages/a1z_msgs)
+[0.359s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(a1z_msgs)
+[0.360s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs' for CMake module files
+[0.360s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs' for CMake config files
+[0.360s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_msgs', 'cmake_prefix_path')
+[0.360s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/cmake_prefix_path.ps1'
+[0.360s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/cmake_prefix_path.dsv'
+[0.361s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/cmake_prefix_path.sh'
+[0.361s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/lib'
+[0.361s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_msgs', 'ld_library_path_lib')
+[0.361s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/ld_library_path_lib.ps1'
+[0.361s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/ld_library_path_lib.dsv'
+[0.361s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/hook/ld_library_path_lib.sh'
+[0.362s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/bin'
+[0.362s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/lib/pkgconfig/a1z_msgs.pc'
+[0.362s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/lib/python3.10/site-packages'
+[0.362s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_msgs/bin'
+[0.362s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.ps1'
+[0.362s] INFO:colcon.colcon_core.shell:Creating package descriptor '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.dsv'
+[0.363s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.sh'
+[0.363s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.bash'
+[0.363s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_msgs/share/a1z_msgs/package.zsh'
+[0.363s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/workspace/A1Z/ros2_ws/install/a1z_msgs/share/colcon-core/packages/a1z_msgs)
+[0.363s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/workspace/A1Z/ros2_ws/src/a1z_motion' with build type 'ament_python'
+[0.364s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_motion', 'ament_prefix_path')
+[0.364s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/hook/ament_prefix_path.ps1'
+[0.364s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/hook/ament_prefix_path.dsv'
+[0.364s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/hook/ament_prefix_path.sh'
+[0.365s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.365s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.460s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/workspace/A1Z/ros2_ws/src/a1z_motion'
+[0.460s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.460s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.466s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/workspace/A1Z/ros2_ws/src/a1z_d405': PYTHONPATH=/workspace/A1Z/ros2_ws/build/a1z_d405/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/a1z_d405 build --build-base /workspace/A1Z/ros2_ws/build/a1z_d405/build install --record /workspace/A1Z/ros2_ws/build/a1z_d405/install.log --single-version-externally-managed install_data
+[0.466s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/workspace/A1Z/ros2_ws/src/a1z_open_vocab': PYTHONPATH=/workspace/A1Z/ros2_ws/build/a1z_open_vocab/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/a1z_open_vocab build --build-base /workspace/A1Z/ros2_ws/build/a1z_open_vocab/build install --record /workspace/A1Z/ros2_ws/build/a1z_open_vocab/install.log --single-version-externally-managed install_data
+[0.561s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_open_vocab' for CMake module files
+[0.562s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/workspace/A1Z/ros2_ws/src/a1z_open_vocab' returned '0': PYTHONPATH=/workspace/A1Z/ros2_ws/build/a1z_open_vocab/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/a1z_open_vocab build --build-base /workspace/A1Z/ros2_ws/build/a1z_open_vocab/build install --record /workspace/A1Z/ros2_ws/build/a1z_open_vocab/install.log --single-version-externally-managed install_data
+[0.562s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_open_vocab' for CMake config files
+[0.562s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib'
+[0.562s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/bin'
+[0.562s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/pkgconfig/a1z_open_vocab.pc'
+[0.562s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages'
+[0.562s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_open_vocab', 'pythonpath')
+[0.563s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/hook/pythonpath.ps1'
+[0.563s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/hook/pythonpath.dsv'
+[0.563s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/hook/pythonpath.sh'
+[0.564s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/bin'
+[0.564s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(a1z_open_vocab)
+[0.564s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/package.ps1'
+[0.564s] INFO:colcon.colcon_core.shell:Creating package descriptor '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/package.dsv'
+[0.565s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/package.sh'
+[0.565s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/package.bash'
+[0.565s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/a1z_open_vocab/package.zsh'
+[0.565s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/workspace/A1Z/ros2_ws/install/a1z_open_vocab/share/colcon-core/packages/a1z_open_vocab)
+[0.574s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_d405' for CMake module files
+[0.574s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/workspace/A1Z/ros2_ws/src/a1z_d405' returned '0': PYTHONPATH=/workspace/A1Z/ros2_ws/build/a1z_d405/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/a1z_d405 build --build-base /workspace/A1Z/ros2_ws/build/a1z_d405/build install --record /workspace/A1Z/ros2_ws/build/a1z_d405/install.log --single-version-externally-managed install_data
+[0.574s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_d405' for CMake config files
+[0.575s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_d405/lib'
+[0.575s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_d405/bin'
+[0.575s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_d405/lib/pkgconfig/a1z_d405.pc'
+[0.575s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_d405/lib/python3.10/site-packages'
+[0.575s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_d405', 'pythonpath')
+[0.575s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/hook/pythonpath.ps1'
+[0.575s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/hook/pythonpath.dsv'
+[0.576s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/hook/pythonpath.sh'
+[0.576s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_d405/bin'
+[0.576s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(a1z_d405)
+[0.576s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/package.ps1'
+[0.576s] INFO:colcon.colcon_core.shell:Creating package descriptor '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/package.dsv'
+[0.577s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/package.sh'
+[0.577s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/package.bash'
+[0.577s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_d405/share/a1z_d405/package.zsh'
+[0.577s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/workspace/A1Z/ros2_ws/install/a1z_d405/share/colcon-core/packages/a1z_d405)
+[0.588s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/workspace/A1Z/ros2_ws/src/a1z_motion': AMENT_PREFIX_PATH=/workspace/A1Z/ros2_ws/install/a1z_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/workspace/A1Z/ros2_ws/install/a1z_msgs LD_LIBRARY_PATH=/workspace/A1Z/ros2_ws/install/a1z_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/workspace/A1Z/ros2_ws/build/a1z_motion/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_motion/lib/python3.10/site-packages:/workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/a1z_motion build --build-base /workspace/A1Z/ros2_ws/build/a1z_motion/build install --record /workspace/A1Z/ros2_ws/build/a1z_motion/install.log --single-version-externally-managed install_data
+[0.693s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_motion' for CMake module files
+[0.694s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/workspace/A1Z/ros2_ws/src/a1z_motion' returned '0': AMENT_PREFIX_PATH=/workspace/A1Z/ros2_ws/install/a1z_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/workspace/A1Z/ros2_ws/install/a1z_msgs LD_LIBRARY_PATH=/workspace/A1Z/ros2_ws/install/a1z_msgs/lib:${LD_LIBRARY_PATH} PYTHONPATH=/workspace/A1Z/ros2_ws/build/a1z_motion/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_motion/lib/python3.10/site-packages:/workspace/A1Z/ros2_ws/install/a1z_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/a1z_motion build --build-base /workspace/A1Z/ros2_ws/build/a1z_motion/build install --record /workspace/A1Z/ros2_ws/build/a1z_motion/install.log --single-version-externally-managed install_data
+[0.694s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_motion' for CMake config files
+[0.694s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_motion/lib'
+[0.694s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_motion/bin'
+[0.694s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_motion/lib/pkgconfig/a1z_motion.pc'
+[0.695s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_motion/lib/python3.10/site-packages'
+[0.695s] Level 1:colcon.colcon_core.shell:create_environment_hook('a1z_motion', 'pythonpath')
+[0.695s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/hook/pythonpath.ps1'
+[0.695s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/hook/pythonpath.dsv'
+[0.695s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/hook/pythonpath.sh'
+[0.696s] Level 1:colcon.colcon_core.environment:checking '/workspace/A1Z/ros2_ws/install/a1z_motion/bin'
+[0.696s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(a1z_motion)
+[0.696s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/package.ps1'
+[0.696s] INFO:colcon.colcon_core.shell:Creating package descriptor '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/package.dsv'
+[0.697s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/package.sh'
+[0.697s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/package.bash'
+[0.697s] INFO:colcon.colcon_core.shell:Creating package script '/workspace/A1Z/ros2_ws/install/a1z_motion/share/a1z_motion/package.zsh'
+[0.697s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/workspace/A1Z/ros2_ws/install/a1z_motion/share/colcon-core/packages/a1z_motion)
+[0.697s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:closing loop
+[0.698s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:loop closed
+[0.698s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete finished with '0'
+[0.698s] DEBUG:colcon.colcon_core.event_reactor:joining thread
+[0.701s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.notify_send': Could not find 'notify-send'
+[0.701s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[0.701s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[0.701s] INFO:colcon.colcon_notification.desktop_notification:Sending desktop notification using 'notify2'
+[0.701s] DEBUG:colcon.colcon_notification.desktop_notification.notify2:Failed to initialize notify2: org.freedesktop.DBus.Error.NotSupported: Unable to autolaunch a dbus-daemon without a $DISPLAY for X11
+[0.701s] DEBUG:colcon.colcon_core.event_reactor:joined thread
+[0.701s] INFO:colcon.colcon_core.shell:Creating prefix script '/workspace/A1Z/ros2_ws/install/local_setup.ps1'
+[0.702s] INFO:colcon.colcon_core.shell:Creating prefix util module '/workspace/A1Z/ros2_ws/install/_local_setup_util_ps1.py'
+[0.702s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/workspace/A1Z/ros2_ws/install/setup.ps1'
+[0.703s] INFO:colcon.colcon_core.shell:Creating prefix script '/workspace/A1Z/ros2_ws/install/local_setup.sh'
+[0.703s] INFO:colcon.colcon_core.shell:Creating prefix util module '/workspace/A1Z/ros2_ws/install/_local_setup_util_sh.py'
+[0.703s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/workspace/A1Z/ros2_ws/install/setup.sh'
+[0.704s] INFO:colcon.colcon_core.shell:Creating prefix script '/workspace/A1Z/ros2_ws/install/local_setup.bash'
+[0.704s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/workspace/A1Z/ros2_ws/install/setup.bash'
+[0.705s] INFO:colcon.colcon_core.shell:Creating prefix script '/workspace/A1Z/ros2_ws/install/local_setup.zsh'
+[0.705s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/workspace/A1Z/ros2_ws/install/setup.zsh'

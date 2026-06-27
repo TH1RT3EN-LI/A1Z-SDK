@@ -61,6 +61,5 @@ python3 tools/a1zctl stop
 
 - **Server/client** — required because `ArmRobot` needs a persistent 250 Hz control loop; one-shot scripts would re-enable the motors on every call.
 - **Position hold mode** (`zero_gravity_mode=False`) is the server default — motors resist disturbances and hold position between commands.
-- **Gravity mode** is currently experimental in Isaac Sim and only applies to the 6 arm joints. The gripper remains in position-servo mode so it does not sag under gravity when opened or half-closed.
 - **Blocking moves** — `move` and `dance` commands block until the arm arrives, so OpenClaw sees a clean response with the final position.
 - **CAN interface** must be up before starting the server: `sudo ip link set can0 up type can bitrate 1000000`

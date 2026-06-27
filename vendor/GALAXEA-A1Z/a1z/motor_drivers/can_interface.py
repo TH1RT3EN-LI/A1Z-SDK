@@ -6,7 +6,6 @@ from typing import List, Optional
 
 import can
 
-from a1z.config import get_default_can_channel
 from a1z.motor_drivers.utils import ReceiveMode
 
 
@@ -15,7 +14,7 @@ class CanInterface:
 
     def __init__(
         self,
-        channel: str = get_default_can_channel(),
+        channel: str = "can0",
         bustype: str = "socketcan",
         bitrate: int = 1_000_000,
         name: str = "default_can_interface",

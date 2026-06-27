@@ -16,11 +16,9 @@ import time
 
 import can
 
-from a1z.config import get_default_can_channel
-
 # ── Configuration ─────────────────────────────────────────
 
-CAN_CHANNEL = get_default_can_channel()
+CAN_CHANNEL = "can0"
 CAN_BUSTYPE = "socketcan"
 CAN_BITRATE = 1_000_000
 

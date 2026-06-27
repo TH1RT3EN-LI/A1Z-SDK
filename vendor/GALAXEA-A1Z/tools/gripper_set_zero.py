@@ -29,7 +29,6 @@ import tty
 
 import can
 
-from a1z.config import get_default_can_channel
 from a1z.motor_drivers.motor_b_driver import MotorB
 from a1z.robots.gripper import GRIPPER_CAN_ID, GRIPPER_MOTOR_RANGES
 
@@ -125,8 +124,7 @@ Examples:
   python3 tools/gripper_set_zero.py --can can0 --half-travel 2.87 -y
         """,
     )
-    default_can = get_default_can_channel()
-    parser.add_argument("--can", default=default_can, help=f"SocketCAN channel (default: {default_can})")
+    parser.add_argument("--can", default="can0", help="SocketCAN channel (default: can0)")
     parser.add_argument("--half-travel", type=float, default=2.87,
                         help="Half of total gripper travel in rad (default: 2.87). "
                              "After calibration: open_rad=-X, close_rad=+X")
@@ -167,14 +165,23 @@ Examples:
     motor = MotorB(motor_id=GRIPPER_CAN_ID, bus=bus, ranges=GRIPPER_MOTOR_RANGES)
 
     try:
-        # Step 1+2: home to close, set RAM zero there
+        # Step 1: home to close mechanical stop
+        motor.clear_error()
         motor.enable()
         motor.set_ctrl_mode(1)  # calibration uses MIT mode regardless of flash setting
         _home_to_close(motor)
+
+        # Step 2: disable then set RAM zero (motor must be disabled to accept 0xFE)
+        motor.disable()
+        time.sleep(0.1)
         _set_ram_zero(motor)
+        time.sleep(0.1)
         print("[calib] RAM zero set at close stop.")
 
-        # Step 3: drive to midpoint (-half_travel rad)
+        # Step 3: re-enable and drive to midpoint (-half_travel rad)
+        motor.clear_error()
+        motor.enable()
+        motor.set_ctrl_mode(1)
         midpoint = -half
         print(f"[calib] Driving to midpoint ({midpoint:+.2f} rad) ...")
         t0 = time.time()

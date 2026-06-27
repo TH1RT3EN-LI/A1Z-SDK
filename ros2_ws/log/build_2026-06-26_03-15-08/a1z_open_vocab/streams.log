@@ -1,0 +1,21 @@
+[0.420s] Invoking command in '/workspace/A1Z/ros2_ws/src/a1z_open_vocab': PYTHONPATH=/workspace/A1Z/ros2_ws/build/a1z_open_vocab/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/a1z_open_vocab build --build-base /workspace/A1Z/ros2_ws/build/a1z_open_vocab/build install --record /workspace/A1Z/ros2_ws/build/a1z_open_vocab/install.log --single-version-externally-managed install_data
+[0.506s] running egg_info
+[0.506s] writing ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/PKG-INFO
+[0.506s] writing dependency_links to ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/dependency_links.txt
+[0.507s] writing entry points to ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/entry_points.txt
+[0.507s] writing requirements to ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/requires.txt
+[0.507s] writing top-level names to ../../build/a1z_open_vocab/a1z_open_vocab.egg-info/top_level.txt
+[0.507s] reading manifest file '../../build/a1z_open_vocab/a1z_open_vocab.egg-info/SOURCES.txt'
+[0.508s] writing manifest file '../../build/a1z_open_vocab/a1z_open_vocab.egg-info/SOURCES.txt'
+[0.508s] running build
+[0.508s] running build_py
+[0.508s] running install
+[0.508s] running install_lib
+[0.509s] running install_data
+[0.509s] running install_egg_info
+[0.510s] removing '/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages/a1z_open_vocab-0.1.0-py3.10.egg-info' (and everything under it)
+[0.511s] Copying ../../build/a1z_open_vocab/a1z_open_vocab.egg-info to /workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages/a1z_open_vocab-0.1.0-py3.10.egg-info
+[0.512s] running install_scripts
+[0.521s] Installing vision_request script to /workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/a1z_open_vocab
+[0.522s] writing list of installed files to '/workspace/A1Z/ros2_ws/build/a1z_open_vocab/install.log'
+[0.535s] Invoked command in '/workspace/A1Z/ros2_ws/src/a1z_open_vocab' returned '0': PYTHONPATH=/workspace/A1Z/ros2_ws/build/a1z_open_vocab/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/a1z_open_vocab build --build-base /workspace/A1Z/ros2_ws/build/a1z_open_vocab/build install --record /workspace/A1Z/ros2_ws/build/a1z_open_vocab/install.log --single-version-externally-managed install_data

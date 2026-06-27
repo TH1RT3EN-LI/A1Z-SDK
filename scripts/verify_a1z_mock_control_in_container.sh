@@ -26,7 +26,7 @@ echo "Starting mock A1Z control server in container..."
 A1Z_BACKEND=mock \
 A1Z_SOCKET_PATH="$VERIFY_SOCKET_PATH" \
   "$ROOT_DIR/scripts/a1z_sdk_python_in_container.sh" \
-  /workspace/A1Z/vendor/GALAXEA-A1Z/tools/a1zctl \
+  /workspace/A1Z/tools/a1zctl \
   serve \
   --backend mock \
   --with-gripper >"$SERVER_LOG" 2>&1 &

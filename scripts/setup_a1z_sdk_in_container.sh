@@ -79,5 +79,6 @@ python -m pip install -e '$SDK_DIR'
 echo "A1Z SDK venv is ready in $CONTAINER_NAME."
 echo "Venv: $VENV_DIR"
 echo "SDK path: $SDK_DIR"
+echo "Workspace Python path: /workspace/A1Z"
 echo "Use host wrappers in scripts/ to run the SDK without touching Isaac Python."
 echo "Note: bring up SocketCAN on the host before using the real robot."

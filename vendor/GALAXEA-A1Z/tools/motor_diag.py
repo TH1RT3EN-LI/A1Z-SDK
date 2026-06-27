@@ -40,11 +40,9 @@ from typing import Dict, List, Optional, Tuple
 import can
 import numpy as np
 
-from a1z.config import get_default_can_channel
-
 # ── 默认配置（与 get_robot.py 一致） ──────────────────
 
-CAN_CHANNEL = get_default_can_channel()
+CAN_CHANNEL = "can0"
 CAN_BUSTYPE = "socketcan"
 CAN_BITRATE = 1_000_000
 

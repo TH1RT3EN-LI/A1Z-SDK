@@ -19,7 +19,8 @@ VENV_PYTHON="${A1Z_SDK_VENV_DIR:-/home/ubuntu/.venvs/a1z-sdk}/bin/python"
 
 if [[ -S "$SOCKET_PATH" ]]; then
   A1Z_SOCKET_PATH="$SOCKET_PATH" \
-    "$VENV_PYTHON" "$ROOT_DIR/vendor/GALAXEA-A1Z/tools/a1zctl" stop >/dev/null 2>&1 || true
+    PYTHONPATH="$ROOT_DIR/vendor/GALAXEA-A1Z:$ROOT_DIR" \
+    "$VENV_PYTHON" "$ROOT_DIR/tools/a1zctl" stop >/dev/null 2>&1 || true
 fi
 
 if [[ -f "$PID_FILE" ]]; then

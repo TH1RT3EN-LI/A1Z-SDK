@@ -1,0 +1,61 @@
+{
+  "set_name": "a1z_trash_grasp_set_isaac_ycb_v1",
+  "description": "Higher-quality Isaac YCB trash-like tabletop assets for the A1Z scene.",
+  "direct_assets": [
+    {
+      "id": "can_crushed",
+      "source_type": "usd_reference",
+      "category": "paper",
+      "source_provider": "Isaac Sim YCB",
+      "usd_path": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Props/YCB/Axis_Aligned/008_pudding_box.usd",
+      "target_bbox_m": [0.050, 0.045, 0.035],
+      "suggested_mass_kg": 0.009,
+      "scale": 1.0,
+      "notes": "Small snack-box style trash replacement with a pinchable narrow side."
+    },
+    {
+      "id": "can_upright",
+      "source_type": "usd_reference",
+      "category": "tool",
+      "source_provider": "Isaac Sim YCB",
+      "usd_path": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Props/YCB/Axis_Aligned/040_large_marker.usd",
+      "target_bbox_m": [0.028, 0.028, 0.150],
+      "suggested_mass_kg": 0.012,
+      "scale": 1.0,
+      "notes": "Slender marker-like object with an obvious narrow grasp region."
+    },
+    {
+      "id": "bottle_plastic",
+      "source_type": "usd_reference",
+      "category": "paper",
+      "source_provider": "Isaac Sim YCB",
+      "usd_path": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Props/YCB/Axis_Aligned/003_cracker_box.usd",
+      "target_bbox_m": [0.060, 0.190, 0.250],
+      "suggested_mass_kg": 0.018,
+      "scale": 1.0,
+      "notes": "Tall cardboard packaging, reads more like discardable tabletop trash than a household bottle."
+    },
+    {
+      "id": "bottle_water",
+      "source_type": "usd_reference",
+      "category": "paper",
+      "source_provider": "Isaac Sim YCB",
+      "usd_path": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Props/YCB/Axis_Aligned/004_sugar_box.usd",
+      "target_bbox_m": [0.060, 0.095, 0.175],
+      "suggested_mass_kg": 0.016,
+      "scale": 1.0,
+      "notes": "Compact food box replacement so the set stays in a trash-like packaging vocabulary."
+    },
+    {
+      "id": "paper_debris",
+      "source_type": "usd_reference",
+      "category": "paper",
+      "source_provider": "Isaac Sim YCB",
+      "usd_path": "https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/5.1/Isaac/Props/YCB/Axis_Aligned/009_gelatin_box.usd",
+      "target_bbox_m": [0.045, 0.070, 0.090],
+      "suggested_mass_kg": 0.010,
+      "scale": 1.0,
+      "notes": "Small narrow box with a more realistic pinchable side than the large soup can."
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+# Goal
+geometry_msgs/PoseStamped goal_pose
+string end_effector_frame
+bool command_gripper
+float32 gripper_opening
+float32 speed
+float32 position_tolerance_m
+float32 orientation_tolerance_rad
+float32 joint_margin_rad
+float32 max_joint_step_rad
+float32 min_target_z_m
+float32 max_target_z_m
+---
+# Result
+bool success
+string status
+string failure_reason
+float64[] final_joint_positions_rad
+geometry_msgs/PoseStamped final_pose
+float32 final_gripper_opening
+bool ik_converged
+float32 position_error_m
+float32 orientation_error_rad
+---
+# Feedback
+string stage
+string message
