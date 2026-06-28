@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+
+"""Execute a selected A1Z grasp plan through the local socket server."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import socket
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SDK_ROOT = REPO_ROOT / "vendor" / "GALAXEA-A1Z"
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(SDK_ROOT) not in sys.path:
+    sys.path.insert(0, str(SDK_ROOT))
+
+from a1z_ext.config import get_socket_path
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Execute a selected A1Z grasp plan.")
+    parser.add_argument("--plan", required=True, help="Path to selected_plan.json")
+    parser.add_argument("--socket-path", default=get_socket_path())
+    parser.add_argument("--output", default="", help="Optional execution result JSON path")
+    parser.add_argument("--arm-speed", type=float, default=0.2)
+    parser.add_argument("--pre-open", action="store_true")
+    parser.add_argument("--settle-s", type=float, default=0.5)
+    parser.add_argument("--dry-run", action="store_true")
+    return parser
+
+
+def _send_socket_request(socket_path: str, cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    request = json.dumps({"cmd": cmd, "args": args or {}}) + "\n"
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(120.0)
+    try:
+        sock.connect(socket_path)
+        sock.sendall(request.encode("utf-8"))
+        data = b""
+        while b"\n" not in data:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+    finally:
+        sock.close()
+    if not data:
+        raise RuntimeError(f"no response from A1Z server on {socket_path}")
+    payload = json.loads(data.split(b"\n", 1)[0].decode("utf-8"))
+    if not payload.get("ok"):
+        raise RuntimeError(str(payload.get("error", "unknown server error")))
+    return dict(payload.get("data", {}))
+
+
+def _status(socket_path: str) -> dict[str, Any]:
+    return _send_socket_request(socket_path, "status")
+
+
+def _move(socket_path: str, joints_rad: list[float], *, speed: float) -> dict[str, Any]:
+    joints_deg = np.rad2deg(np.asarray(joints_rad, dtype=np.float64)).tolist()
+    return _send_socket_request(socket_path, "move", {"joints": [float(v) for v in joints_deg], "speed": float(speed)})
+
+
+def _gripper(socket_path: str, value: float) -> dict[str, Any]:
+    return _send_socket_request(socket_path, "gripper", {"value": float(value)})
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    plan_path = Path(args.plan).resolve()
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+
+    result: dict[str, Any] = {
+        "plan_path": str(plan_path),
+        "dry_run": bool(args.dry_run),
+        "steps": [],
+        "success": False,
+    }
+
+    try:
+        if bool(args.pre_open):
+            open_value = float(plan.get("gripper_commands", {}).get("open_before_grasp", 1.0))
+            step = {"type": "gripper_open", "value": open_value}
+            if not args.dry_run:
+                step["response"] = _gripper(args.socket_path, open_value)
+                time.sleep(max(0.0, float(args.settle_s)))
+            result["steps"].append(step)
+
+        for segment in plan.get("joint_trajectory_segments", []):
+            step = {
+                "type": segment.get("segment_type", "move"),
+                "target_joint_rad": list(segment.get("target_joint_rad", [])),
+                "timeout_s": float(segment.get("timeout_s", 0.0)),
+            }
+            if not args.dry_run:
+                step["status_before"] = _status(args.socket_path)
+                step["response"] = _move(
+                    args.socket_path,
+                    step["target_joint_rad"],
+                    speed=float(args.arm_speed),
+                )
+                time.sleep(max(0.0, float(args.settle_s)))
+                step["status_after"] = _status(args.socket_path)
+            result["steps"].append(step)
+
+            if step["type"] == "approach":
+                close_value = float(plan.get("gripper_commands", {}).get("close_after_approach", 0.0))
+                close_step = {"type": "gripper_close", "value": close_value}
+                if not args.dry_run:
+                    close_step["response"] = _gripper(args.socket_path, close_value)
+                    time.sleep(max(0.0, float(args.settle_s)))
+                result["steps"].append(close_step)
+
+        result["final_status"] = _status(args.socket_path) if not args.dry_run else {}
+        result["success"] = True
+    except Exception as exc:
+        result["success"] = False
+        result["error"] = str(exc)
+
+    output_path = Path(args.output).resolve() if args.output else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(result, ensure_ascii=True, indent=2), encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=True))
+    return 0 if result["success"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
