@@ -366,6 +366,13 @@ class IsaacSimArmRobot:
         with self._command_lock:
             command_pos = self._command.pos.copy()
             command_vel = self._command.vel.copy()
+        gripper_target_value = float(self._gripper_target_value)
+        gripper_target_dofs = None
+        gripper_current_dofs = None
+        if self._with_gripper and self._gripper_joint_indices.size == 2:
+            gripper_target_dofs = self._normalized_to_gripper_dofs(gripper_target_value).copy()
+            with self._state_lock:
+                gripper_current_dofs = self._full_pos[self._gripper_joint_indices].copy()
         return {
             "backend": "isaacsim",
             "num_joints": self._num_joints,
@@ -400,6 +407,9 @@ class IsaacSimArmRobot:
             "effort_modes": effort_modes,
             "command_pos": command_pos,
             "command_vel": command_vel,
+            "gripper_target_value": gripper_target_value,
+            "gripper_target_dofs": gripper_target_dofs,
+            "gripper_current_dofs": gripper_current_dofs,
             "control_mode": "gravity_comp_effort" if self.zero_gravity_mode else "position_hold",
         }
 
