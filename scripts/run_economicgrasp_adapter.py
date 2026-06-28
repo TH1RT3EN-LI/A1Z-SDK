@@ -53,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pregrasp-opening-margin-m", type=float, default=0.008)
     parser.add_argument("--min-joint-margin-deg", type=float, default=5.0)
     parser.add_argument("--max-waypoint-delta-rad", type=float, default=2.5)
+    parser.add_argument("--ik-dt", type=float, default=0.01)
+    parser.add_argument("--ik-pos-threshold-m", type=float, default=5e-4)
+    parser.add_argument("--ik-ori-threshold-rad", type=float, default=5e-3)
+    parser.add_argument("--ik-damping", type=float, default=1e-6)
+    parser.add_argument("--ik-max-iters", type=int, default=800)
+    parser.add_argument("--approach-linear-waypoint-count", type=int, default=2)
     parser.add_argument("--ee-grasp-origin-xyz-m", default="[0.0727, 0.0, 0.0]")
     parser.add_argument("--ee-opening-axis-xyz", default="[0.0, 1.0, 0.0]")
     parser.add_argument("--ee-approach-axis-xyz", default="[1.0, 0.0, 0.0]")
@@ -61,6 +67,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--depth-bias-m", type=float, default=0.0)
     parser.add_argument("--grasp-center-is-contact-center", action="store_true")
     parser.add_argument("--require-approach-downward", action="store_true")
+    parser.add_argument("--intrinsics", default="", help="Optional intrinsics.json used for mask filtering")
+    parser.add_argument("--mask", default="", help="Optional selected_mask.npy used to keep only target-object grasps")
+    parser.add_argument(
+        "--approach-axis-modes",
+        default='["c2", "c0"]',
+        help='EconomicGrasp approach-axis variants, e.g. ["c2","mc2","c0"]',
+    )
+    parser.add_argument(
+        "--opening-axis-modes",
+        default='["mc1", "c1"]',
+        help='EconomicGrasp opening-axis variants, e.g. ["mc1","c1"]',
+    )
+    parser.add_argument(
+        "--center-shift-depth-scales",
+        default="[0.0, 0.5, 1.0, -0.5, -1.0]",
+        help="Shift grasp center along approach axis by scale * depth_m.",
+    )
     return parser
 
 
@@ -137,6 +160,26 @@ def _parse_keepout_spheres(raw_values: list[str]) -> list[KeepoutSphere]:
     return spheres
 
 
+def _load_intrinsics(path_arg: str) -> dict[str, float] | None:
+    if not path_arg:
+        return None
+    payload = json.loads(Path(path_arg).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"intrinsics must be a JSON object: {path_arg}")
+    required = ("fx", "fy", "cx", "cy")
+    missing = [key for key in required if key not in payload]
+    if missing:
+        raise ValueError(f"intrinsics missing required keys {missing}: {path_arg}")
+    return {key: float(payload[key]) for key in required}
+
+
+def _load_mask_array(path_arg: str) -> np.ndarray:
+    mask = np.load(Path(path_arg))
+    if mask.ndim != 2:
+        raise ValueError(f"mask must be 2D, got shape {mask.shape}")
+    return np.asarray(mask, dtype=bool)
+
+
 def main() -> int:
     args = build_parser().parse_args()
     output_dir = Path(args.output_dir).resolve()
@@ -151,6 +194,8 @@ def main() -> int:
     extrinsic_camera_to_base = np.load(Path(args.extrinsic_camera_to_base)).astype(np.float64, copy=False)
     if extrinsic_camera_to_base.shape != (4, 4):
         raise ValueError(f"extrinsic_camera_to_base must be 4x4, got {extrinsic_camera_to_base.shape}")
+    intrinsics = _load_intrinsics(args.intrinsics)
+    mask = _load_mask_array(args.mask) if args.mask else None
 
     config = EconomicGraspA1ZAdapterConfig(
         end_effector_frame=args.end_effector_frame,
@@ -167,12 +212,21 @@ def main() -> int:
         pregrasp_opening_margin_m=args.pregrasp_opening_margin_m,
         min_joint_margin_deg=args.min_joint_margin_deg,
         max_waypoint_delta_rad=args.max_waypoint_delta_rad,
+        ik_dt=args.ik_dt,
+        ik_pos_threshold_m=args.ik_pos_threshold_m,
+        ik_ori_threshold_rad=args.ik_ori_threshold_rad,
+        ik_damping=args.ik_damping,
+        ik_max_iters=args.ik_max_iters,
+        approach_linear_waypoint_count=args.approach_linear_waypoint_count,
         ee_grasp_origin_xyz_m=tuple(_parse_json_value(args.ee_grasp_origin_xyz_m, expected_len=3)),
         ee_opening_axis_xyz=tuple(_parse_json_value(args.ee_opening_axis_xyz, expected_len=3)),
         ee_approach_axis_xyz=tuple(_parse_json_value(args.ee_approach_axis_xyz, expected_len=3)),
         keepout_spheres=_parse_keepout_spheres(args.keepout_sphere),
         grasp_center_is_contact_center=bool(args.grasp_center_is_contact_center),
         depth_bias_m=args.depth_bias_m,
+        approach_axis_modes=tuple(str(item) for item in json.loads(args.approach_axis_modes)),
+        opening_axis_modes=tuple(str(item) for item in json.loads(args.opening_axis_modes)),
+        center_shift_depth_scales=tuple(float(item) for item in json.loads(args.center_shift_depth_scales)),
     )
     adapter = EconomicGraspA1ZAdapter(config=config)
     result = adapter.plan_from_predictions(
@@ -182,6 +236,8 @@ def main() -> int:
         task_id=args.task_id,
         object_id=args.object_id,
         backend=args.backend,
+        intrinsics=intrinsics,
+        mask=mask,
     )
 
     result_path = output_dir / "economicgrasp_adapter_result.json"

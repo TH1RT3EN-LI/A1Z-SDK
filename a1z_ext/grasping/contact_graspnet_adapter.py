@@ -174,6 +174,12 @@ class ContactGraspNetA1ZAdapterConfig:
     min_joint_margin_deg: float = 5.0
     max_waypoint_delta_rad: float = 2.5
     use_ik: bool = True
+    approach_linear_waypoint_count: int = 0
+    ik_dt: float = 0.01
+    ik_pos_threshold_m: float = 5e-4
+    ik_ori_threshold_rad: float = 5e-3
+    ik_damping: float = 1e-6
+    ik_max_iters: int = 800
     keepout_spheres: list[KeepoutSphere] = field(default_factory=list)
     ee_grasp_origin_xyz_m: tuple[float, float, float] = (0.0727, 0.0, 0.0)
     ee_opening_axis_xyz: tuple[float, float, float] = (0.0, 1.0, 0.0)
@@ -566,6 +572,11 @@ class ContactGraspNetA1ZAdapter:
                 poses[stage],
                 init_q=seed,
                 frame_name=self.config.end_effector_frame,
+                dt=float(self.config.ik_dt),
+                pos_threshold=float(self.config.ik_pos_threshold_m),
+                ori_threshold=float(self.config.ik_ori_threshold_rad),
+                damping=float(self.config.ik_damping),
+                max_iters=int(self.config.ik_max_iters),
             )
             if not converged:
                 solutions[stage] = (False, None)
@@ -647,17 +658,16 @@ class ContactGraspNetA1ZAdapter:
         for candidate in ordered:
             if candidate.failure_reasons:
                 continue
+            approach_segments = self._build_approach_segments(candidate)
+            if approach_segments is None:
+                continue
             segments = [
                 JointTrajectorySegment(
                     segment_type="move_to_pregrasp",
                     target_joint_rad=candidate.joint_targets_rad["pregrasp"] or [],
                     timeout_s=float(self.config.segment_timeouts_s["move_to_pregrasp"]),
                 ),
-                JointTrajectorySegment(
-                    segment_type="approach",
-                    target_joint_rad=candidate.joint_targets_rad["grasp"] or [],
-                    timeout_s=float(self.config.segment_timeouts_s["approach"]),
-                ),
+                *approach_segments,
                 JointTrajectorySegment(
                     segment_type="lift",
                     target_joint_rad=candidate.joint_targets_rad["lift"] or [],
@@ -684,5 +694,78 @@ class ContactGraspNetA1ZAdapter:
                 safety_summary=dict(candidate.safety_summary),
                 candidate_rank=int(candidate.rank),
                 source_model=source_model,
-            )
+                )
         return None
+
+    def _build_approach_segments(self, candidate: GraspExecutionCandidate) -> list[JointTrajectorySegment] | None:
+        waypoint_count = max(0, int(self.config.approach_linear_waypoint_count))
+        final_grasp = candidate.joint_targets_rad.get("grasp") or []
+        if waypoint_count <= 0 or self._kinematics is None:
+            return [
+                JointTrajectorySegment(
+                    segment_type="approach",
+                    target_joint_rad=final_grasp,
+                    timeout_s=float(self.config.segment_timeouts_s["approach"]),
+                )
+            ]
+
+        pregrasp_q_raw = candidate.joint_targets_rad.get("pregrasp")
+        if pregrasp_q_raw is None:
+            return None
+        pregrasp_pose = np.asarray(candidate.tool_pregrasp_pose_matrix, dtype=np.float64).reshape(4, 4)
+        grasp_pose = np.asarray(candidate.tool_grasp_pose_matrix, dtype=np.float64).reshape(4, 4)
+        pregrasp_q = np.asarray(pregrasp_q_raw, dtype=np.float64).reshape(-1)
+        grasp_q = np.asarray(final_grasp, dtype=np.float64).reshape(-1)
+        lower = np.asarray(self._kinematics._model.lowerPositionLimit, dtype=np.float64).reshape(-1)
+        upper = np.asarray(self._kinematics._model.upperPositionLimit, dtype=np.float64).reshape(-1)
+
+        segments: list[JointTrajectorySegment] = []
+        seed = pregrasp_q.copy()
+        timeout_total = float(self.config.segment_timeouts_s["approach"])
+        timeout_each = timeout_total / float(waypoint_count + 1)
+        prev_q = pregrasp_q
+
+        for waypoint_idx in range(waypoint_count):
+            alpha = float(waypoint_idx + 1) / float(waypoint_count + 1)
+            pose = grasp_pose.copy()
+            pose[:3, 3] = (1.0 - alpha) * pregrasp_pose[:3, 3] + alpha * grasp_pose[:3, 3]
+            converged, q = self._kinematics.ik(
+                pose,
+                init_q=seed,
+                frame_name=self.config.end_effector_frame,
+                dt=float(self.config.ik_dt),
+                pos_threshold=float(self.config.ik_pos_threshold_m),
+                ori_threshold=float(self.config.ik_ori_threshold_rad),
+                damping=float(self.config.ik_damping),
+                max_iters=int(self.config.ik_max_iters),
+            )
+            if not converged or q is None:
+                return None
+            q = np.asarray(q, dtype=np.float64).reshape(-1)
+            if np.any(q < lower - 1e-6) or np.any(q > upper + 1e-6):
+                return None
+            q = np.clip(q, lower, upper)
+            if float(np.max(np.abs(q - prev_q))) > self.config.max_waypoint_delta_rad:
+                return None
+            segments.append(
+                JointTrajectorySegment(
+                    segment_type="approach_waypoint",
+                    target_joint_rad=q.astype(float).tolist(),
+                    timeout_s=timeout_each,
+                )
+            )
+            seed = q
+            prev_q = q
+
+        if grasp_q.shape != prev_q.shape:
+            return None
+        if float(np.max(np.abs(grasp_q - prev_q))) > self.config.max_waypoint_delta_rad:
+            return None
+        segments.append(
+            JointTrajectorySegment(
+                segment_type="approach",
+                target_joint_rad=grasp_q.astype(float).tolist(),
+                timeout_s=timeout_each,
+            )
+        )
+        return segments
