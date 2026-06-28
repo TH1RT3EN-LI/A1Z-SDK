@@ -691,7 +691,6 @@ class IsaacSimArmRobot:
             )
 
         if self._with_gripper and self._gripper_joint_indices.size == 2:
-            self._set_subset_effort_mode("force", self._gripper_joint_indices)
             self._set_subset_gains(self._gripper_joint_indices, self._gripper_kp, self._gripper_kd)
             self._set_subset_max_efforts(self._gripper_joint_indices, self._gripper_max_effort)
             for dof_index in self._gripper_joint_indices.tolist():
