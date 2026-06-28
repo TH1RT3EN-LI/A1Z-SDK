@@ -220,6 +220,14 @@ class RobotServer:
             data["gripper_joint_indices"] = (
                 np.asarray(info["gripper_joint_indices"], dtype=np.int64).reshape(-1).tolist()
             )
+        if info.get("gripper_target_value") is not None:
+            data["gripper_target_value"] = round(float(info["gripper_target_value"]), 4)
+        if info.get("gripper_target_dofs") is not None:
+            gripper_target_dofs = np.asarray(info["gripper_target_dofs"], dtype=np.float64).reshape(-1)
+            data["gripper_target_dofs"] = [round(float(v), 6) for v in gripper_target_dofs]
+        if info.get("gripper_current_dofs") is not None:
+            gripper_current_dofs = np.asarray(info["gripper_current_dofs"], dtype=np.float64).reshape(-1)
+            data["gripper_current_dofs"] = [round(float(v), 6) for v in gripper_current_dofs]
         if info.get("actual_kp") is not None:
             actual_kp = np.asarray(info["actual_kp"], dtype=np.float64).reshape(-1)
             if arm_joint_indices is not None and arm_joint_indices.size:

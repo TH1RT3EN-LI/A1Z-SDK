@@ -168,6 +168,7 @@ class IsaacSimArmRobot:
         self._dof_names: list[str] = []
         self._arm_joint_indices = np.arange(self._num_joints, dtype=np.int64)
         self._gripper_joint_indices = np.array([], dtype=np.int64)
+        self._gripper_joint_paths: list[str] = []
         self._last_control_action_time = 0.0
         self._last_gripper_action_time = 0.0
         self._last_hard_limit_log_time = 0.0
@@ -389,6 +390,7 @@ class IsaacSimArmRobot:
             "dof_names": list(self._dof_names),
             "arm_joint_indices": self._arm_joint_indices.copy(),
             "gripper_joint_indices": self._gripper_joint_indices.copy(),
+            "gripper_joint_paths": list(self._gripper_joint_paths),
             "gravity_comp_factor": self._gravity_comp_factor,
             "zero_gravity_mode": self.zero_gravity_mode,
             "gravity_torque_scale": self._gravity_torque_scale.copy(),
@@ -420,7 +422,19 @@ class IsaacSimArmRobot:
             raise RuntimeError("No gripper attached. Start the backend with gripper enabled.")
         value = float(np.clip(value, 0.0, 1.0))
         self._run_on_main_thread(lambda: self._set_gripper_target(value))
-        self._wait_for_gripper_target(value, timeout_s=2.0)
+        try:
+            self._wait_for_gripper_target(value, timeout_s=2.0)
+        except TimeoutError as exc:
+            target_dofs = self._normalized_to_gripper_dofs(value)
+            carb.log_warn(
+                "A1Z Isaac gripper target did not settle via controller; "
+                f"forcing joint positions target={np.round(target_dofs, 6).tolist()}"
+            )
+            self._run_on_main_thread(lambda: self._force_gripper_positions(target_dofs))
+            try:
+                self._wait_for_gripper_target(value, timeout_s=0.75)
+            except TimeoutError:
+                raise exc
 
     def get_gripper_pos(self) -> Optional[float]:
         if not self._with_gripper:
@@ -676,6 +690,136 @@ class IsaacSimArmRobot:
                 raise RuntimeError(f"Missing gripper joint in Isaac articulation: {exc}") from exc
         else:
             self._gripper_joint_indices = np.array([], dtype=np.int64)
+        self._resolve_gripper_joint_paths()
+
+    def _resolve_gripper_joint_paths(self) -> None:
+        self._gripper_joint_paths = []
+        if not self._with_gripper:
+            return
+
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return
+
+        articulation_path = Sdf.Path(self._articulation_root_prim)
+        parent_path = articulation_path.GetParentPath()
+        grandparent_path = parent_path.GetParentPath() if parent_path != Sdf.Path.absoluteRootPath else parent_path
+
+        candidate_roots: list[str] = []
+        for base in (
+            self._articulation_root_prim,
+            str(parent_path),
+            str(grandparent_path),
+            "/World/A1Z_G1Z",
+            "/A1Z_G1Z",
+        ):
+            if not base or base == "/":
+                continue
+            candidate_roots.extend(
+                (
+                    f"{base}/Physics",
+                    f"{base}/joints",
+                    f"{base}/root_joint/joints",
+                )
+            )
+
+        seen: set[str] = set()
+        unique_roots: list[str] = []
+        for root in candidate_roots:
+            if root in seen:
+                continue
+            seen.add(root)
+            unique_roots.append(root)
+
+        for joint_name in self._gripper_joint_names:
+            resolved = ""
+            for root in unique_roots:
+                candidate = f"{root}/{joint_name}"
+                if stage.GetPrimAtPath(candidate).IsValid():
+                    resolved = candidate
+                    break
+            self._gripper_joint_paths.append(resolved)
+
+    def _configure_gripper_drive_targets(self) -> None:
+        if not self._with_gripper or len(self._gripper_joint_paths) != 2:
+            return
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return
+
+        for local_idx, joint_path in enumerate(self._gripper_joint_paths):
+            if not joint_path:
+                continue
+            prim = stage.GetPrimAtPath(joint_path)
+            if not prim.IsValid():
+                continue
+            drive = UsdPhysics.DriveAPI.Get(prim, "linear")
+            if not drive:
+                drive = UsdPhysics.DriveAPI.Apply(prim, "linear")
+
+            if prim.HasAttribute("drive:linear:physics:type"):
+                drive.GetTypeAttr().Set("acceleration")
+            else:
+                drive.CreateTypeAttr().Set("acceleration")
+            if prim.HasAttribute("drive:linear:physics:stiffness"):
+                drive.GetStiffnessAttr().Set(float(self._gripper_kp[local_idx]))
+            else:
+                drive.CreateStiffnessAttr().Set(float(self._gripper_kp[local_idx]))
+            if prim.HasAttribute("drive:linear:physics:damping"):
+                drive.GetDampingAttr().Set(float(self._gripper_kd[local_idx]))
+            else:
+                drive.CreateDampingAttr().Set(float(self._gripper_kd[local_idx]))
+            if prim.HasAttribute("drive:linear:physics:maxForce"):
+                drive.GetMaxForceAttr().Set(float(self._gripper_max_effort[local_idx]))
+            else:
+                drive.CreateMaxForceAttr().Set(float(self._gripper_max_effort[local_idx]))
+            if prim.HasAttribute("drive:linear:physics:targetVelocity"):
+                drive.GetTargetVelocityAttr().Set(0.0)
+            else:
+                drive.CreateTargetVelocityAttr().Set(0.0)
+            if not prim.HasAttribute("drive:linear:physics:targetPosition"):
+                drive.CreateTargetPositionAttr().Set(0.0)
+
+    def _set_gripper_drive_targets(self, target_dofs: np.ndarray) -> None:
+        if not self._with_gripper or len(self._gripper_joint_paths) != 2:
+            return
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return
+
+        target_dofs = np.asarray(target_dofs, dtype=np.float64).reshape(-1)
+        for local_idx, joint_path in enumerate(self._gripper_joint_paths):
+            if local_idx >= target_dofs.shape[0] or not joint_path:
+                continue
+            prim = stage.GetPrimAtPath(joint_path)
+            if not prim.IsValid():
+                continue
+            drive = UsdPhysics.DriveAPI.Get(prim, "linear")
+            if not drive:
+                drive = UsdPhysics.DriveAPI.Apply(prim, "linear")
+            if prim.HasAttribute("drive:linear:physics:targetPosition"):
+                drive.GetTargetPositionAttr().Set(float(target_dofs[local_idx]))
+            else:
+                drive.CreateTargetPositionAttr().Set(float(target_dofs[local_idx]))
+            if prim.HasAttribute("drive:linear:physics:targetVelocity"):
+                drive.GetTargetVelocityAttr().Set(0.0)
+            else:
+                drive.CreateTargetVelocityAttr().Set(0.0)
+
+    def _force_gripper_positions(self, target_dofs: np.ndarray) -> None:
+        if self._articulation is None or self._gripper_joint_indices.size != 2:
+            return
+        target_dofs = np.asarray(target_dofs, dtype=np.float64).reshape(-1)[:2]
+        self._articulation.set_joint_positions(
+            target_dofs.astype(np.float32),
+            joint_indices=self._gripper_joint_indices.astype(np.int64),
+        )
+        self._articulation.set_joint_velocities(
+            np.zeros(2, dtype=np.float32),
+            joint_indices=self._gripper_joint_indices.astype(np.int64),
+        )
+        self._set_gripper_drive_targets(target_dofs)
+        self._update_state_cache()
 
     def _configure_actuators(self) -> None:
         if self._articulation is None:
@@ -705,6 +849,7 @@ class IsaacSimArmRobot:
             self._set_subset_max_efforts(self._gripper_joint_indices, self._gripper_max_effort)
             for dof_index in self._gripper_joint_indices.tolist():
                 self._switch_dof_control_mode("position", int(dof_index))
+            self._configure_gripper_drive_targets()
 
         try:
             dof_props = self._articulation.dof_properties
@@ -800,6 +945,7 @@ class IsaacSimArmRobot:
                     joint_indices=self._gripper_joint_indices.astype(np.int64),
                 )
             )
+            self._set_gripper_drive_targets(grip)
 
     def _normalized_to_gripper_dofs(self, value: float) -> np.ndarray:
         open_fraction = float(np.clip(value, 0.0, 1.0))
