@@ -45,6 +45,13 @@
   - 在 GPU 视觉容器里创建 vision venv，安装 PyTorch / SAM2 / AnyGrasp 运行时依赖。
 - `setup_anygrasp_sdk_in_container.sh`
   - 在 GPU 视觉容器里为当前 Python 版本铺好 AnyGrasp 二进制、license 和 checkpoint 链接。
+- `run_grconvnet_inference_in_container.sh`
+  - 在 GPU 视觉容器里运行 `GR-ConvNet`，输入 `RGB-D + selected mask`，输出 grasp quality/angle/width maps。
+- `run_grconvnet_adapter_in_container.sh`
+  - 在 SDK 容器里把 `GR-ConvNet` grasp maps 适配成 A1Z grasp adapter 结果。
+- `verify_grconvnet_adapter_in_container.sh`
+  - 用当前仓库里的 ROS 抓图样例和目标 mask，对 `GR-ConvNet inference -> A1Z adapter` 做一次跨容器离线 smoke verify。
+  - 会优先使用 `capture/extrinsic_camera_to_base.npy`；如果旧抓图目录里还没有这个文件，会在 ROS 容器里通过 TF 解析 `d405_color_optical_frame -> robot_base_frame` 后补出来。
 - `verify_a1z_vision_stack_in_container.sh`
   - 验证 GPU 视觉容器里的 Torch / SAM2 / AnyGrasp import 与 checkpoint 可见性。
 - `a1z_vision_shell_in_container.sh`
@@ -147,6 +154,10 @@ ROS2 D405 bridge：
   和 `camera_capture`。
 - `a1z_motion.launch.py` 会启动 `a1z_d405` 的 `d405_bridge`，由 ROS2 工作区发布
   `/a1z/d405/color/*` 和 `/a1z/d405/depth/*` topic。
+- `scripts/capture_ros_rgbd.py` 现在默认把抓图目标帧设为 `robot_base_frame`，
+  并在可解析 TF 时同时写出：
+  - `extrinsic_camera_to_target.npy`
+  - `extrinsic_camera_to_base.npy`
 
 目录约定：
 

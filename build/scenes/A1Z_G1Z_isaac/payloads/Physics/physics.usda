@@ -282,7 +282,7 @@ over "A1Z_G1Z"
             float drive:linear:physics:damping = 28
             float drive:linear:physics:stiffness = 260
             uniform token drive:linear:physics:type = "acceleration"
-            uniform token physics:axis = "X"
+            uniform token physics:axis = "Y"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6>
             custom rel physics:body1
@@ -302,7 +302,7 @@ over "A1Z_G1Z"
             float drive:linear:physics:damping = 28
             float drive:linear:physics:stiffness = 260
             uniform token drive:linear:physics:type = "acceleration"
-            uniform token physics:axis = "X"
+            uniform token physics:axis = "Y"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6>
             custom rel physics:body1
@@ -340,4 +340,3 @@ over "A1Z_G1Z"
         }
     }
 }
-

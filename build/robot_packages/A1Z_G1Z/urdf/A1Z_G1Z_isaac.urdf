@@ -249,6 +249,7 @@
     <origin xyz="0.0727 -0.025 0.018" rpy="0 0 0" />
     <parent link="arm_link6" />
     <child link="gripper_finger_left_link" />
+    <axis xyz="0 1 0" />
   </joint>
   <link name="gripper_finger_rIght_link">
     <inertial>
@@ -276,5 +277,6 @@
     <origin xyz="0.0727 0.025 -0.018" rpy="0 0 0" />
     <parent link="arm_link6" />
     <child link="gripper_finger_rIght_link" />
+    <axis xyz="0 1 0" />
   </joint>
 </robot>

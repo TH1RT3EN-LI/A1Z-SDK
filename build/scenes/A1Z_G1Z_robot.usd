@@ -221,8 +221,11 @@ def Xform "A1Z_G1Z" (
                                         uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                     }
 
-                                    over "gripper_finger_left_link"
+                                    over "gripper_finger_left_link" (
+                                        prepend apiSchemas = ["PhysicsFilteredPairsAPI"]
+                                    )
                                     {
+                                        rel physics:filteredPairs = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link>
                                         uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                     }
 
@@ -259,4 +262,3 @@ def Xform "A1Z_G1Z" (
         }
     }
 }
-

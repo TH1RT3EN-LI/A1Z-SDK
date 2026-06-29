@@ -94,13 +94,17 @@ GRIPPER_COLLISION_PRIM_PATHS = (
     "/Instances/gripper_finger_left_link_1/gripper_finger_left_link",
     "/Instances/gripper_finger_rIght_link_1/gripper_finger_rIght_link",
 )
+GRIPPER_LINK_NAMES = (
+    "gripper_finger_left_link",
+    "gripper_finger_rIght_link",
+)
 
 ROBOT_MATERIAL_PRESETS = {
     "silver_shell": {
-        "base_color_srgb": (0.75294, 0.75294, 0.75294),
-        "metallic": 0.86,
+        "base_color_srgb": (0.78, 0.78, 0.78),
+        "metallic": 0.72,
         "roughness": 0.42,
-        "specular": 0.55,
+        "specular": 0.52,
     },
     "gunmetal": {
         "base_color_srgb": (0.16, 0.16, 0.15),
@@ -568,6 +572,30 @@ def patch_imported_gripper_collision_meshes(stage, root_prim_path: str) -> None:
     print(f"Patched gripper collision meshes: {', '.join(patched_prims)}")
 
 
+def filter_gripper_finger_pair(stage, root_prim_path: str) -> None:
+    root_prim = stage.GetPrimAtPath(root_prim_path)
+    if not root_prim.IsValid():
+        raise RuntimeError(f"Invalid imported robot root prim: {root_prim_path}")
+
+    link_prims = {}
+    for prim in Usd.PrimRange(root_prim):
+        name = prim.GetName()
+        if name not in GRIPPER_LINK_NAMES:
+            continue
+        current = link_prims.get(name)
+        if current is None or prim.GetPath().pathElementCount < current.GetPath().pathElementCount:
+            link_prims[name] = prim
+    missing = [name for name in GRIPPER_LINK_NAMES if name not in link_prims]
+    if missing:
+        raise RuntimeError(f"Could not resolve gripper link prims for collision filtering: {missing}")
+
+    left_prim = link_prims[GRIPPER_LINK_NAMES[0]]
+    right_path = link_prims[GRIPPER_LINK_NAMES[1]].GetPath()
+    filtered_pairs = UsdPhysics.FilteredPairsAPI.Apply(left_prim)
+    filtered_pairs.CreateFilteredPairsRel().AddTarget(right_path)
+    print(f"Filtered gripper finger collision pair: {left_prim.GetPath()} <-> {right_path}")
+
+
 def patch_imported_gripper_collision_meshes_in_physics_layer(robot_usd_path: str) -> bool:
     robot_path = Path(robot_usd_path)
     physics_layer_path = robot_path.parent / "configuration" / f"{robot_path.stem}_physics.usd"
@@ -645,6 +673,9 @@ def patch_imported_robot_usd(
     root_prim_path: str,
     materials_usd_path: str | None,
 ):
+    if materials_usd_path:
+        patch_imported_robot_materials(materials_usd_path)
+
     physics_layer_patched = patch_imported_gripper_collision_meshes_in_physics_layer(robot_usd_path)
 
     stage = Usd.Stage.Open(robot_usd_path)
@@ -655,6 +686,7 @@ def patch_imported_robot_usd(
     if not physics_layer_patched:
         patch_imported_joint_drives(stage, root_prim_path)
         patch_imported_gripper_collision_meshes(stage, root_prim_path)
+    filter_gripper_finger_pair(stage, root_prim_path)
     stage.GetRootLayer().Save()
 
 

@@ -49,6 +49,7 @@ GRIPPER_JOINT_NAMES = (
     "gripper_finger_left_joint",
     "gripper_finger_rIght_joint",
 )
+GRIPPER_JOINT_AXIS = "0 1 0"
 
 D405_LINK_XML = """
 <link name="d405_link">
@@ -217,6 +218,10 @@ def _set_gripper_joint_mode(root: ET.Element, *, fixed: bool) -> None:
                     joint.remove(child)
         else:
             joint.set("type", "prismatic")
+            axis = joint.find("axis")
+            if axis is None:
+                axis = ET.SubElement(joint, "axis")
+            axis.set("xyz", GRIPPER_JOINT_AXIS)
 
 
 def _build_variant(*, fixed_gripper: bool, limit_kind: str) -> ET.ElementTree:

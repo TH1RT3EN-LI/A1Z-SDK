@@ -20,12 +20,12 @@ _PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1",
         "api_key_env": "MOONSHOT_API_KEY",
-        "model": "kimi-latest",
+        "model": "moonshot-v1-8k-vision-preview",
     },
     "moonshot": {
         "base_url": "https://api.moonshot.cn/v1",
         "api_key_env": "MOONSHOT_API_KEY",
-        "model": "kimi-latest",
+        "model": "moonshot-v1-8k-vision-preview",
     },
 }
 

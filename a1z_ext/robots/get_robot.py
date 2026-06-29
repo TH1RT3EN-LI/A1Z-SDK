@@ -12,6 +12,7 @@ from a1z_ext.robots.mock_robot import MockArmRobot
 from a1z.robots.robot import Robot
 
 _CONTROL_DEFAULTS = get_control_defaults()
+_ISAAC_CFG = _CONTROL_DEFAULTS["isaacsim"]
 _DEFAULT_URDF_PATH = _CONTROL_DEFAULTS["default_control_urdf_path"]
 _NUM_JOINTS = int(_CONTROL_DEFAULTS["num_joints"])
 _MOTOR_A_JOINT_INDICES = _CONTROL_DEFAULTS["motor_a_joint_indices"]
@@ -21,6 +22,8 @@ _MOTOR_B_IDS = _CONTROL_DEFAULTS["motor_b_ids"]
 
 _DEFAULT_KP = np.array(_CONTROL_DEFAULTS["default_kp"], dtype=np.float64)
 _DEFAULT_KD = np.array(_CONTROL_DEFAULTS["default_kd"], dtype=np.float64)
+_ISAAC_DEFAULT_KP = np.array(_ISAAC_CFG["position_hold_kp"], dtype=np.float64)
+_ISAAC_DEFAULT_KD = np.array(_ISAAC_CFG["position_hold_kd"], dtype=np.float64)
 _JOINT_SIGN = np.array(_CONTROL_DEFAULTS["joint_sign"], dtype=np.float64)
 _GRAVITY_TORQUE_SCALE = np.array(_CONTROL_DEFAULTS["gravity_torque_scale"], dtype=np.float64)
 _MAX_GRAVITY_TORQUE = np.array(_CONTROL_DEFAULTS["max_gravity_torque"], dtype=np.float64)
@@ -162,8 +165,8 @@ def get_a1z_isaacsim_robot(
         with_gripper=with_gripper,
         control_freq_hz=control_freq_hz,
         articulation_root_prim=articulation_root_prim,
-        default_kp=default_kp if default_kp is not None else _DEFAULT_KP,
-        default_kd=default_kd if default_kd is not None else _DEFAULT_KD,
+        default_kp=default_kp if default_kp is not None else _ISAAC_DEFAULT_KP,
+        default_kd=default_kd if default_kd is not None else _ISAAC_DEFAULT_KD,
         urdf_path=urdf_path or _DEFAULT_URDF_PATH,
         gravity_comp_factor=gravity_comp_factor,
         zero_gravity_mode=zero_gravity_mode,

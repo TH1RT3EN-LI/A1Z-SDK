@@ -73,7 +73,7 @@ def Scope "Instances"
         {
             def Material "material_2" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1>
+                prepend references = @./materials.usda@</Materials/material_1_blackmetal>
             )
             {
             }
@@ -109,7 +109,7 @@ def Scope "Instances"
         {
             def Material "material_3" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1>
+                prepend references = @./materials.usda@</Materials/material_1_blackmetal>
             )
             {
             }
@@ -181,7 +181,7 @@ def Scope "Instances"
         {
             def Material "material_5" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1>
+                prepend references = @./materials.usda@</Materials/material_1_blackmetal>
             )
             {
             }
@@ -217,7 +217,7 @@ def Scope "Instances"
         {
             def Material "material_6" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1>
+                prepend references = @./materials.usda@</Materials/material_6_blackmetal>
             )
             {
             }
@@ -253,7 +253,7 @@ def Scope "Instances"
         {
             def Material "material_7" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1>
+                prepend references = @./materials.usda@</Materials/material_7_blackmetal>
             )
             {
             }
@@ -312,7 +312,7 @@ def Scope "Instances"
         {
             def Material "material_9" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1>
+                prepend references = @./materials.usda@</Materials/material_9_blackmatte>
             )
             {
             }
@@ -348,7 +348,7 @@ def Scope "Instances"
         {
             def Material "material_10" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1>
+                prepend references = @./materials.usda@</Materials/material_10_blackmatte>
             )
             {
             }
@@ -368,4 +368,3 @@ def Scope "Instances"
         }
     }
 }
-

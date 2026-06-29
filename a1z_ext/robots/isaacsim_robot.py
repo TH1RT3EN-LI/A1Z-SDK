@@ -57,6 +57,9 @@ class IsaacSimArmRobot:
 
     _REQUEST_TIMEOUT_S = 120.0
     _ARM_SETTLE_TOL_RAD = np.deg2rad(0.75)
+    _ARM_FORCE_SNAP_TOL_RAD = np.deg2rad(6.0)
+    _ARM_LEAD_JOINT_SNAP_TOL_RAD = np.deg2rad(5.0)
+    _ARM_WRIST_JOINT_SNAP_TOL_RAD = np.deg2rad(45.0)
     _GRIPPER_SETTLE_TOL = 0.03
 
     @staticmethod
@@ -174,10 +177,10 @@ class IsaacSimArmRobot:
         self._last_hard_limit_log_time = 0.0
 
         self._gripper_open_value = 1.0
-        self._gripper_left_open = 0.0
-        self._gripper_left_closed = 0.048
-        self._gripper_right_open = 0.0
-        self._gripper_right_closed = -0.048
+        self._gripper_left_open = 0.048
+        self._gripper_left_closed = 0.0
+        self._gripper_right_open = -0.048
+        self._gripper_right_closed = 0.0
 
         initial_kp = self._active_arm_kp()
         initial_kd = self._active_arm_kd()
@@ -821,6 +824,26 @@ class IsaacSimArmRobot:
         self._set_gripper_drive_targets(target_dofs)
         self._update_state_cache()
 
+    def _force_arm_positions(self, target_arm: np.ndarray) -> None:
+        if self._articulation is None or self._arm_joint_indices.size != self._num_joints:
+            return
+        target_arm = self._clip_arm_pos(np.asarray(target_arm, dtype=np.float64).reshape(-1)[: self._num_joints])
+        with self._command_lock:
+            self._command.pos = target_arm.copy()
+            self._command.vel = np.zeros(self._num_joints, dtype=np.float64)
+            self._command.acc = np.zeros(self._num_joints, dtype=np.float64)
+            self._command.torque_ff = np.zeros(self._num_joints, dtype=np.float64)
+        self._trajectory = None
+        self._articulation.set_joint_positions(
+            target_arm.astype(np.float32),
+            joint_indices=self._arm_joint_indices.astype(np.int64),
+        )
+        self._articulation.set_joint_velocities(
+            np.zeros(self._num_joints, dtype=np.float32),
+            joint_indices=self._arm_joint_indices.astype(np.int64),
+        )
+        self._update_state_cache()
+
     def _configure_actuators(self) -> None:
         if self._articulation is None:
             return
@@ -835,7 +858,10 @@ class IsaacSimArmRobot:
         # SingleArticulation only exposes the articulation controller for drive
         # configuration. The controller accepts full gain arrays, while control
         # mode and effort mode can still be set per DOF.
-        self._set_subset_effort_mode("force", self._arm_joint_indices)
+        self._set_subset_effort_mode(
+            "force" if self.zero_gravity_mode else "acceleration",
+            self._arm_joint_indices,
+        )
         self._set_subset_gains(self._arm_joint_indices, arm_kp, arm_kd)
         self._set_subset_max_efforts(self._arm_joint_indices, self._arm_max_effort)
         for dof_index in self._arm_joint_indices.tolist():
@@ -1028,10 +1054,10 @@ class IsaacSimArmRobot:
         self._joint_limits = limits
         if self._gripper_joint_indices.size == 2:
             left_idx, right_idx = self._gripper_joint_indices.tolist()
-            self._gripper_left_open = float(limits[left_idx, 0])
-            self._gripper_left_closed = float(limits[left_idx, 1])
-            self._gripper_right_closed = float(limits[right_idx, 0])
-            self._gripper_right_open = float(limits[right_idx, 1])
+            self._gripper_left_closed = float(limits[left_idx, 0])
+            self._gripper_left_open = float(limits[left_idx, 1])
+            self._gripper_right_open = float(limits[right_idx, 0])
+            self._gripper_right_closed = float(limits[right_idx, 1])
 
         if self._arm_joint_indices.size == self._num_joints:
             arm_articulation_limits = limits[self._arm_joint_indices]
@@ -1175,7 +1201,28 @@ class IsaacSimArmRobot:
                 return
             time.sleep(min(0.02, self._control_period_s))
         current_arm = self.get_joint_state()["pos"]
-        max_err = float(np.max(np.abs(current_arm - target_arm)))
+        joint_err = np.abs(current_arm - target_arm)
+        max_err = float(np.max(joint_err))
+        lead_max_err = float(np.max(joint_err[:4])) if joint_err.shape[0] >= 4 else max_err
+        wrist_max_err = float(np.max(joint_err[4:])) if joint_err.shape[0] > 4 else 0.0
+        allow_snap = (
+            max_err <= self._ARM_FORCE_SNAP_TOL_RAD
+            or (
+                lead_max_err <= self._ARM_LEAD_JOINT_SNAP_TOL_RAD
+                and wrist_max_err <= self._ARM_WRIST_JOINT_SNAP_TOL_RAD
+            )
+        )
+        if allow_snap:
+            carb.log_warn(
+                "A1Z Isaac arm target nearly settled but remained outside tolerance; "
+                f"forcing final joint positions max_err_rad={max_err:.4f} "
+                f"lead_max_err_rad={lead_max_err:.4f} wrist_max_err_rad={wrist_max_err:.4f}"
+            )
+            self._run_on_main_thread(lambda: self._force_arm_positions(target_arm))
+            current_arm = self.get_joint_state()["pos"]
+            max_err = float(np.max(np.abs(current_arm - target_arm)))
+            if max_err <= self._ARM_SETTLE_TOL_RAD:
+                return
         raise TimeoutError(
             f"Timed out waiting for Isaac Sim arm to settle. max_err_rad={max_err:.4f}"
         )

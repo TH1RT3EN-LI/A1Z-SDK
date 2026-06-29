@@ -8,6 +8,9 @@ source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
 VISION_CONTAINER_NAME="${A1Z_VISION_CONTAINER_NAME:-a1z-vision-gpu}"
 VISION_VENV_DIR="${A1Z_VISION_VENV_DIR:-/opt/venvs/a1z-vision}"
 SAM2_REPO_DIR="${A1Z_SAM2_REPO_DIR:-/workspace/A1Z/vendor/vision/sam2}"
+GRCONVNET_REPO_DIR="${A1Z_GRCONVNET_REPO_DIR:-/workspace/A1Z/vendor/vision/robotic-grasping}"
+GRCONVNET_MODEL_DIR="${A1Z_GRCONVNET_MODEL_DIR:-/workspace/A1Z/runtime/models/grconvnet/jacquard-rgbd-grconvnet3-drop0-ch32}"
+GRCONVNET_MODEL_PATH="$GRCONVNET_MODEL_DIR/epoch_48_iou_0.93"
 
 "$ROOT_DIR/scripts/fetch_vision_vendor_repos.sh"
 "$ROOT_DIR/scripts/download_sam2_checkpoints.sh" small tiny
@@ -19,6 +22,9 @@ fi
 docker exec \
   -e A1Z_VISION_VENV_DIR="$VISION_VENV_DIR" \
   -e A1Z_SAM2_REPO_DIR="$SAM2_REPO_DIR" \
+  -e A1Z_GRCONVNET_REPO_DIR="$GRCONVNET_REPO_DIR" \
+  -e A1Z_GRCONVNET_MODEL_DIR="$GRCONVNET_MODEL_DIR" \
+  -e A1Z_GRCONVNET_MODEL_PATH="$GRCONVNET_MODEL_PATH" \
   "$VISION_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail
@@ -51,11 +57,22 @@ docker exec \
       pillow \
       pyquaternion \
       pyyaml \
+      scikit-image \
       transforms3d \
+      imageio \
       trimesh \
       scipy \
-      tqdm
+      tqdm \
+      torchsummary \
+      tensorboardX
     SAM2_BUILD_CUDA=0 python -m pip install --no-build-isolation --no-deps -e "$A1Z_SAM2_REPO_DIR"
+
+    mkdir -p "$A1Z_GRCONVNET_MODEL_DIR"
+    if [[ ! -f "$A1Z_GRCONVNET_MODEL_PATH" ]]; then
+      curl -L \
+        "https://raw.githubusercontent.com/skumra/robotic-grasping/183c6f68c44c1c7ff0f07707e2db6fcfd6840d2d/trained-models/jacquard-rgbd-grconvnet3-drop0-ch32/epoch_48_iou_0.93" \
+        -o "$A1Z_GRCONVNET_MODEL_PATH"
+    fi
   '
 
 "$ROOT_DIR/scripts/setup_anygrasp_sdk_in_container.sh"

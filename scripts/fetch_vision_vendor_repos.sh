@@ -13,10 +13,10 @@ clone_and_pin() {
   local sha="$3"
 
   if [[ ! -d "$path/.git" ]]; then
-    git clone "$url" "$path"
+    git clone --depth 1 "$url" "$path"
   fi
 
-  git -C "$path" fetch --tags origin
+  git -C "$path" fetch --tags --depth 1 origin "$sha"
   git -C "$path" checkout "$sha"
 }
 

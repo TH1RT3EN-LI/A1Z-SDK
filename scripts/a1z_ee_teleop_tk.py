@@ -35,11 +35,13 @@ class TeleopApp:
         self.angular_step_deg = tk.DoubleVar(value=5.0)
         self.speed = tk.DoubleVar(value=0.5)
         self.ee_frame = tk.StringVar(value="arm_link6")
+        self.gripper_value = tk.DoubleVar(value=1.0)
 
         self.backend_var = tk.StringVar(value="-")
         self.control_mode_var = tk.StringVar(value="-")
         self.socket_var = tk.StringVar(value="-")
         self.status_var = tk.StringVar(value="Idle")
+        self.gripper_status_var = tk.StringVar(value="-")
         self.pose_vars = {
             "x": tk.StringVar(value="-"),
             "y": tk.StringVar(value="-"),
@@ -261,8 +263,45 @@ class TeleopApp:
             command=self._request_joint_targets,
         )
 
+        gripper = ttk.LabelFrame(main, text="Gripper", padding=10)
+        gripper.grid(row=6, column=0, sticky="ew", pady=(12, 0))
+        gripper.columnconfigure(1, weight=1)
+        ttk.Label(gripper, text="Opening").grid(row=0, column=0, sticky="w")
+        ttk.Label(gripper, textvariable=self.gripper_status_var, width=8).grid(
+            row=0, column=2, sticky="e", padx=(8, 0)
+        )
+        scale = ttk.Scale(
+            gripper,
+            from_=0.0,
+            to=1.0,
+            orient=tk.HORIZONTAL,
+            variable=self.gripper_value,
+        )
+        scale.grid(row=0, column=1, sticky="ew", padx=(8, 8))
+        self._add_action_button(
+            gripper,
+            row=1,
+            column=0,
+            text="Close",
+            command=lambda: self._request_gripper_value(0.0),
+        )
+        self._add_action_button(
+            gripper,
+            row=1,
+            column=1,
+            text="Set Gripper",
+            command=self._request_gripper,
+        )
+        self._add_action_button(
+            gripper,
+            row=1,
+            column=2,
+            text="Open",
+            command=lambda: self._request_gripper_value(1.0),
+        )
+
         footer = ttk.Frame(main)
-        footer.grid(row=6, column=0, sticky="ew", pady=(12, 0))
+        footer.grid(row=7, column=0, sticky="ew", pady=(12, 0))
         self._add_action_button(footer, row=0, column=0, text="Refresh", command=self.refresh_snapshot)
         ttk.Label(footer, textvariable=self.status_var).grid(row=0, column=1, sticky="w", padx=(12, 0))
 
@@ -372,6 +411,13 @@ class TeleopApp:
         self.backend_var.set(str(payload.get("backend", "-")))
         self.control_mode_var.set(str(payload.get("control_mode", "-")))
         self.socket_var.set(str(payload.get("socket_path", "-")))
+        gripper = payload.get("gripper")
+        if gripper is not None:
+            gripper_value = float(gripper)
+            self.gripper_value.set(gripper_value)
+            self.gripper_status_var.set(f"{gripper_value:.2f}")
+        else:
+            self.gripper_status_var.set("-")
         self.status_var.set(str(payload.get("status_message", "Ready")))
 
     def refresh_snapshot(self) -> None:
@@ -411,18 +457,29 @@ class TeleopApp:
         if motion_mode == "move":
             args = [
                 "move",
-                joints_csv,
                 "--speed",
                 str(self.speed.get()),
+                "--",
+                joints_csv,
             ]
             self._run_a1zctl(args, success_message="Joint move complete")
             return
 
         args = [
             "command",
+            "--",
             joints_csv,
         ]
         self._run_a1zctl(args, success_message="Joint target sent")
+
+    def _request_gripper(self) -> None:
+        self._request_gripper_value(float(self.gripper_value.get()))
+
+    def _request_gripper_value(self, value: float) -> None:
+        clamped = max(0.0, min(1.0, float(value)))
+        self.gripper_value.set(clamped)
+        args = ["gripper", str(clamped)]
+        self._run_a1zctl(args, success_message="Gripper command sent")
 
     def _run_a1zctl(self, args: list[str], *, success_message: str) -> None:
         if self._busy:
