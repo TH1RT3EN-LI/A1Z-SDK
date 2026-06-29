@@ -11,6 +11,7 @@ ANYGRASP_SDK_DIR="${A1Z_ANYGRASP_SDK_DIR:-/workspace/A1Z/vendor/vision/anygrasp_
 ANYGRASP_DETECTION_CKPT="${A1Z_ANYGRASP_DETECTION_CKPT:-/workspace/A1Z/runtime/models/anygrasp/checkpoint_detection.tar}"
 ANYGRASP_TRACKING_CKPT="${A1Z_ANYGRASP_TRACKING_CKPT:-/workspace/A1Z/runtime/models/anygrasp/checkpoint_tracking.tar}"
 ANYGRASP_LICENSE_DIR="${A1Z_ANYGRASP_LICENSE_DIR:-/workspace/A1Z/runtime/licenses/anygrasp}"
+ANYGRASP_IFCONFIG_SNAPSHOT="${A1Z_ANYGRASP_IFCONFIG_SNAPSHOT:-/workspace/A1Z/runtime/anygrasp/ifconfig.snapshot}"
 
 "$ROOT_DIR/scripts/bootstrap_anygrasp_assets.sh"
 "$ROOT_DIR/scripts/setup_anygrasp_sdk_in_container.sh"
@@ -25,10 +26,20 @@ docker exec \
   -e A1Z_ANYGRASP_DETECTION_CKPT="$ANYGRASP_DETECTION_CKPT" \
   -e A1Z_ANYGRASP_TRACKING_CKPT="$ANYGRASP_TRACKING_CKPT" \
   -e A1Z_ANYGRASP_LICENSE_DIR="$ANYGRASP_LICENSE_DIR" \
+  -e A1Z_ANYGRASP_IFCONFIG_SNAPSHOT="$ANYGRASP_IFCONFIG_SNAPSHOT" \
   "$VISION_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail
     source "$A1Z_VISION_VENV_DIR/bin/activate"
+    if [[ -f "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT" ]]; then
+      mkdir -p /tmp/a1z-anygrasp-bin
+      cat >/tmp/a1z-anygrasp-bin/ifconfig <<EOF
+#!/usr/bin/env bash
+cat "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT"
+EOF
+      chmod +x /tmp/a1z-anygrasp-bin/ifconfig
+      export PATH="/tmp/a1z-anygrasp-bin:$PATH"
+    fi
     cd "$A1Z_ANYGRASP_SDK_DIR/grasp_detection"
     python demo.py --checkpoint_path "$A1Z_ANYGRASP_DETECTION_CKPT" --top_down_grasp
 

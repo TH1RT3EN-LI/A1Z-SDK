@@ -11,6 +11,9 @@ ANYGRASP_SDK_DIR="${A1Z_ANYGRASP_SDK_DIR:-/workspace/A1Z/vendor/vision/anygrasp_
 ANYGRASP_DETECTION_CKPT="${A1Z_ANYGRASP_DETECTION_CKPT:-/workspace/A1Z/runtime/models/anygrasp/checkpoint_detection.tar}"
 ANYGRASP_TRACKING_CKPT="${A1Z_ANYGRASP_TRACKING_CKPT:-/workspace/A1Z/runtime/models/anygrasp/checkpoint_tracking.tar}"
 ANYGRASP_LICENSE_DIR="${A1Z_ANYGRASP_LICENSE_DIR:-/workspace/A1Z/runtime/licenses/anygrasp}"
+ANYGRASP_IFCONFIG_SNAPSHOT="${A1Z_ANYGRASP_IFCONFIG_SNAPSHOT:-/workspace/A1Z/runtime/anygrasp/ifconfig.snapshot}"
+
+"$ROOT_DIR/scripts/freeze_anygrasp_machine_fingerprint.sh" "${ANYGRASP_IFCONFIG_SNAPSHOT/#\/workspace\/A1Z/$ROOT_DIR}"
 
 if [[ "$(docker inspect -f '{{.State.Running}}' "$VISION_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
   docker start "$VISION_CONTAINER_NAME" >/dev/null
@@ -22,10 +25,22 @@ docker exec \
   -e A1Z_ANYGRASP_DETECTION_CKPT="$ANYGRASP_DETECTION_CKPT" \
   -e A1Z_ANYGRASP_TRACKING_CKPT="$ANYGRASP_TRACKING_CKPT" \
   -e A1Z_ANYGRASP_LICENSE_DIR="$ANYGRASP_LICENSE_DIR" \
+  -e A1Z_ANYGRASP_IFCONFIG_SNAPSHOT="$ANYGRASP_IFCONFIG_SNAPSHOT" \
   "$VISION_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail
     source "$A1Z_VISION_VENV_DIR/bin/activate"
+
+    if [[ -f "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT" ]]; then
+      mkdir -p /tmp/a1z-anygrasp-bin
+      cat >/tmp/a1z-anygrasp-bin/ifconfig <<EOF
+#!/usr/bin/env bash
+cat "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT"
+EOF
+      chmod +x /tmp/a1z-anygrasp-bin/ifconfig
+      export PATH="/tmp/a1z-anygrasp-bin:$PATH"
+      echo "AnyGrasp fingerprint snapshot: $A1Z_ANYGRASP_IFCONFIG_SNAPSHOT"
+    fi
 
     py_tag="$(python - <<'"'"'PY'"'"'
 import sys

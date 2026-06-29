@@ -12,6 +12,7 @@ SAM_CKPT="${A1Z_SAM2_DEFAULT_CKPT:-/workspace/A1Z/runtime/models/sam2/sam2.1_hie
 ANYGRASP_SDK_DIR="${A1Z_ANYGRASP_SDK_DIR:-/workspace/A1Z/vendor/vision/anygrasp_sdk}"
 ANYGRASP_CKPT="${A1Z_ANYGRASP_DETECTION_CKPT:-/workspace/A1Z/runtime/models/anygrasp/checkpoint_detection.tar}"
 ANYGRASP_LICENSE_DIR="${A1Z_ANYGRASP_LICENSE_DIR:-/workspace/A1Z/runtime/licenses/anygrasp}"
+ANYGRASP_IFCONFIG_SNAPSHOT="${A1Z_ANYGRASP_IFCONFIG_SNAPSHOT:-/workspace/A1Z/runtime/anygrasp/ifconfig.snapshot}"
 ROS_CAPTURE_TIMEOUT_S="${A1Z_ROS_CAPTURE_TIMEOUT_S:-30}"
 ROS_CAPTURE_RETRIES="${A1Z_ROS_CAPTURE_RETRIES:-3}"
 
@@ -34,6 +35,8 @@ fi
 if [[ "$(docker inspect -f '{{.State.Running}}' "$VISION_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
   docker start "$VISION_CONTAINER_NAME" >/dev/null
 fi
+
+"$ROOT_DIR/scripts/freeze_anygrasp_machine_fingerprint.sh" "${ANYGRASP_IFCONFIG_SNAPSHOT/#\/workspace\/A1Z/$ROOT_DIR}"
 
 docker exec \
   "$ROS_CONTAINER_NAME" \
@@ -89,10 +92,20 @@ docker exec \
   -e A1Z_ANYGRASP_SDK_DIR="$ANYGRASP_SDK_DIR" \
   -e A1Z_ANYGRASP_CKPT="$ANYGRASP_CKPT" \
   -e A1Z_ANYGRASP_LICENSE_DIR="$ANYGRASP_LICENSE_DIR" \
+  -e A1Z_ANYGRASP_IFCONFIG_SNAPSHOT="$ANYGRASP_IFCONFIG_SNAPSHOT" \
   "$VISION_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail
     source /opt/venvs/a1z-vision/bin/activate
+    if [[ -f "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT" ]]; then
+      mkdir -p /tmp/a1z-anygrasp-bin
+      cat >/tmp/a1z-anygrasp-bin/ifconfig <<EOF
+#!/usr/bin/env bash
+cat "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT"
+EOF
+      chmod +x /tmp/a1z-anygrasp-bin/ifconfig
+      export PATH="/tmp/a1z-anygrasp-bin:$PATH"
+    fi
     cd /workspace/A1Z
     python3 /workspace/A1Z/scripts/run_anygrasp_from_selected_mask.py \
       --rgb "$A1Z_ANYGRASP_RGB" \
