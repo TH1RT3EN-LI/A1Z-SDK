@@ -1,6 +1,0 @@
-Invoking command in '/workspace/A1Z/ros2_ws/build/a1z_msgs': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /workspace/A1Z/ros2_ws/src/a1z_msgs -DCMAKE_INSTALL_PREFIX=/workspace/A1Z/ros2_ws/install/a1z_msgs
-Invoked command in '/workspace/A1Z/ros2_ws/build/a1z_msgs' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /workspace/A1Z/ros2_ws/src/a1z_msgs -DCMAKE_INSTALL_PREFIX=/workspace/A1Z/ros2_ws/install/a1z_msgs
-Invoking command in '/workspace/A1Z/ros2_ws/build/a1z_msgs': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /workspace/A1Z/ros2_ws/build/a1z_msgs -- -j24 -l24
-Invoked command in '/workspace/A1Z/ros2_ws/build/a1z_msgs' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /workspace/A1Z/ros2_ws/build/a1z_msgs -- -j24 -l24
-Invoking command in '/workspace/A1Z/ros2_ws/build/a1z_msgs': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /workspace/A1Z/ros2_ws/build/a1z_msgs
-Invoked command in '/workspace/A1Z/ros2_ws/build/a1z_msgs' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /workspace/A1Z/ros2_ws/build/a1z_msgs

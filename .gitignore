@@ -21,3 +21,7 @@ vendor/GALAXEA-A1Z/**/*.pyc
 vendor/vision/
 
 runtime/
+
+# ROS 2 build logs.
+ros2_ws/log/**
+!ros2_ws/log/COLCON_IGNORE
