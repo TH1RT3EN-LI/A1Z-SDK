@@ -12,6 +12,8 @@ ANYGRASP_DETECTION_CKPT="${A1Z_ANYGRASP_DETECTION_CKPT:-/workspace/A1Z/runtime/m
 ANYGRASP_TRACKING_CKPT="${A1Z_ANYGRASP_TRACKING_CKPT:-/workspace/A1Z/runtime/models/anygrasp/checkpoint_tracking.tar}"
 ANYGRASP_LICENSE_DIR="${A1Z_ANYGRASP_LICENSE_DIR:-/workspace/A1Z/runtime/licenses/anygrasp}"
 ANYGRASP_IFCONFIG_SNAPSHOT="${A1Z_ANYGRASP_IFCONFIG_SNAPSHOT:-/workspace/A1Z/runtime/anygrasp/ifconfig.snapshot}"
+HOST_UID="${A1Z_HOST_UID:-$(id -u)}"
+HOST_GID="${A1Z_HOST_GID:-$(id -g)}"
 
 "$ROOT_DIR/scripts/freeze_anygrasp_machine_fingerprint.sh" "${ANYGRASP_IFCONFIG_SNAPSHOT/#\/workspace\/A1Z/$ROOT_DIR}"
 
@@ -26,19 +28,23 @@ docker exec \
   -e A1Z_ANYGRASP_TRACKING_CKPT="$ANYGRASP_TRACKING_CKPT" \
   -e A1Z_ANYGRASP_LICENSE_DIR="$ANYGRASP_LICENSE_DIR" \
   -e A1Z_ANYGRASP_IFCONFIG_SNAPSHOT="$ANYGRASP_IFCONFIG_SNAPSHOT" \
+  -e A1Z_HOST_UID="$HOST_UID" \
+  -e A1Z_HOST_GID="$HOST_GID" \
   "$VISION_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail
     source "$A1Z_VISION_VENV_DIR/bin/activate"
 
     if [[ -f "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT" ]]; then
-      mkdir -p /tmp/a1z-anygrasp-bin
-      cat >/tmp/a1z-anygrasp-bin/ifconfig <<EOF
+      tmp_anygrasp_bin="/tmp/a1z-anygrasp-bin-$(id -u)"
+      rm -rf "$tmp_anygrasp_bin"
+      mkdir -p "$tmp_anygrasp_bin"
+      cat >"$tmp_anygrasp_bin/ifconfig" <<EOF
 #!/usr/bin/env bash
 cat "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT"
 EOF
-      chmod +x /tmp/a1z-anygrasp-bin/ifconfig
-      export PATH="/tmp/a1z-anygrasp-bin:$PATH"
+      chmod +x "$tmp_anygrasp_bin/ifconfig"
+      export PATH="$tmp_anygrasp_bin:$PATH"
       echo "AnyGrasp fingerprint snapshot: $A1Z_ANYGRASP_IFCONFIG_SNAPSHOT"
     fi
 
@@ -134,4 +140,9 @@ PY
     if [[ ! -f "$feature_id_path" && -x "$license_reg_dir/license_checker" ]]; then
       "$license_reg_dir/license_checker" -f | tee "$feature_id_path"
     fi
+
+    chown -R "$A1Z_HOST_UID:$A1Z_HOST_GID" \
+      /workspace/A1Z/runtime/models/anygrasp \
+      /workspace/A1Z/runtime/licenses/anygrasp \
+      /workspace/A1Z/runtime/anygrasp
   '

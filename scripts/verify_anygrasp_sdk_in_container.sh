@@ -32,13 +32,15 @@ docker exec \
     set -euo pipefail
     source "$A1Z_VISION_VENV_DIR/bin/activate"
     if [[ -f "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT" ]]; then
-      mkdir -p /tmp/a1z-anygrasp-bin
-      cat >/tmp/a1z-anygrasp-bin/ifconfig <<EOF
+      tmp_anygrasp_bin="/tmp/a1z-anygrasp-bin-$(id -u)"
+      rm -rf "$tmp_anygrasp_bin"
+      mkdir -p "$tmp_anygrasp_bin"
+      cat >"$tmp_anygrasp_bin/ifconfig" <<EOF
 #!/usr/bin/env bash
 cat "$A1Z_ANYGRASP_IFCONFIG_SNAPSHOT"
 EOF
-      chmod +x /tmp/a1z-anygrasp-bin/ifconfig
-      export PATH="/tmp/a1z-anygrasp-bin:$PATH"
+      chmod +x "$tmp_anygrasp_bin/ifconfig"
+      export PATH="$tmp_anygrasp_bin:$PATH"
     fi
     cd "$A1Z_ANYGRASP_SDK_DIR/grasp_detection"
     python demo.py --checkpoint_path "$A1Z_ANYGRASP_DETECTION_CKPT" --top_down_grasp

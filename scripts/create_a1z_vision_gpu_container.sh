@@ -7,9 +7,14 @@ source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
 
 VISION_CONTAINER_NAME="${A1Z_VISION_CONTAINER_NAME:-a1z-vision-gpu}"
 VISION_IMAGE_TAG="${A1Z_VISION_IMAGE_TAG:-a1z-vision-gpu:local}"
+VISION_BASE_IMAGE="${A1Z_VISION_BASE_IMAGE:-a1z-economicgrasp-gpu:local}"
 DOCKERFILE_PATH="$ROOT_DIR/docker/vision-gpu/Dockerfile"
 
-docker build -t "$VISION_IMAGE_TAG" -f "$DOCKERFILE_PATH" "$ROOT_DIR"
+docker build \
+  --build-arg BASE_IMAGE="$VISION_BASE_IMAGE" \
+  -t "$VISION_IMAGE_TAG" \
+  -f "$DOCKERFILE_PATH" \
+  "$ROOT_DIR"
 
 if docker inspect "$VISION_CONTAINER_NAME" >/dev/null 2>&1; then
   echo "Vision container already exists: $VISION_CONTAINER_NAME"
