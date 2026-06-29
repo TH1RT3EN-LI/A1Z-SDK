@@ -45,6 +45,8 @@
   - 在 GPU 视觉容器里创建 vision venv，安装 PyTorch / SAM2 / AnyGrasp 运行时依赖。
 - `setup_anygrasp_sdk_in_container.sh`
   - 在 GPU 视觉容器里为当前 Python 版本铺好 AnyGrasp 二进制、license 和 checkpoint 链接。
+- `bootstrap_anygrasp_assets.sh`
+  - 把 `vendor/vision/anygrasp_sdk` 里的本机 license zip 和两个 checkpoint 落到 `runtime/` 约定路径。
 - `run_grconvnet_inference_in_container.sh`
   - 在 GPU 视觉容器里运行 `GR-ConvNet`，输入 `RGB-D + selected mask`，输出 grasp quality/angle/width maps。
 - `run_grconvnet_adapter_in_container.sh`
@@ -54,6 +56,8 @@
   - 会优先使用 `capture/extrinsic_camera_to_base.npy`；如果旧抓图目录里还没有这个文件，会在 ROS 容器里通过 TF 解析 `d405_color_optical_frame -> robot_base_frame` 后补出来。
 - `verify_a1z_vision_stack_in_container.sh`
   - 验证 GPU 视觉容器里的 Torch / SAM2 / AnyGrasp import 与 checkpoint 可见性。
+- `verify_anygrasp_sdk_in_container.sh`
+  - 单独验证 AnyGrasp，包含官方 detection demo 和 A1Z adapter 侧 preflight/smoke test。
 - `a1z_vision_shell_in_container.sh`
   - 进入 GPU 视觉容器并自动激活 vision venv。
 - `a1z_sdk_python_in_container.sh`

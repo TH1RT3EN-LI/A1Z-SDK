@@ -3,13 +3,13 @@
     customLayerData = {
         string creator = "URDF USD Converter v0.1.3"
     }
-    doc = """Generated from Composed Stage of root layer /tmp/tmpbb4xqqhj/A1Z_G1Z.usdc
+    doc = """Generated from Composed Stage of root layer /tmp/tmp9d9gkry1/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_ysv9egkk/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_yz7w_urw/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_ysv9egkk/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_yz7w_urw/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
 
 
 Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
@@ -23,19 +23,24 @@ def Scope "Materials"
 {
     def Material "material_1"
     {
-        color3f inputs:diffuseColor = (0.08353512, 0.08353512, 0.08898155)
-        float inputs:metallic = 0
+        color3f inputs:diffuseColor = (0.021980947, 0.021980947, 0.019606648)
+        float inputs:metallic = 0.72
         float inputs:opacity = 1
-        float inputs:roughness = 0.5
+        float inputs:roughness = 0.46
+        float inputs:specular = 0.72
+        color3f inputs:specularColor = (0.72, 0.72, 0.72)
         token inputs:wrapMode = "repeat"
         token outputs:displacement (
             displayGroup = "Outputs"
         )
         prepend token outputs:displacement.connect = </Materials/material_1/PreviewSurface.outputs:displacement>
+        token outputs:mdl:displacement.connect = </Materials/material_1/OmniPBR.outputs:out>
+        token outputs:mdl:surface.connect = </Materials/material_1/OmniPBR.outputs:out>
+        token outputs:mdl:volume.connect = </Materials/material_1/OmniPBR.outputs:out>
         token outputs:surface (
             displayGroup = "Outputs"
         )
-        prepend token outputs:surface.connect = </Materials/material_1/PreviewSurface.outputs:surface>
+        token outputs:surface.connect = </Materials/material_1/PreviewSurface.outputs:surface>
         token outputs:volume (
             displayGroup = "Outputs"
         )
@@ -45,12 +50,27 @@ def Scope "Materials"
         )
         {
             token info:id = "UsdPreviewSurface"
-            prepend color3f inputs:diffuseColor.connect = </Materials/material_1.inputs:diffuseColor>
-            prepend float inputs:metallic.connect = </Materials/material_1.inputs:metallic>
+            color3f inputs:diffuseColor.connect = </Materials/material_1.inputs:diffuseColor>
+            float inputs:metallic.connect = </Materials/material_1.inputs:metallic>
             prepend float inputs:opacity.connect = </Materials/material_1.inputs:opacity>
-            prepend float inputs:roughness.connect = </Materials/material_1.inputs:roughness>
+            float inputs:roughness.connect = </Materials/material_1.inputs:roughness>
+            color3f inputs:specularColor.connect = </Materials/material_1.inputs:specularColor>
             token outputs:displacement
             token outputs:surface
+        }
+
+        def Shader "OmniPBR"
+        {
+            uniform token info:implementationSource = "sourceAsset"
+            uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+            uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+            color3f inputs:diffuse_color_constant = (0.021980947, 0.021980947, 0.019606648)
+            float inputs:metallic_constant = 0.72
+            float inputs:reflection_roughness_constant = 0.46
+            float inputs:specular_level = 0.72
+            token outputs:out (
+                renderType = "material"
+            )
         }
     }
 
@@ -67,10 +87,13 @@ def Scope "Materials"
             displayGroup = "Outputs"
         )
         prepend token outputs:displacement.connect = </Materials/material_4/PreviewSurface.outputs:displacement>
+        token outputs:mdl:displacement.connect = </Materials/material_4/OmniPBR.outputs:out>
+        token outputs:mdl:surface.connect = </Materials/material_4/OmniPBR.outputs:out>
+        token outputs:mdl:volume.connect = </Materials/material_4/OmniPBR.outputs:out>
         token outputs:surface (
             displayGroup = "Outputs"
         )
-        prepend token outputs:surface.connect = </Materials/material_4/PreviewSurface.outputs:surface>
+        token outputs:surface.connect = </Materials/material_4/PreviewSurface.outputs:surface>
         token outputs:volume (
             displayGroup = "Outputs"
         )
@@ -80,69 +103,50 @@ def Scope "Materials"
         )
         {
             token info:id = "UsdPreviewSurface"
-            prepend color3f inputs:diffuseColor.connect = </Materials/material_4.inputs:diffuseColor>
-            prepend float inputs:metallic.connect = </Materials/material_4.inputs:metallic>
+            color3f inputs:diffuseColor.connect = </Materials/material_4.inputs:diffuseColor>
+            float inputs:metallic.connect = </Materials/material_4.inputs:metallic>
             prepend float inputs:opacity.connect = </Materials/material_4.inputs:opacity>
-            prepend float inputs:roughness.connect = </Materials/material_4.inputs:roughness>
-            prepend float inputs:specular.connect = </Materials/material_4.inputs:specular>
-            prepend color3f inputs:specularColor.connect = </Materials/material_4.inputs:specularColor>
+            float inputs:roughness.connect = </Materials/material_4.inputs:roughness>
+            color3f inputs:specularColor.connect = </Materials/material_4.inputs:specularColor>
             token outputs:displacement
             token outputs:surface
         }
-    }
 
-    def Material "material_1_blackmetal"
-    {
-        color3f inputs:diffuseColor = (0.05497173, 0.05497173, 0.05497173)
-        float inputs:metallic = 0.72
-        float inputs:opacity = 1
-        float inputs:roughness = 0.46
-        float inputs:specular = 0.52
-        color3f inputs:specularColor = (0.52, 0.52, 0.52)
-        token inputs:wrapMode = "repeat"
-        token outputs:displacement (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:displacement.connect = </Materials/material_1_blackmetal/PreviewSurface.outputs:displacement>
-        token outputs:surface (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:surface.connect = </Materials/material_1_blackmetal/PreviewSurface.outputs:surface>
-        token outputs:volume (
-            displayGroup = "Outputs"
-        )
-
-        def Shader "PreviewSurface" (
-            apiSchemas = ["NodeDefAPI"]
-        )
+        def Shader "OmniPBR"
         {
-            token info:id = "UsdPreviewSurface"
-            prepend color3f inputs:diffuseColor.connect = </Materials/material_1_blackmetal.inputs:diffuseColor>
-            prepend float inputs:metallic.connect = </Materials/material_1_blackmetal.inputs:metallic>
-            prepend float inputs:opacity.connect = </Materials/material_1_blackmetal.inputs:opacity>
-            prepend float inputs:roughness.connect = </Materials/material_1_blackmetal.inputs:roughness>
-            prepend float inputs:specular.connect = </Materials/material_1_blackmetal.inputs:specular>
-            prepend color3f inputs:specularColor.connect = </Materials/material_1_blackmetal.inputs:specularColor>
-            token outputs:displacement
-            token outputs:surface
+            uniform token info:implementationSource = "sourceAsset"
+            uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+            uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+            color3f inputs:diffuse_color_constant = (0.5704816, 0.5704816, 0.5704816)
+            float inputs:metallic_constant = 0.72
+            float inputs:reflection_roughness_constant = 0.42
+            float inputs:specular_level = 0.52
+            token outputs:out (
+                renderType = "material"
+            )
         }
     }
 
     def Material "material_8"
     {
-        color3f inputs:diffuseColor = (0.021980947, 0.021980947, 0.01960665)
-        float inputs:metallic = 0
+        color3f inputs:diffuseColor = (0.021980947, 0.021980947, 0.019606648)
+        float inputs:metallic = 0.72
         float inputs:opacity = 1
-        float inputs:roughness = 0.5
+        float inputs:roughness = 0.46
+        float inputs:specular = 0.72
+        color3f inputs:specularColor = (0.72, 0.72, 0.72)
         token inputs:wrapMode = "repeat"
         token outputs:displacement (
             displayGroup = "Outputs"
         )
         prepend token outputs:displacement.connect = </Materials/material_8/PreviewSurface.outputs:displacement>
+        token outputs:mdl:displacement.connect = </Materials/material_8/OmniPBR.outputs:out>
+        token outputs:mdl:surface.connect = </Materials/material_8/OmniPBR.outputs:out>
+        token outputs:mdl:volume.connect = </Materials/material_8/OmniPBR.outputs:out>
         token outputs:surface (
             displayGroup = "Outputs"
         )
-        prepend token outputs:surface.connect = </Materials/material_8/PreviewSurface.outputs:surface>
+        token outputs:surface.connect = </Materials/material_8/PreviewSurface.outputs:surface>
         token outputs:volume (
             displayGroup = "Outputs"
         )
@@ -152,160 +156,28 @@ def Scope "Materials"
         )
         {
             token info:id = "UsdPreviewSurface"
-            prepend color3f inputs:diffuseColor.connect = </Materials/material_8.inputs:diffuseColor>
-            prepend float inputs:metallic.connect = </Materials/material_8.inputs:metallic>
+            color3f inputs:diffuseColor.connect = </Materials/material_8.inputs:diffuseColor>
+            float inputs:metallic.connect = </Materials/material_8.inputs:metallic>
             prepend float inputs:opacity.connect = </Materials/material_8.inputs:opacity>
-            prepend float inputs:roughness.connect = </Materials/material_8.inputs:roughness>
+            float inputs:roughness.connect = </Materials/material_8.inputs:roughness>
+            color3f inputs:specularColor.connect = </Materials/material_8.inputs:specularColor>
             token outputs:displacement
             token outputs:surface
         }
-    }
 
-    def Material "material_9_blackmatte"
-    {
-        color3f inputs:diffuseColor = (0.01032982, 0.01032982, 0.01032982)
-        float inputs:metallic = 0.08
-        float inputs:opacity = 1
-        float inputs:roughness = 0.9
-        float inputs:specular = 0.12
-        color3f inputs:specularColor = (0.12, 0.12, 0.12)
-        token inputs:wrapMode = "repeat"
-        token outputs:displacement (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:displacement.connect = </Materials/material_9_blackmatte/PreviewSurface.outputs:displacement>
-        token outputs:surface (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:surface.connect = </Materials/material_9_blackmatte/PreviewSurface.outputs:surface>
-        token outputs:volume (
-            displayGroup = "Outputs"
-        )
-
-        def Shader "PreviewSurface" (
-            apiSchemas = ["NodeDefAPI"]
-        )
+        def Shader "OmniPBR"
         {
-            token info:id = "UsdPreviewSurface"
-            prepend color3f inputs:diffuseColor.connect = </Materials/material_9_blackmatte.inputs:diffuseColor>
-            prepend float inputs:metallic.connect = </Materials/material_9_blackmatte.inputs:metallic>
-            prepend float inputs:opacity.connect = </Materials/material_9_blackmatte.inputs:opacity>
-            prepend float inputs:roughness.connect = </Materials/material_9_blackmatte.inputs:roughness>
-            prepend float inputs:specular.connect = </Materials/material_9_blackmatte.inputs:specular>
-            prepend color3f inputs:specularColor.connect = </Materials/material_9_blackmatte.inputs:specularColor>
-            token outputs:displacement
-            token outputs:surface
-        }
-    }
-
-    def Material "material_10_blackmatte"
-    {
-        color3f inputs:diffuseColor = (0.01032982, 0.01032982, 0.01032982)
-        float inputs:metallic = 0.08
-        float inputs:opacity = 1
-        float inputs:roughness = 0.9
-        float inputs:specular = 0.12
-        color3f inputs:specularColor = (0.12, 0.12, 0.12)
-        token inputs:wrapMode = "repeat"
-        token outputs:displacement (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:displacement.connect = </Materials/material_10_blackmatte/PreviewSurface.outputs:displacement>
-        token outputs:surface (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:surface.connect = </Materials/material_10_blackmatte/PreviewSurface.outputs:surface>
-        token outputs:volume (
-            displayGroup = "Outputs"
-        )
-
-        def Shader "PreviewSurface" (
-            apiSchemas = ["NodeDefAPI"]
-        )
-        {
-            token info:id = "UsdPreviewSurface"
-            prepend color3f inputs:diffuseColor.connect = </Materials/material_10_blackmatte.inputs:diffuseColor>
-            prepend float inputs:metallic.connect = </Materials/material_10_blackmatte.inputs:metallic>
-            prepend float inputs:opacity.connect = </Materials/material_10_blackmatte.inputs:opacity>
-            prepend float inputs:roughness.connect = </Materials/material_10_blackmatte.inputs:roughness>
-            prepend float inputs:specular.connect = </Materials/material_10_blackmatte.inputs:specular>
-            prepend color3f inputs:specularColor.connect = </Materials/material_10_blackmatte.inputs:specularColor>
-            token outputs:displacement
-            token outputs:surface
-        }
-    }
-
-    def Material "material_6_blackmetal"
-    {
-        color3f inputs:diffuseColor = (0.02842604, 0.02842604, 0.02842604)
-        float inputs:metallic = 0.68
-        float inputs:opacity = 1
-        float inputs:roughness = 0.58
-        float inputs:specular = 0.34
-        color3f inputs:specularColor = (0.34, 0.34, 0.34)
-        token inputs:wrapMode = "repeat"
-        token outputs:displacement (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:displacement.connect = </Materials/material_6_blackmetal/PreviewSurface.outputs:displacement>
-        token outputs:surface (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:surface.connect = </Materials/material_6_blackmetal/PreviewSurface.outputs:surface>
-        token outputs:volume (
-            displayGroup = "Outputs"
-        )
-
-        def Shader "PreviewSurface" (
-            apiSchemas = ["NodeDefAPI"]
-        )
-        {
-            token info:id = "UsdPreviewSurface"
-            prepend color3f inputs:diffuseColor.connect = </Materials/material_6_blackmetal.inputs:diffuseColor>
-            prepend float inputs:metallic.connect = </Materials/material_6_blackmetal.inputs:metallic>
-            prepend float inputs:opacity.connect = </Materials/material_6_blackmetal.inputs:opacity>
-            prepend float inputs:roughness.connect = </Materials/material_6_blackmetal.inputs:roughness>
-            prepend float inputs:specular.connect = </Materials/material_6_blackmetal.inputs:specular>
-            prepend color3f inputs:specularColor.connect = </Materials/material_6_blackmetal.inputs:specularColor>
-            token outputs:displacement
-            token outputs:surface
-        }
-    }
-
-    def Material "material_7_blackmetal"
-    {
-        color3f inputs:diffuseColor = (0.02842604, 0.02842604, 0.02842604)
-        float inputs:metallic = 0.68
-        float inputs:opacity = 1
-        float inputs:roughness = 0.58
-        float inputs:specular = 0.34
-        color3f inputs:specularColor = (0.34, 0.34, 0.34)
-        token inputs:wrapMode = "repeat"
-        token outputs:displacement (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:displacement.connect = </Materials/material_7_blackmetal/PreviewSurface.outputs:displacement>
-        token outputs:surface (
-            displayGroup = "Outputs"
-        )
-        prepend token outputs:surface.connect = </Materials/material_7_blackmetal/PreviewSurface.outputs:surface>
-        token outputs:volume (
-            displayGroup = "Outputs"
-        )
-
-        def Shader "PreviewSurface" (
-            apiSchemas = ["NodeDefAPI"]
-        )
-        {
-            token info:id = "UsdPreviewSurface"
-            prepend color3f inputs:diffuseColor.connect = </Materials/material_7_blackmetal.inputs:diffuseColor>
-            prepend float inputs:metallic.connect = </Materials/material_7_blackmetal.inputs:metallic>
-            prepend float inputs:opacity.connect = </Materials/material_7_blackmetal.inputs:opacity>
-            prepend float inputs:roughness.connect = </Materials/material_7_blackmetal.inputs:roughness>
-            prepend float inputs:specular.connect = </Materials/material_7_blackmetal.inputs:specular>
-            prepend color3f inputs:specularColor.connect = </Materials/material_7_blackmetal.inputs:specularColor>
-            token outputs:displacement
-            token outputs:surface
+            uniform token info:implementationSource = "sourceAsset"
+            uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
+            uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
+            color3f inputs:diffuse_color_constant = (0.021980947, 0.021980947, 0.019606648)
+            float inputs:metallic_constant = 0.72
+            float inputs:reflection_roughness_constant = 0.46
+            float inputs:specular_level = 0.72
+            token outputs:out (
+                renderType = "material"
+            )
         }
     }
 }
+

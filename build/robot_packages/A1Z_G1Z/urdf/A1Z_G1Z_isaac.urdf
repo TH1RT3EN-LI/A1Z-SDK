@@ -219,7 +219,7 @@
     </collision>
   </link>
   <joint name="d405_mount_joint" type="fixed">
-    <origin xyz="0.08 0 0.086237" rpy="2.251475 0 1.570796" />
+    <origin xyz="0 0 0.056237" rpy="0 0 0" />
     <parent link="arm_link6" />
     <child link="d405_link" />
   </joint>

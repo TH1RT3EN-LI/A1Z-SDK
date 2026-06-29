@@ -3,13 +3,13 @@
     customLayerData = {
         string creator = "URDF USD Converter v0.1.3"
     }
-    doc = """Generated from Composed Stage of root layer /tmp/tmpbb4xqqhj/A1Z_G1Z.usdc
+    doc = """Generated from Composed Stage of root layer /tmp/tmp9d9gkry1/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_ysv9egkk/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_yz7w_urw/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_ysv9egkk/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_yz7w_urw/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
 
 
 Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
@@ -73,7 +73,7 @@ def Scope "Instances"
         {
             def Material "material_2" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1_blackmetal>
+                prepend references = @./materials.usda@</Materials/material_1>
             )
             {
             }
@@ -109,7 +109,7 @@ def Scope "Instances"
         {
             def Material "material_3" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1_blackmetal>
+                prepend references = @./materials.usda@</Materials/material_1>
             )
             {
             }
@@ -181,7 +181,7 @@ def Scope "Instances"
         {
             def Material "material_5" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_1_blackmetal>
+                prepend references = @./materials.usda@</Materials/material_1>
             )
             {
             }
@@ -217,7 +217,7 @@ def Scope "Instances"
         {
             def Material "material_6" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_6_blackmetal>
+                prepend references = @./materials.usda@</Materials/material_1>
             )
             {
             }
@@ -253,7 +253,7 @@ def Scope "Instances"
         {
             def Material "material_7" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_7_blackmetal>
+                prepend references = @./materials.usda@</Materials/material_1>
             )
             {
             }
@@ -312,7 +312,7 @@ def Scope "Instances"
         {
             def Material "material_9" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_9_blackmatte>
+                prepend references = @./materials.usda@</Materials/material_1>
             )
             {
             }
@@ -348,7 +348,7 @@ def Scope "Instances"
         {
             def Material "material_10" (
                 instanceable = true
-                prepend references = @./materials.usda@</Materials/material_10_blackmatte>
+                prepend references = @./materials.usda@</Materials/material_1>
             )
             {
             }
@@ -368,3 +368,4 @@ def Scope "Instances"
         }
     }
 }
+

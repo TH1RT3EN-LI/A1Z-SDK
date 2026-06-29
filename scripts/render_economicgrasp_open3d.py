@@ -25,11 +25,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--colors", required=True, help="Path to RGB .npy or colors .npy")
     parser.add_argument("--depth", default="", help="Optional depth_m.npy used to mask image colors to valid points")
     parser.add_argument("--mask", default="", help="Optional selected_mask.npy used to keep only target-object points")
+    parser.add_argument("--intrinsics", default="", help="Optional intrinsics.json used for camera-view rendering")
     parser.add_argument("--predictions", required=True, help="Path to raw_predictions.npy [N,17]")
     parser.add_argument("--output-image", required=True, help="Output rendered image path")
     parser.add_argument("--output-json", default="", help="Optional render metadata JSON path")
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--best-only", action="store_true")
+    parser.add_argument("--no-grippers", action="store_true", help="Render only the point cloud without grasp geometries")
     parser.add_argument("--point-size", type=float, default=3.0)
     parser.add_argument("--gripper-color", default="[1.0, 0.0, 0.0]")
     parser.add_argument("--width", type=int, default=1600)
@@ -38,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--crop-padding-m", type=float, default=0.02, help="Extra padding added to auto crop radius")
     parser.add_argument("--max-points", type=int, default=120000, help="Randomly subsample cropped cloud to this many points")
     parser.add_argument("--camera-mode", choices=("auto_scene", "grasp_focus"), default="grasp_focus")
+    parser.add_argument("--camera-view", action="store_true", help="Render from the original camera optical view using intrinsics")
     parser.add_argument("--gripper-wireframe", action="store_true", help="Render grippers as red wireframes")
     parser.add_argument("--gripper-line-width", type=float, default=3.0)
     parser.add_argument("--camera-lookat", default="", help="Optional [x,y,z]")
@@ -80,6 +83,16 @@ def _load_colors(path: str | Path) -> np.ndarray:
     return np.ascontiguousarray(colors)
 
 
+def _flatten_image_colors(path: str | Path) -> np.ndarray:
+    colors = np.load(Path(path))
+    if colors.ndim != 3 or colors.shape[2] < 3:
+        raise ValueError(f"image colors must have shape (H, W, >=3), got {colors.shape}")
+    flat = colors[:, :, :3].reshape(-1, 3).astype(np.float64, copy=False)
+    if flat.max() > 1.0:
+        flat = flat / 255.0
+    return np.ascontiguousarray(np.clip(flat, 0.0, 1.0))
+
+
 def _depth_valid_mask(depth_path: str | Path) -> np.ndarray:
     depth = np.load(Path(depth_path)).astype(np.float64, copy=False)
     if depth.ndim != 2:
@@ -100,6 +113,20 @@ def _load_predictions(path: str | Path) -> np.ndarray:
     if predictions.shape[0] == 0:
         raise ValueError("predictions array is empty")
     return predictions
+
+
+def _load_intrinsics(path_arg: str) -> dict[str, float] | None:
+    if not path_arg:
+        return None
+    payload = json.loads(Path(path_arg).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"intrinsics must be a JSON object: {path_arg}")
+    return {
+        "fx": float(payload["fx"]),
+        "fy": float(payload["fy"]),
+        "cx": float(payload["cx"]),
+        "cy": float(payload["cy"]),
+    }
 
 
 def _resolve_camera(
@@ -148,6 +175,8 @@ def _crop_points_near_grasps(
     crop_padding_m: float,
     max_points: int,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    if float(crop_radius_m) < 0.0:
+        return points, colors, {"cropped": False, "crop_disabled": True}
     if grasp_array.shape[0] == 0:
         return points, colors, {"cropped": False}
     centers = grasp_array[:, 13:16].astype(np.float64, copy=False)
@@ -228,16 +257,27 @@ def main() -> int:
 
     import open3d as o3d
     GraspGroup = _load_grasp_group_class()
+    intrinsics = _load_intrinsics(args.intrinsics)
+    if bool(args.camera_view) and intrinsics is None:
+        raise ValueError("--camera-view requires --intrinsics")
 
     points = _load_points(args.points)
-    colors = _load_colors(args.colors)
+    colors_path = Path(args.colors)
+    raw_colors = np.load(colors_path)
+    if raw_colors.ndim == 3:
+        colors = _flatten_image_colors(colors_path)
+    else:
+        colors = _load_colors(colors_path)
     valid_mask = None
-    if args.depth and colors.shape[0] != points.shape[0]:
-        if colors.ndim != 2 or colors.shape[1] < 3:
-            raise ValueError(f"unexpected colors shape for depth masking: {colors.shape}")
+    if args.depth:
         valid_mask = _depth_valid_mask(args.depth)
-        if valid_mask.shape[0] == colors.shape[0]:
+        if colors.shape[0] == valid_mask.shape[0]:
             colors = colors[valid_mask]
+        elif colors.shape[0] != points.shape[0]:
+            raise ValueError(
+                "colors length does not match either full image pixels or point count: "
+                f"{colors.shape[0]} vs valid_mask={valid_mask.shape[0]} vs points={points.shape[0]}"
+            )
     if colors.shape[0] != points.shape[0]:
         raise ValueError(f"points/colors length mismatch: {points.shape[0]} vs {colors.shape[0]}")
     target_mask_meta: dict[str, Any] = {"mask_applied": False}
@@ -267,20 +307,23 @@ def main() -> int:
     gg = GraspGroup(predictions)
     nms_used = False
     nms_error = ""
-    try:
-        gg_nms = gg.nms()
-    except Exception as exc:
-        gg_nms = None
-        nms_error = repr(exc)
+    if not bool(args.no_grippers):
+        try:
+            gg_nms = gg.nms()
+        except Exception as exc:
+            gg_nms = None
+            nms_error = repr(exc)
+        else:
+            if gg_nms is not None:
+                gg = gg_nms
+                nms_used = True
+        gg = gg.sort_by_score()
+        if args.best_only:
+            gg = gg[:1]
+        elif int(args.top_k) > 0:
+            gg = gg[: int(args.top_k)]
     else:
-        if gg_nms is not None:
-            gg = gg_nms
-            nms_used = True
-    gg = gg.sort_by_score()
-    if args.best_only:
-        gg = gg[:1]
-    elif int(args.top_k) > 0:
-        gg = gg[: int(args.top_k)]
+        gg = gg[:0]
 
     crop_meta: dict[str, Any] = {"cropped": False}
     points, colors, crop_meta = _crop_points_near_grasps(
@@ -296,7 +339,7 @@ def main() -> int:
     cloud.points = o3d.utility.Vector3dVector(points)
     cloud.colors = o3d.utility.Vector3dVector(colors)
 
-    grippers = gg.to_open3d_geometry_list()
+    grippers = [] if bool(args.no_grippers) else gg.to_open3d_geometry_list()
     gripper_color = _parse_json_vector(args.gripper_color, expected_len=3)
     for gripper in grippers:
         gripper.paint_uniform_color(gripper_color)
@@ -351,14 +394,40 @@ def main() -> int:
                 material = line_material if isinstance(gripper, o3d.geometry.LineSet) else mesh_material
                 scene.add_geometry(f"gripper_{index}", gripper, material)
 
-            center = np.asarray(camera["lookat"], dtype=np.float32)
-            front = np.asarray(camera["front"], dtype=np.float32)
-            up = np.asarray(camera["up"], dtype=np.float32)
-            extent = np.asarray(camera["extent_xyz"], dtype=np.float32)
-            extent_scale = float(max(extent.max(), 1e-3))
-            distance = max(0.08, 1.6 * extent_scale / max(float(camera["zoom"]), 1e-3))
-            eye = center - front * distance
-            scene.camera.look_at(center, eye, up)
+            if bool(args.camera_view):
+                fx = float(intrinsics["fx"])  # type: ignore[index]
+                fy = float(intrinsics["fy"])  # type: ignore[index]
+                cx = float(intrinsics["cx"])  # type: ignore[index]
+                cy = float(intrinsics["cy"])  # type: ignore[index]
+                intrinsic_matrix = np.array(
+                    [
+                        [fx, 0.0, cx],
+                        [0.0, fy, cy],
+                        [0.0, 0.0, 1.0],
+                    ],
+                    dtype=np.float64,
+                )
+                extrinsic = np.eye(4, dtype=np.float64)
+                scene.camera.set_projection(
+                    intrinsic_matrix,
+                    0.01,
+                    5.0,
+                    float(width),
+                    float(height),
+                )
+                eye = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+                center = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+                up = np.array([0.0, -1.0, 0.0], dtype=np.float32)
+                scene.camera.look_at(center, eye, up)
+            else:
+                center = np.asarray(camera["lookat"], dtype=np.float32)
+                front = np.asarray(camera["front"], dtype=np.float32)
+                up = np.asarray(camera["up"], dtype=np.float32)
+                extent = np.asarray(camera["extent_xyz"], dtype=np.float32)
+                extent_scale = float(max(extent.max(), 1e-3))
+                distance = max(0.08, 1.6 * extent_scale / max(float(camera["zoom"]), 1e-3))
+                eye = center - front * distance
+                scene.camera.look_at(center, eye, up)
             image = renderer.render_to_image()
             ok = bool(o3d.io.write_image(str(output_image_path), image))
             render_backend = "offscreen_renderer"
@@ -401,6 +470,9 @@ def main() -> int:
         "mask": target_mask_meta,
         "top_k": int(args.top_k),
         "best_only": bool(args.best_only),
+        "no_grippers": bool(args.no_grippers),
+        "camera_view": bool(args.camera_view),
+        "intrinsics_path": (str(Path(args.intrinsics).resolve()) if args.intrinsics else ""),
         "selected_grasp_count": int(len(gg)),
         "point_count": int(points.shape[0]),
         "nms_used": bool(nms_used),

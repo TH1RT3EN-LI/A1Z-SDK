@@ -12,6 +12,8 @@ SAM_CKPT="${A1Z_SAM2_DEFAULT_CKPT:-/workspace/A1Z/runtime/models/sam2/sam2.1_hie
 ANYGRASP_SDK_DIR="${A1Z_ANYGRASP_SDK_DIR:-/workspace/A1Z/vendor/vision/anygrasp_sdk}"
 ANYGRASP_CKPT="${A1Z_ANYGRASP_DETECTION_CKPT:-/workspace/A1Z/runtime/models/anygrasp/checkpoint_detection.tar}"
 ANYGRASP_LICENSE_DIR="${A1Z_ANYGRASP_LICENSE_DIR:-/workspace/A1Z/runtime/licenses/anygrasp}"
+ROS_CAPTURE_TIMEOUT_S="${A1Z_ROS_CAPTURE_TIMEOUT_S:-30}"
+ROS_CAPTURE_RETRIES="${A1Z_ROS_CAPTURE_RETRIES:-3}"
 
 INSTRUCTION="${1:-}"
 if [[ -z "$INSTRUCTION" ]]; then
@@ -41,9 +43,20 @@ docker exec \
     source /opt/ros/humble/setup.bash
     source /workspace/A1Z/ros2_ws/install/setup.bash
     set -u
-    python3 /workspace/A1Z/scripts/capture_ros_rgbd.py \
-      --target-frame-id robot_base_frame \
-      --output-dir "'"$CAPTURE_DIR"'"
+    for attempt in $(seq 1 "'"$ROS_CAPTURE_RETRIES"'"); do
+      if python3 /workspace/A1Z/scripts/capture_ros_rgbd.py \
+        --target-frame-id robot_base_frame \
+        --timeout-s "'"$ROS_CAPTURE_TIMEOUT_S"'" \
+        --output-dir "'"$CAPTURE_DIR"'"
+      then
+        exit 0
+      fi
+      if [[ "$attempt" -lt "'"$ROS_CAPTURE_RETRIES"'" ]]; then
+        echo "capture_ros_rgbd retry $attempt/'"$ROS_CAPTURE_RETRIES"'" >&2
+        sleep 1
+      fi
+    done
+    exit 1
   '
 
 docker exec \

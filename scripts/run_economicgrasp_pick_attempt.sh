@@ -12,6 +12,8 @@ CAPTURE_DIR="$BASE_DIR/capture"
 SMOKE_DIR="$BASE_DIR/economicgrasp"
 ADAPTER_DIR="$BASE_DIR/adapter"
 EXEC_DIR="$BASE_DIR/execute"
+ROS_CAPTURE_TIMEOUT_S="${A1Z_ROS_CAPTURE_TIMEOUT_S:-30}"
+ROS_CAPTURE_RETRIES="${A1Z_ROS_CAPTURE_RETRIES:-3}"
 
 DRY_RUN=0
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -32,10 +34,21 @@ docker exec \
     source /opt/ros/humble/setup.bash
     source /workspace/A1Z/ros2_ws/install/setup.bash
     set -u
-    python3 /workspace/A1Z/scripts/capture_ros_rgbd.py \
-      --target-frame-id robot_base_frame \
-      --tf-lookup-timeout-s 2.0 \
-      --output-dir "'"$CAPTURE_DIR"'"
+    for attempt in $(seq 1 "'"$ROS_CAPTURE_RETRIES"'"); do
+      if python3 /workspace/A1Z/scripts/capture_ros_rgbd.py \
+        --target-frame-id robot_base_frame \
+        --timeout-s "'"$ROS_CAPTURE_TIMEOUT_S"'" \
+        --tf-lookup-timeout-s 2.0 \
+        --output-dir "'"$CAPTURE_DIR"'"
+      then
+        exit 0
+      fi
+      if [[ "$attempt" -lt "'"$ROS_CAPTURE_RETRIES"'" ]]; then
+        echo "capture_ros_rgbd retry $attempt/'"$ROS_CAPTURE_RETRIES"'" >&2
+        sleep 1
+      fi
+    done
+    exit 1
   '
 
 "$ROOT_DIR/scripts/run_economicgrasp_smoke_in_container.sh" \

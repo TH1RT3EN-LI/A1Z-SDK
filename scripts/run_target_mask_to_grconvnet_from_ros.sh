@@ -11,6 +11,8 @@ CONTAINER_ENV_FILE="/workspace/A1Z/config/a1z_vlm.env"
 SAM_CKPT="${A1Z_SAM2_DEFAULT_CKPT:-/workspace/A1Z/runtime/models/sam2/sam2.1_hiera_small.pt}"
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
+ROS_CAPTURE_TIMEOUT_S="${A1Z_ROS_CAPTURE_TIMEOUT_S:-30}"
+ROS_CAPTURE_RETRIES="${A1Z_ROS_CAPTURE_RETRIES:-3}"
 
 INSTRUCTION="${1:-}"
 if [[ -z "$INSTRUCTION" ]]; then
@@ -37,21 +39,28 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$VISION_CONTAINER_NAME" 2>/dev/
 fi
 
 docker exec \
-  -u "${HOST_UID}:${HOST_GID}" \
-  -e HOME=/tmp \
-  -e ROS_LOG_DIR=/tmp/a1z_ros_logs \
   "$ROS_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail
-    mkdir -p "$HOME" "$ROS_LOG_DIR"
     set +u
     source /opt/ros/humble/setup.bash
     source /workspace/A1Z/ros2_ws/install/setup.bash
     set -u
-    python3 /workspace/A1Z/scripts/capture_ros_rgbd.py \
-      --target-frame-id robot_base_frame \
-      --fail-if-tf-unavailable \
-      --output-dir "'"$CAPTURE_DIR"'"
+    for attempt in $(seq 1 "'"$ROS_CAPTURE_RETRIES"'"); do
+      if python3 /workspace/A1Z/scripts/capture_ros_rgbd.py \
+        --target-frame-id robot_base_frame \
+        --timeout-s "'"$ROS_CAPTURE_TIMEOUT_S"'" \
+        --fail-if-tf-unavailable \
+        --output-dir "'"$CAPTURE_DIR"'"
+      then
+        exit 0
+      fi
+      if [[ "$attempt" -lt "'"$ROS_CAPTURE_RETRIES"'" ]]; then
+        echo "capture_ros_rgbd retry $attempt/'"$ROS_CAPTURE_RETRIES"'" >&2
+        sleep 1
+      fi
+    done
+    exit 1
   '
 
 docker exec \

@@ -60,6 +60,37 @@ except ImportError:
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SDK_DIR = os.path.join(ROOT_DIR, "vendor", "GALAXEA-A1Z")
+GROUND_WOOD_TEXTURE = (
+    Path(ROOT_DIR)
+    / ".."
+    / "isaacsim_assets"
+    / "Assets"
+    / "Isaac"
+    / "6.0"
+    / "Isaac"
+    / "Materials"
+    / "Textures"
+    / "Patterns"
+    / "nv_wood_oak_flooring_stained.jpg"
+)
+GROUND_TEXTURE_FALLBACKS = (
+    Path(ROOT_DIR)
+    / "assets"
+    / "trash_grasp_set"
+    / "isaac_ycb"
+    / "Axis_Aligned"
+    / "Materials"
+    / "Textures"
+    / "036_wood_block_COLOR.png",
+    Path(ROOT_DIR)
+    / "assets"
+    / "trash_grasp_set"
+    / "isaac_ycb"
+    / "Axis_Aligned"
+    / "Materials"
+    / "Textures"
+    / "003_cracker_box_COLOR.png",
+)
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 if SDK_DIR not in sys.path:
@@ -118,6 +149,108 @@ ROBOT_MATERIAL_PRESETS = {
 def update_app(frames=5):
     for _ in range(frames):
         simulation_app.update()
+
+
+def _resolve_ground_texture() -> Path:
+    candidates = (GROUND_WOOD_TEXTURE, *GROUND_TEXTURE_FALLBACKS)
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.is_file():
+            return resolved
+    raise FileNotFoundError(
+        "No ground texture found. Checked: " + ", ".join(str(path) for path in candidates)
+    )
+
+
+def _configure_ground_material(stage: Usd.Stage, ground_prim: Usd.Prim) -> None:
+    ground_texture_path = _resolve_ground_texture()
+    material_path = Sdf.Path("/World/Looks/GroundMaterial")
+    shader_path = material_path.AppendPath("Shader")
+    primvar_reader_path = material_path.AppendPath("PrimvarReader")
+    transform_path = material_path.AppendPath("TextureTransform")
+    texture_path = material_path.AppendPath("WoodTexture")
+
+    ground_material = UsdShade.Material.Define(stage, material_path)
+    shader = UsdShade.Shader.Define(stage, shader_path)
+    shader.CreateIdAttr("UsdPreviewSurface")
+    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.50, 0.38, 0.27))
+    shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.72)
+    shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
+    shader.CreateInput("specularColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.18, 0.14, 0.10))
+
+    primvar_reader = UsdShade.Shader.Define(stage, primvar_reader_path)
+    primvar_reader.CreateIdAttr("UsdPrimvarReader_float2")
+    primvar_reader.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+
+    texture_transform = UsdShade.Shader.Define(stage, transform_path)
+    texture_transform.CreateIdAttr("UsdTransform2d")
+    texture_transform.CreateInput("scale", Sdf.ValueTypeNames.Float2).Set(Gf.Vec2f(4.0, 4.0))
+    texture_transform.CreateInput("in", Sdf.ValueTypeNames.Float2).ConnectToSource(
+        primvar_reader.ConnectableAPI(), "result"
+    )
+
+    wood_texture = UsdShade.Shader.Define(stage, texture_path)
+    wood_texture.CreateIdAttr("UsdUVTexture")
+    stage_path = Path(stage.GetRootLayer().realPath).resolve()
+    texture_asset_path = os.path.relpath(ground_texture_path, start=stage_path.parent)
+    wood_texture.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(Sdf.AssetPath(texture_asset_path))
+    wood_texture.CreateInput("wrapS", Sdf.ValueTypeNames.Token).Set("repeat")
+    wood_texture.CreateInput("wrapT", Sdf.ValueTypeNames.Token).Set("repeat")
+    wood_texture.CreateInput("sourceColorSpace", Sdf.ValueTypeNames.Token).Set("sRGB")
+    wood_texture.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(
+        texture_transform.ConnectableAPI(), "result"
+    )
+
+    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(
+        wood_texture.ConnectableAPI(), "rgb"
+    )
+    ground_material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+
+    primvars_api = UsdGeom.PrimvarsAPI(ground_prim)
+    st = primvars_api.CreatePrimvar("st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.faceVarying)
+    st.Set(
+        [
+            Gf.Vec2f(0.0, 0.0),
+            Gf.Vec2f(1.0, 0.0),
+            Gf.Vec2f(1.0, 1.0),
+            Gf.Vec2f(0.0, 1.0),
+        ]
+        * 6
+    )
+
+    UsdShade.MaterialBindingAPI(ground_prim).Bind(ground_material)
+
+
+def _create_ground_visual(stage: Usd.Stage) -> Usd.Prim:
+    mesh = UsdGeom.Mesh.Define(stage, Sdf.Path("/World/GroundVisual"))
+    half_extent = 4.0
+    z = 0.0005
+    mesh.CreatePointsAttr(
+        [
+            Gf.Vec3f(-half_extent, -half_extent, z),
+            Gf.Vec3f(half_extent, -half_extent, z),
+            Gf.Vec3f(half_extent, half_extent, z),
+            Gf.Vec3f(-half_extent, half_extent, z),
+        ]
+    )
+    mesh.CreateFaceVertexCountsAttr([4])
+    mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+    mesh.CreateExtentAttr([Gf.Vec3f(-half_extent, -half_extent, z), Gf.Vec3f(half_extent, half_extent, z)])
+    mesh.CreateSubdivisionSchemeAttr().Set(UsdGeom.Tokens.none)
+
+    primvars_api = UsdGeom.PrimvarsAPI(mesh)
+    st = primvars_api.CreatePrimvar("st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
+    st.Set(
+        [
+            Gf.Vec2f(0.0, 0.0),
+            Gf.Vec2f(4.0, 0.0),
+            Gf.Vec2f(4.0, 4.0),
+            Gf.Vec2f(0.0, 4.0),
+        ]
+    )
+    normals = primvars_api.CreatePrimvar("normals", Sdf.ValueTypeNames.Normal3fArray, UsdGeom.Tokens.vertex)
+    normals.Set([Gf.Vec3f(0.0, 0.0, 1.0)] * 4)
+    return mesh.GetPrim()
 
 
 def ensure_parent_dir(path):
@@ -725,14 +858,8 @@ def configure_world_stage(stage):
     ground.AddScaleOp().Set(Gf.Vec3f(4.0, 4.0, 0.02))
     ground.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, -0.01))
     UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
-
-    ground_material = UsdShade.Material.Define(stage, Sdf.Path("/World/Looks/GroundMaterial"))
-    shader = UsdShade.Shader.Define(stage, Sdf.Path("/World/Looks/GroundMaterial/Shader"))
-    shader.CreateIdAttr("UsdPreviewSurface")
-    shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(0.18, 0.18, 0.18))
-    shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.6)
-    ground_material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
-    UsdShade.MaterialBindingAPI(ground.GetPrim()).Bind(ground_material)
+    ground_visual_prim = _create_ground_visual(stage)
+    _configure_ground_material(stage, ground_visual_prim)
 
     distant_light = UsdLux.DistantLight.Define(stage, Sdf.Path("/World/DistantLight"))
     distant_light.CreateIntensityAttr(900.0)

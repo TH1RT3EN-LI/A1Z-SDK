@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--color-camera-info-topic", default="/a1z/d405/color/camera_info")
     parser.add_argument("--depth-camera-info-topic", default="/a1z/d405/depth/camera_info")
     parser.add_argument("--target-frame-id", default="robot_base_frame")
-    parser.add_argument("--timeout-s", type=float, default=10.0)
+    parser.add_argument("--timeout-s", type=float, default=30.0)
     parser.add_argument("--sync-slop-s", type=float, default=0.25)
     parser.add_argument("--depth-uint16-scale-m", type=float, default=0.001)
     parser.add_argument("--tf-lookup-timeout-s", type=float, default=1.0)

@@ -4,13 +4,13 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "A1Z_G1Z"
-    doc = """Generated from Composed Stage of root layer /tmp/tmpbb4xqqhj/A1Z_G1Z.usdc
+    doc = """Generated from Composed Stage of root layer /tmp/tmp9d9gkry1/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_ysv9egkk/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_yz7w_urw/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_ysv9egkk/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_yz7w_urw/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
 
 
 Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
@@ -31,7 +31,7 @@ def Xform "A1Z_G1Z" (
     kind = "component"
 )
 {
-    float3[] extentsHint = [(-0.274, -0.1, 8.6736174e-19), (0.28170002, 0.1, 0.29503143), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (-0.274, -0.1, 8.6736174e-19), (0.28170002, 0.1, 0.28055707)]
+    float3[] extentsHint = [(-0.274, -0.1, 8.6736174e-19), (0.28170002, 0.1, 0.27395), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (-0.274, -0.1, 8.6736174e-19), (0.28170002, 0.1, 0.276237)]
 
     def Scope "Materials"
     {
@@ -162,9 +162,9 @@ def Xform "A1Z_G1Z" (
 
                                     def Xform "d405_link"
                                     {
-                                        quatf xformOp:orient = (0.30441728, 0.6382243, 0.6382241, 0.3044172)
+                                        quatf xformOp:orient = (1, 0, 0, 0)
                                         float3 xformOp:scale = (1, 1, 1)
-                                        double3 xformOp:translate = (0.08, 0, 0.086237)
+                                        double3 xformOp:translate = (0, 0, 0.056237)
                                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                                         def Xform "d405" (
