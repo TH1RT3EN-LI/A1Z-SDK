@@ -21,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from a1z_ext.llm import LLMClient, LLMClientError, LLMImage, LLMProviderConfig
 from a1z_ext.llm.images import bytes_to_data_url
+from a1z_ext.runtime.ros_env import ensure_ros_logging_env
 
 
 DEFAULT_SYSTEM_PROMPT = """You are a visual grounding model for robotics.
@@ -320,6 +321,7 @@ def _capture_ros_image_png_bytes(
         def _handle_image(self, message: RosImage) -> None:
             self.message = message
 
+    ensure_ros_logging_env()
     rclpy.init(args=None)
     node = OneShotImageNode()
     deadline = time.monotonic() + timeout_s

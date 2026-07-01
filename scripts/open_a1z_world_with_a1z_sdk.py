@@ -17,7 +17,7 @@ import omni.timeline
 import omni.usd
 from omni.kit.viewport.utility import capture_viewport_to_file, frame_viewport_prims, get_active_viewport
 from omni.kit.viewport.utility.camera_state import ViewportCameraState
-from pxr import Gf, Sdf, Usd, UsdGeom
+from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SCRIPTS_DIR = os.path.dirname(__file__)
@@ -199,6 +199,283 @@ def _dump_d405_stage_state(stage, path: str) -> None:
         Path(path).write_text("\n".join(lines), encoding="utf-8")
     except OSError as exc:
         carb.log_warn(f"Could not write D405 stage dump: {path}: {exc}")
+
+
+def _apply_wrist_payload_collision_filters(stage) -> None:
+    if stage is None:
+        return
+    base = Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6")
+    wrist_paths = [
+        base.AppendChild("d405_link"),
+        base.AppendChild("gripper_finger_left_link"),
+        base.AppendChild("gripper_finger_rIght_link"),
+    ]
+    for source_path in wrist_paths:
+        source_prim = stage.GetPrimAtPath(source_path)
+        if not source_prim.IsValid():
+            continue
+        api = UsdPhysics.FilteredPairsAPI.Apply(source_prim)
+        existing = list(api.GetFilteredPairsRel().GetTargets() or [])
+        merged = set(existing)
+        merged.add(base)
+        for target_path in wrist_paths:
+            if target_path != source_path:
+                merged.add(target_path)
+        api.GetFilteredPairsRel().SetTargets(sorted(merged, key=str))
+
+
+def _apply_adjacent_arm_collision_filters(stage) -> None:
+    if stage is None:
+        return
+    pair_paths = [
+        (
+            Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link4_1"),
+            Sdf.Path(
+                "/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link5_1"
+            ),
+        ),
+        (
+            Sdf.Path(
+                "/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link5_1"
+            ),
+            Sdf.Path(
+                "/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/arm_link6_1"
+            ),
+        ),
+    ]
+    for source_path, target_path in pair_paths:
+        source_prim = stage.GetPrimAtPath(source_path)
+        target_prim = stage.GetPrimAtPath(target_path)
+        if not source_prim.IsValid() or not target_prim.IsValid():
+            continue
+        api = UsdPhysics.FilteredPairsAPI.Apply(source_prim)
+        existing = list(api.GetFilteredPairsRel().GetTargets() or [])
+        merged = set(existing)
+        merged.add(target_path)
+        api.GetFilteredPairsRel().SetTargets(sorted(merged, key=str))
+
+
+def _apply_arm_internal_collision_filters(stage) -> None:
+    if stage is None:
+        return
+    collision_paths = [
+        Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/base_link_1"),
+        Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link1_1"),
+        Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link2_1"),
+        Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link3_1"),
+        Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link4_1"),
+        Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link5_1"),
+        Sdf.Path(
+            "/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/arm_link6_1"
+        ),
+    ]
+    valid_paths = [path for path in collision_paths if stage.GetPrimAtPath(path).IsValid()]
+    for source_path in valid_paths:
+        source_prim = stage.GetPrimAtPath(source_path)
+        api = UsdPhysics.FilteredPairsAPI.Apply(source_prim)
+        existing = list(api.GetFilteredPairsRel().GetTargets() or [])
+        merged = set(existing)
+        for target_path in valid_paths:
+            if target_path != source_path:
+                merged.add(target_path)
+        api.GetFilteredPairsRel().SetTargets(sorted(merged, key=str))
+
+
+def _disable_wrist_payload_collisions(stage) -> None:
+    if stage is None:
+        return
+    base = Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6")
+    target_paths = [
+        base.AppendChild("d405_link"),
+        base.AppendChild("gripper_finger_left_link"),
+        base.AppendChild("gripper_finger_rIght_link"),
+    ]
+    for prim_path in target_paths:
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim.IsValid():
+            continue
+        prim.RemoveAPI(UsdPhysics.CollisionAPI)
+        prim.RemoveAPI(UsdPhysics.MeshCollisionAPI)
+        for child in Usd.PrimRange(prim):
+            if child == prim:
+                continue
+            if child.IsA(UsdGeom.Gprim):
+                child.RemoveAPI(UsdPhysics.CollisionAPI)
+                child.RemoveAPI(UsdPhysics.MeshCollisionAPI)
+
+
+def _lighten_wrist_payload_dynamics(stage) -> None:
+    if stage is None:
+        return
+    base = Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6")
+    target_paths = [
+        base.AppendChild("d405_link"),
+        base.AppendChild("gripper_finger_left_link"),
+        base.AppendChild("gripper_finger_rIght_link"),
+    ]
+    for prim_path in target_paths:
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim.IsValid():
+            continue
+        mass_api = UsdPhysics.MassAPI.Apply(prim)
+        mass_api.CreateMassAttr().Set(1e-4)
+        mass_api.CreateDiagonalInertiaAttr().Set(Gf.Vec3f(1e-6, 1e-6, 1e-6))
+
+
+def _set_or_create_attr(schema_obj, getter_name: str, creator_name: str, value) -> None:
+    getter = getattr(schema_obj, getter_name, None)
+    creator = getattr(schema_obj, creator_name, None)
+    if getter is None or creator is None:
+        return
+    attr = getter()
+    if not attr:
+        attr = creator()
+    attr.Set(value)
+
+
+def _configure_arm_articulation_physics(stage) -> None:
+    if stage is None:
+        return
+    articulation_root = stage.GetPrimAtPath("/World/A1Z_G1Z/Geometry")
+    if not articulation_root.IsValid():
+        return
+
+    articulation_api = PhysxSchema.PhysxArticulationAPI.Apply(articulation_root)
+    _set_or_create_attr(
+        articulation_api,
+        "GetEnabledSelfCollisionsAttr",
+        "CreateEnabledSelfCollisionsAttr",
+        False,
+    )
+    _set_or_create_attr(
+        articulation_api,
+        "GetSolverPositionIterationCountAttr",
+        "CreateSolverPositionIterationCountAttr",
+        64,
+    )
+    _set_or_create_attr(
+        articulation_api,
+        "GetSolverVelocityIterationCountAttr",
+        "CreateSolverVelocityIterationCountAttr",
+        4,
+    )
+    _set_or_create_attr(
+        articulation_api,
+        "GetSleepThresholdAttr",
+        "CreateSleepThresholdAttr",
+        0.0,
+    )
+    _set_or_create_attr(
+        articulation_api,
+        "GetStabilizationThresholdAttr",
+        "CreateStabilizationThresholdAttr",
+        0.0,
+    )
+
+
+def _configure_wrist_link_physics(stage) -> None:
+    if stage is None:
+        return
+    link_paths = [
+        "/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5",
+        "/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6",
+    ]
+    for prim_path in link_paths:
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim.IsValid():
+            continue
+        rigid_body_api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+        _set_or_create_attr(
+            rigid_body_api,
+            "GetLinearDampingAttr",
+            "CreateLinearDampingAttr",
+            0.05,
+        )
+        _set_or_create_attr(
+            rigid_body_api,
+            "GetAngularDampingAttr",
+            "CreateAngularDampingAttr",
+            0.2,
+        )
+        _set_or_create_attr(
+            rigid_body_api,
+            "GetSleepThresholdAttr",
+            "CreateSleepThresholdAttr",
+            0.0,
+        )
+        _set_or_create_attr(
+            rigid_body_api,
+            "GetStabilizationThresholdAttr",
+            "CreateStabilizationThresholdAttr",
+            0.0,
+        )
+        _set_or_create_attr(
+            rigid_body_api,
+            "GetSolverPositionIterationCountAttr",
+            "CreateSolverPositionIterationCountAttr",
+            32,
+        )
+        _set_or_create_attr(
+            rigid_body_api,
+            "GetSolverVelocityIterationCountAttr",
+            "CreateSolverVelocityIterationCountAttr",
+            4,
+        )
+        _set_or_create_attr(
+            rigid_body_api,
+            "GetMaxDepenetrationVelocityAttr",
+            "CreateMaxDepenetrationVelocityAttr",
+            2.0,
+        )
+
+
+def _configure_wrist_joint_physics(stage) -> None:
+    if stage is None:
+        return
+    joint_paths = [
+        "/World/A1Z_G1Z/Physics/arm_joint5",
+        "/World/A1Z_G1Z/Physics/arm_joint6",
+    ]
+    drive_targets = {
+        "/World/A1Z_G1Z/Physics/arm_joint5": {"stiffness": 18.0, "damping": 7.0, "max_force": 8.0, "max_velocity": 240.0},
+        "/World/A1Z_G1Z/Physics/arm_joint6": {"stiffness": 22.0, "damping": 8.0, "max_force": 8.0, "max_velocity": 240.0},
+    }
+    for joint_path in joint_paths:
+        prim = stage.GetPrimAtPath(joint_path)
+        if not prim.IsValid():
+            continue
+        physx_joint_api = PhysxSchema.PhysxJointAPI.Apply(prim)
+        _set_or_create_attr(
+            physx_joint_api,
+            "GetJointFrictionAttr",
+            "CreateJointFrictionAttr",
+            0.0,
+        )
+        _set_or_create_attr(
+            physx_joint_api,
+            "GetMaxJointVelocityAttr",
+            "CreateMaxJointVelocityAttr",
+            drive_targets[joint_path]["max_velocity"],
+        )
+        drive = UsdPhysics.DriveAPI.Get(prim, "angular")
+        if not drive:
+            drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
+        if prim.HasAttribute("drive:angular:physics:type"):
+            drive.GetTypeAttr().Set("acceleration")
+        else:
+            drive.CreateTypeAttr().Set("acceleration")
+        if prim.HasAttribute("drive:angular:physics:stiffness"):
+            drive.GetStiffnessAttr().Set(drive_targets[joint_path]["stiffness"])
+        else:
+            drive.CreateStiffnessAttr().Set(drive_targets[joint_path]["stiffness"])
+        if prim.HasAttribute("drive:angular:physics:damping"):
+            drive.GetDampingAttr().Set(drive_targets[joint_path]["damping"])
+        else:
+            drive.CreateDampingAttr().Set(drive_targets[joint_path]["damping"])
+        if prim.HasAttribute("drive:angular:physics:maxForce"):
+            drive.GetMaxForceAttr().Set(drive_targets[joint_path]["max_force"])
+        else:
+            drive.CreateMaxForceAttr().Set(drive_targets[joint_path]["max_force"])
 
 
 async def _capture_d405_diagnostics(stage, viewport) -> None:
@@ -911,6 +1188,14 @@ async def open_world(stage_path: str):
         await app.next_update_async()
 
     stage = omni.usd.get_context().get_stage()
+    _apply_wrist_payload_collision_filters(stage)
+    _apply_adjacent_arm_collision_filters(stage)
+    _apply_arm_internal_collision_filters(stage)
+    _disable_wrist_payload_collisions(stage)
+    _lighten_wrist_payload_dynamics(stage)
+    _configure_arm_articulation_physics(stage)
+    _configure_wrist_link_physics(stage)
+    _configure_wrist_joint_physics(stage)
     d405_attachment = None
     if _env_flag("A1Z_D405_ENABLED", _viewport_enabled()):
         d405_attachment = attach_d405_wrist_camera(stage)

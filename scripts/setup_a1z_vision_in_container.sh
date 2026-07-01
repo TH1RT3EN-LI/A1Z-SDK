@@ -51,12 +51,9 @@ docker exec \
       torchaudio==2.7.0
     python -m pip install \
       addict \
-      autolab-core==1.1.1 \
       configargparse \
       colorlog \
       dill \
-      grasp_nms \
-      graspnetAPI==1.2.11 \
       hydra-core \
       imageio \
       iopath \
@@ -81,6 +78,10 @@ docker exec \
       PyWavefront \
       h5py \
       cvxopt
+    python -m pip install --no-deps \
+      autolab-core==1.1.1 \
+      grasp_nms \
+      graspnetAPI==1.2.11
 
     export CUDA_HOME=/usr/local/cuda
     export PATH="$CUDA_HOME/bin:$PATH"

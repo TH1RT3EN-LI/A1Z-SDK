@@ -59,7 +59,10 @@ class IsaacSimArmRobot:
     _ARM_SETTLE_TOL_RAD = np.deg2rad(0.75)
     _ARM_FORCE_SNAP_TOL_RAD = np.deg2rad(6.0)
     _ARM_LEAD_JOINT_SNAP_TOL_RAD = np.deg2rad(5.0)
-    _ARM_WRIST_JOINT_SNAP_TOL_RAD = np.deg2rad(45.0)
+    _ARM_WRIST_JOINT_SNAP_TOL_RAD = np.deg2rad(70.0)
+    _ARM_POST_MOVE_WRIST_RECOVERY_TOL_RAD = np.deg2rad(10.0)
+    _ARM_STAGE_WRIST_DELTA_RAD = np.deg2rad(12.0)
+    _ARM_STAGE_SPEED_RAD_S = 0.30
     _GRIPPER_SETTLE_TOL = 0.03
 
     @staticmethod
@@ -170,6 +173,7 @@ class IsaacSimArmRobot:
         self._joint_limits: Optional[np.ndarray] = None
         self._dof_names: list[str] = []
         self._arm_joint_indices = np.arange(self._num_joints, dtype=np.int64)
+        self._arm_joint_paths: list[str] = []
         self._gripper_joint_indices = np.array([], dtype=np.int64)
         self._gripper_joint_paths: list[str] = []
         self._last_control_action_time = 0.0
@@ -489,28 +493,18 @@ class IsaacSimArmRobot:
         if self._with_gripper and target_pos.shape[0] == self._num_joints + 1:
             gripper_target = float(np.clip(target_pos[self._num_joints], 0.0, 1.0))
 
-        current_arm = self.get_joint_state()["pos"]
-        duration_estimate_s = self._trajectory_duration_for_limits(current_arm, arm_target, speed)
-        done_event = threading.Event()
-
         kp_arr = None if kp is None else np.asarray(kp, dtype=np.float64).reshape(-1)[: self._num_joints]
         kd_arr = None if kd is None else np.asarray(kd, dtype=np.float64).reshape(-1)[: self._num_joints]
-
-        self._run_on_main_thread(
-            lambda: self._start_trajectory(
-                target_arm=arm_target,
+        try:
+            self._execute_move_target_once(
+                arm_target=arm_target,
                 speed=speed,
                 kp=kp_arr,
                 kd=kd_arr,
-                done_event=done_event,
                 gripper_target=gripper_target,
             )
-        )
-
-        wait_timeout_s = max(5.0, duration_estimate_s + 5.0)
-        if not done_event.wait(timeout=wait_timeout_s):
-            raise TimeoutError("Timed out waiting for Isaac Sim arm motion to complete.")
-        self._wait_for_arm_target(arm_target, timeout_s=max(2.0, wait_timeout_s))
+        except TimeoutError as exc:
+            raise exc
 
     def set_gravity_mode(self, enabled: bool) -> None:
         if not self._running:
@@ -658,6 +652,105 @@ class IsaacSimArmRobot:
             if traj.done_event is not None:
                 traj.done_event.set()
 
+    def _execute_move_target_once(
+        self,
+        *,
+        arm_target: np.ndarray,
+        speed: float,
+        kp: Optional[np.ndarray],
+        kd: Optional[np.ndarray],
+        gripper_target: Optional[float],
+    ) -> None:
+        current_arm = self.get_joint_state()["pos"]
+        duration_estimate_s = self._trajectory_duration_for_limits(current_arm, arm_target, speed)
+        done_event = threading.Event()
+
+        self._run_on_main_thread(
+            lambda: self._start_trajectory(
+                target_arm=arm_target,
+                speed=speed,
+                kp=kp,
+                kd=kd,
+                done_event=done_event,
+                gripper_target=gripper_target,
+            )
+        )
+
+        wait_timeout_s = max(5.0, duration_estimate_s + 5.0)
+        if not done_event.wait(timeout=wait_timeout_s):
+            raise TimeoutError("Timed out waiting for Isaac Sim arm motion to complete.")
+        self._wait_for_arm_target(arm_target, timeout_s=max(2.0, wait_timeout_s))
+
+    def _try_staged_move_recovery(
+        self,
+        *,
+        arm_target: np.ndarray,
+        speed: float,
+        kp: Optional[np.ndarray],
+        kd: Optional[np.ndarray],
+        gripper_target: Optional[float],
+    ) -> bool:
+        current_arm = self.get_joint_state()["pos"]
+        waypoints: list[np.ndarray] = []
+
+        # When simultaneous 6-axis motion fails in Isaac, decouple wrist closure
+        # from the lead joints to keep the arm on the intended configuration branch.
+        wp = current_arm.copy()
+        wp[:4] = arm_target[:4]
+        if not np.allclose(wp, current_arm, atol=1e-4):
+            waypoints.append(wp.copy())
+
+        wp_j5 = wp.copy()
+        wp_j5[4] = arm_target[4]
+        if not np.allclose(wp_j5, waypoints[-1] if waypoints else current_arm, atol=1e-4):
+            waypoints.append(wp_j5.copy())
+
+        wp_final = wp_j5.copy()
+        wp_final[5] = arm_target[5]
+        if not np.allclose(wp_final, waypoints[-1] if waypoints else current_arm, atol=1e-4):
+            waypoints.append(wp_final.copy())
+
+        stage_speed = min(float(speed), 0.30)
+        for index, waypoint in enumerate(waypoints):
+            try:
+                self._execute_move_target_once(
+                    arm_target=waypoint,
+                    speed=stage_speed,
+                    kp=kp,
+                    kd=kd,
+                    gripper_target=gripper_target if index == len(waypoints) - 1 else None,
+                )
+            except TimeoutError as stage_exc:
+                carb.log_warn(
+                    "A1Z Isaac staged move recovery failed "
+                    f"stage={index} target_deg={np.round(np.rad2deg(waypoint), 2).tolist()} "
+                    f"error={stage_exc}"
+                )
+                return False
+        return True
+
+    def _needs_wrist_recovery(self, arm_target: np.ndarray) -> bool:
+        current_arm = self.get_joint_state()["pos"]
+        joint_err = np.abs(np.asarray(current_arm, dtype=np.float64) - np.asarray(arm_target, dtype=np.float64))
+        if joint_err.shape[0] <= 4:
+            return False
+        wrist_max_err = float(np.max(joint_err[4:]))
+        lead_max_err = float(np.max(joint_err[:4])) if joint_err.shape[0] >= 4 else wrist_max_err
+        return lead_max_err <= self._ARM_LEAD_JOINT_SNAP_TOL_RAD and wrist_max_err >= self._ARM_POST_MOVE_WRIST_RECOVERY_TOL_RAD
+
+    def _should_prefer_staged_move(
+        self,
+        *,
+        current_arm: np.ndarray,
+        arm_target: np.ndarray,
+        speed: float,
+    ) -> bool:
+        if speed < 0.20:
+            return False
+        joint_delta = np.abs(np.asarray(arm_target, dtype=np.float64) - np.asarray(current_arm, dtype=np.float64))
+        wrist_delta = float(np.max(joint_delta[4:])) if joint_delta.shape[0] > 4 else 0.0
+        return wrist_delta >= self._ARM_STAGE_WRIST_DELTA_RAD
+
     def _trajectory_duration_for_limits(
         self,
         start_pos: np.ndarray,
@@ -683,6 +776,7 @@ class IsaacSimArmRobot:
         except KeyError as exc:
             raise RuntimeError(f"Missing arm joint in Isaac articulation: {exc}") from exc
 
+        self._resolve_arm_joint_paths()
         if self._with_gripper:
             try:
                 self._gripper_joint_indices = np.array(
@@ -694,6 +788,51 @@ class IsaacSimArmRobot:
         else:
             self._gripper_joint_indices = np.array([], dtype=np.int64)
         self._resolve_gripper_joint_paths()
+
+    def _resolve_arm_joint_paths(self) -> None:
+        self._arm_joint_paths = []
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return
+
+        articulation_path = Sdf.Path(self._articulation_root_prim)
+        parent_path = articulation_path.GetParentPath()
+        grandparent_path = parent_path.GetParentPath() if parent_path != Sdf.Path.absoluteRootPath else parent_path
+
+        candidate_roots: list[str] = []
+        for base in (
+            self._articulation_root_prim,
+            str(parent_path),
+            str(grandparent_path),
+            "/World/A1Z_G1Z",
+            "/A1Z_G1Z",
+        ):
+            if not base or base == "/":
+                continue
+            candidate_roots.extend(
+                (
+                    f"{base}/Physics",
+                    f"{base}/joints",
+                    f"{base}/root_joint/joints",
+                )
+            )
+
+        seen: set[str] = set()
+        unique_roots: list[str] = []
+        for root in candidate_roots:
+            if root in seen:
+                continue
+            seen.add(root)
+            unique_roots.append(root)
+
+        for joint_name in self._arm_joint_names:
+            resolved = ""
+            for root in unique_roots:
+                candidate = f"{root}/{joint_name}"
+                if stage.GetPrimAtPath(candidate).IsValid():
+                    resolved = candidate
+                    break
+            self._arm_joint_paths.append(resolved)
 
     def _resolve_gripper_joint_paths(self) -> None:
         self._gripper_joint_paths = []
@@ -783,6 +922,82 @@ class IsaacSimArmRobot:
             if not prim.HasAttribute("drive:linear:physics:targetPosition"):
                 drive.CreateTargetPositionAttr().Set(0.0)
 
+    def _configure_arm_drive_params(
+        self,
+        arm_kp: np.ndarray,
+        arm_kd: np.ndarray,
+        arm_max_effort: np.ndarray,
+    ) -> None:
+        if len(self._arm_joint_paths) != self._num_joints:
+            return
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return
+
+        arm_kp = np.asarray(arm_kp, dtype=np.float64).reshape(-1)
+        arm_kd = np.asarray(arm_kd, dtype=np.float64).reshape(-1)
+        arm_max_effort = np.asarray(arm_max_effort, dtype=np.float64).reshape(-1)
+        for local_idx, joint_path in enumerate(self._arm_joint_paths):
+            if local_idx >= arm_kp.shape[0] or not joint_path:
+                continue
+            prim = stage.GetPrimAtPath(joint_path)
+            if not prim.IsValid():
+                continue
+            drive = UsdPhysics.DriveAPI.Get(prim, "angular")
+            if not drive:
+                drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
+
+            if prim.HasAttribute("drive:angular:physics:type"):
+                drive.GetTypeAttr().Set("acceleration")
+            else:
+                drive.CreateTypeAttr().Set("acceleration")
+            if prim.HasAttribute("drive:angular:physics:stiffness"):
+                drive.GetStiffnessAttr().Set(float(arm_kp[local_idx]))
+            else:
+                drive.CreateStiffnessAttr().Set(float(arm_kp[local_idx]))
+            if prim.HasAttribute("drive:angular:physics:damping"):
+                drive.GetDampingAttr().Set(float(arm_kd[local_idx]))
+            else:
+                drive.CreateDampingAttr().Set(float(arm_kd[local_idx]))
+            if local_idx < arm_max_effort.shape[0]:
+                if prim.HasAttribute("drive:angular:physics:maxForce"):
+                    drive.GetMaxForceAttr().Set(float(arm_max_effort[local_idx]))
+                else:
+                    drive.CreateMaxForceAttr().Set(float(arm_max_effort[local_idx]))
+            if prim.HasAttribute("drive:angular:physics:targetVelocity"):
+                drive.GetTargetVelocityAttr().Set(0.0)
+            else:
+                drive.CreateTargetVelocityAttr().Set(0.0)
+            if not prim.HasAttribute("drive:angular:physics:targetPosition"):
+                drive.CreateTargetPositionAttr().Set(0.0)
+
+    def _set_arm_drive_targets(self, target_arm: np.ndarray) -> None:
+        if len(self._arm_joint_paths) != self._num_joints:
+            return
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return
+
+        target_arm = np.asarray(target_arm, dtype=np.float64).reshape(-1)
+        for local_idx, joint_path in enumerate(self._arm_joint_paths):
+            if local_idx >= target_arm.shape[0] or not joint_path:
+                continue
+            prim = stage.GetPrimAtPath(joint_path)
+            if not prim.IsValid():
+                continue
+            drive = UsdPhysics.DriveAPI.Get(prim, "angular")
+            if not drive:
+                drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
+            target_deg = float(np.rad2deg(target_arm[local_idx]))
+            if prim.HasAttribute("drive:angular:physics:targetPosition"):
+                drive.GetTargetPositionAttr().Set(target_deg)
+            else:
+                drive.CreateTargetPositionAttr().Set(target_deg)
+            if prim.HasAttribute("drive:angular:physics:targetVelocity"):
+                drive.GetTargetVelocityAttr().Set(0.0)
+            else:
+                drive.CreateTargetVelocityAttr().Set(0.0)
+
     def _set_gripper_drive_targets(self, target_dofs: np.ndarray) -> None:
         if not self._with_gripper or len(self._gripper_joint_paths) != 2:
             return
@@ -842,6 +1057,12 @@ class IsaacSimArmRobot:
             np.zeros(self._num_joints, dtype=np.float32),
             joint_indices=self._arm_joint_indices.astype(np.int64),
         )
+        if hasattr(self._articulation, "set_joint_efforts"):
+            self._articulation.set_joint_efforts(
+                np.zeros(self._num_joints, dtype=np.float32),
+                joint_indices=self._arm_joint_indices.astype(np.int64),
+            )
+        self._set_arm_drive_targets(target_arm)
         self._update_state_cache()
 
     def _configure_actuators(self) -> None:
@@ -864,6 +1085,7 @@ class IsaacSimArmRobot:
         )
         self._set_subset_gains(self._arm_joint_indices, arm_kp, arm_kd)
         self._set_subset_max_efforts(self._arm_joint_indices, self._arm_max_effort)
+        self._configure_arm_drive_params(self._hold_kp if not self.zero_gravity_mode else arm_kp, arm_kd, self._arm_max_effort)
         for dof_index in self._arm_joint_indices.tolist():
             self._switch_dof_control_mode(
                 "effort" if self.zero_gravity_mode else "position",
@@ -955,10 +1177,10 @@ class IsaacSimArmRobot:
                 )
             )
         else:
+            self._set_arm_drive_targets(pos_target)
             self._controller().apply_action(
                 ArticulationAction(
                     joint_positions=pos_target.astype(np.float32),
-                    joint_velocities=vel_target.astype(np.float32),
                     joint_indices=self._arm_joint_indices.astype(np.int64),
                 )
             )
@@ -1215,14 +1437,10 @@ class IsaacSimArmRobot:
         if allow_snap:
             carb.log_warn(
                 "A1Z Isaac arm target nearly settled but remained outside tolerance; "
-                f"forcing final joint positions max_err_rad={max_err:.4f} "
+                f"keeping drive hold without final position snap max_err_rad={max_err:.4f} "
                 f"lead_max_err_rad={lead_max_err:.4f} wrist_max_err_rad={wrist_max_err:.4f}"
             )
-            self._run_on_main_thread(lambda: self._force_arm_positions(target_arm))
-            current_arm = self.get_joint_state()["pos"]
-            max_err = float(np.max(np.abs(current_arm - target_arm)))
-            if max_err <= self._ARM_SETTLE_TOL_RAD:
-                return
+            return
         raise TimeoutError(
             f"Timed out waiting for Isaac Sim arm to settle. max_err_rad={max_err:.4f}"
         )

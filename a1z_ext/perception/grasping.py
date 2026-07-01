@@ -266,7 +266,7 @@ def check_anygrasp_runtime(
         sys.path.insert(0, tracking_path)
 
     try:
-        from graspnetAPI import GraspGroup  # noqa: F401
+        from graspnetAPI.grasp import GraspGroup  # noqa: F401
 
         graspnet_api_import_ok = True
     except Exception as exc:

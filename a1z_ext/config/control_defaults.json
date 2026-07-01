@@ -49,9 +49,9 @@
       "gripper_finger_left_joint",
       "gripper_finger_rIght_joint"
     ],
-    "position_hold_kp": [220.0, 260.0, 220.0, 110.0, 8.0, 5.0],
-    "position_hold_kd": [22.0, 28.0, 22.0, 10.0, 0.12, 0.08],
-    "arm_max_effort": [50.0, 50.0, 50.0, 25.0, 7.0, 7.0],
+    "position_hold_kp": [240.0, 280.0, 240.0, 150.0, 42.0, 48.0],
+    "position_hold_kd": [26.0, 32.0, 26.0, 16.0, 9.0, 10.0],
+    "arm_max_effort": [50.0, 50.0, 50.0, 27.0, 10.0, 10.0],
     "arm_max_velocity": [5.654867, 5.654867, 5.654867, 3.769911, 10.471976, 10.471976],
     "gravity_mode_kd_scale": 0.5,
     "gripper_kp": [9000.0, 9000.0],

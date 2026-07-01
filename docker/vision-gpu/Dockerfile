@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=a1z-economicgrasp-gpu:local
+ARG BASE_IMAGE=docker.m.daocloud.io/nvidia/cuda:12.8.1-devel-ubuntu22.04
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -12,9 +12,13 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     curl \
     git \
+    libegl1 \
     libgl1 \
     libglib2.0-0 \
+    libglvnd0 \
     libgomp1 \
+    libgles2 \
+    libglx0 \
     libopenblas-dev \
     libsm6 \
     libusb-1.0-0 \

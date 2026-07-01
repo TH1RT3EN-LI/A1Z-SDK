@@ -3,11 +3,9 @@
 set -euo pipefail
 
 ROOT_DIR="${A1Z_WORKSPACE_CONTAINER:-/workspace/A1Z}"
-if [[ -f "$ROOT_DIR/config/a1z_container.env" ]]; then
-  set -a
+if [[ -f "$ROOT_DIR/scripts/load_a1z_container_env.sh" ]]; then
   # shellcheck disable=SC1091
-  source "$ROOT_DIR/config/a1z_container.env"
-  set +a
+  source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
 fi
 
 LOG_DIR="$ROOT_DIR/runtime/logs"

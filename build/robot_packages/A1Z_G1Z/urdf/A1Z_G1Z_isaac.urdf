@@ -82,9 +82,9 @@
   </joint>
   <link name="arm_link3">
     <inertial>
-      <origin xyz="0.15940760 -0.00005646 0.05493054" rpy="0 0 0" />
-      <mass value="0.99109270" />
-      <inertia ixx="0.00071333" ixy="-0.00008986" ixz="-0.00072729" iyy="0.00923813" iyz="-0.00001487" izz="0.00933122" />
+      <origin xyz="0.16216 -0.000007 0.054975" rpy="0 0 0" />
+      <mass value="0.939545" />
+      <inertia ixx="0.000665" ixy="-0.000058" ixz="-0.000704" iyy="0.008712" iyz="-0.000012" izz="0.008795" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -111,9 +111,9 @@
   </joint>
   <link name="arm_link4">
     <inertial>
-      <origin xyz="0.06143699 0.00107414 0.05309221" rpy="0 0 0" />
-      <mass value="0.48309874" />
-      <inertia ixx="0.00043595" ixy="0.00003158" ixz="-0.00023452" iyy="0.00059163" iyz="0.00002754" izz="0.00047698" />
+      <origin xyz="0.039707 0.002987 0.030933" rpy="0 0 0" />
+      <mass value="0.177099" />
+      <inertia ixx="0.000255" ixy="0.00002" ixz="-0.0001" iyy="0.00028" iyz="0.000016" izz="0.000298" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -140,9 +140,9 @@
   </joint>
   <link name="arm_link5">
     <inertial>
-      <origin xyz="-0.00366248 -2.724E-05 -0.03904971" rpy="0 0 0" />
-      <mass value="0.36875049" />
-      <inertia ixx="0.00010146" ixy="-7E-08" ixz="5.55E-06" iyy="0.00011993" iyz="0" izz="8.271E-05" />
+      <origin xyz="-0.003662 -0.000027 -0.03905" rpy="0 0 0" />
+      <mass value="0.36875" />
+      <inertia ixx="0.000101" ixy="-0" ixz="0.000006" iyy="0.00012" iyz="0" izz="0.000083" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -169,9 +169,9 @@
   </joint>
   <link name="arm_link6">
     <inertial>
-      <origin xyz="0.04156509 0.00002475 -0.00009217" rpy="0 0 0" />
-      <mass value="0.55665538" />
-      <inertia ixx="0.00030053" ixy="0.00030053" ixz="-0.00000170" iyy="0.00037247" iyz="-0.00000005" izz="0.00041454" />
+      <origin xyz="0.055144 -0.000029 -0.000132" rpy="0 0 0" />
+      <mass value="0.423356" />
+      <inertia ixx="0.000288" ixy="-0.000001" ixz="-0.000003" iyy="0.00051" iyz="0.000014" izz="0.000628" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -211,15 +211,9 @@
         <color rgba="0.16 0.16 0.15 1" />
       </material>
     </visual>
-    <collision>
-      <origin xyz="0.01465 0 0.021" rpy="0 0 0" />
-      <geometry>
-        <box size="0.023 0.042 0.042" />
-      </geometry>
-    </collision>
   </link>
   <joint name="d405_mount_joint" type="fixed">
-    <origin xyz="0 0 0.056237" rpy="0 0 0" />
+    <origin xyz="0.08 0 0.086237" rpy="2.251475 0 1.570796" />
     <parent link="arm_link6" />
     <child link="d405_link" />
   </joint>

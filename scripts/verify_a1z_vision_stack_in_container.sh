@@ -29,7 +29,7 @@ import cv2
 import open3d
 import torch
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-from graspnetAPI import GraspGroup
+from graspnetAPI.grasp import GraspGroup
 
 sdk_dir = "/workspace/A1Z/vendor/vision/anygrasp_sdk"
 sys.path.insert(0, f"{sdk_dir}/grasp_detection")

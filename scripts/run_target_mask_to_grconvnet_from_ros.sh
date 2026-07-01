@@ -39,9 +39,12 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$VISION_CONTAINER_NAME" 2>/dev/
 fi
 
 docker exec \
+  -e HOME="/tmp/a1z-home-$(id -u)" \
+  -e ROS_LOG_DIR="/tmp/a1z-home-$(id -u)/.ros/log" \
   "$ROS_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail
+    mkdir -p "$HOME/.ros/log"
     set +u
     source /opt/ros/humble/setup.bash
     source /workspace/A1Z/ros2_ws/install/setup.bash

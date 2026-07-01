@@ -96,6 +96,13 @@ if ROOT_DIR not in sys.path:
 if SDK_DIR not in sys.path:
     sys.path.insert(0, SDK_DIR)
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
 from a1z_ext.config import get_control_defaults  # noqa: E402
 
 CONTROL_DEFAULTS = get_control_defaults()
@@ -129,6 +136,7 @@ GRIPPER_LINK_NAMES = (
     "gripper_finger_left_link",
     "gripper_finger_rIght_link",
 )
+WITH_GRIPPER = _env_bool("A1Z_WITH_GRIPPER", True)
 
 ROBOT_MATERIAL_PRESETS = {
     "silver_shell": {
@@ -391,6 +399,8 @@ def _patch_gripper_joint_drives(stage, joints_root: str) -> list[str]:
     for joint_name, stiffness in GRIPPER_JOINT_DRIVE_STIFFNESS.items():
         lower_m, upper_m = GRIPPER_JOINT_LIMITS_M[joint_name]
         joint_path = f"{joints_root}/{joint_name}"
+        if not stage.GetPrimAtPath(joint_path).IsValid():
+            continue
         _set_prismatic_joint_limits(
             stage=stage,
             joint_path=joint_path,
@@ -457,7 +467,9 @@ def _find_joint_container(stage, root_prim_path: str, joint_names: list[str]) ->
 
 
 def patch_imported_joint_drives(stage, root_prim_path: str):
-    joint_names = ARM_JOINT_NAMES + GRIPPER_JOINT_NAMES
+    joint_names = list(ARM_JOINT_NAMES)
+    if WITH_GRIPPER:
+        joint_names.extend(GRIPPER_JOINT_NAMES)
     joints_root = _find_joint_container(stage, root_prim_path, joint_names)
 
     for joint_name, stiffness in ARM_JOINT_DRIVE_STIFFNESS.items():
@@ -478,7 +490,8 @@ def patch_imported_joint_drives(stage, root_prim_path: str):
             max_force=ARM_JOINT_MAX_FORCE[joint_name],
         )
 
-    _patch_gripper_joint_drives(stage, joints_root)
+    if WITH_GRIPPER:
+        _patch_gripper_joint_drives(stage, joints_root)
 
 
 def _relativize_internal_relationship_targets(stage, root_prim_path: str) -> None:
@@ -683,6 +696,9 @@ def patch_imported_robot_materials(materials_usd_path: str) -> None:
 
 
 def patch_imported_gripper_collision_meshes(stage, root_prim_path: str) -> None:
+    if not WITH_GRIPPER:
+        print("Skipping gripper collision mesh patch because A1Z_WITH_GRIPPER=0.")
+        return
     root_prim = stage.GetPrimAtPath(root_prim_path)
     if not root_prim.IsValid():
         raise RuntimeError(f"Invalid imported robot root prim: {root_prim_path}")
@@ -706,6 +722,9 @@ def patch_imported_gripper_collision_meshes(stage, root_prim_path: str) -> None:
 
 
 def filter_gripper_finger_pair(stage, root_prim_path: str) -> None:
+    if not WITH_GRIPPER:
+        print("Skipping gripper collision filtering because A1Z_WITH_GRIPPER=0.")
+        return
     root_prim = stage.GetPrimAtPath(root_prim_path)
     if not root_prim.IsValid():
         raise RuntimeError(f"Invalid imported robot root prim: {root_prim_path}")
@@ -720,7 +739,8 @@ def filter_gripper_finger_pair(stage, root_prim_path: str) -> None:
             link_prims[name] = prim
     missing = [name for name in GRIPPER_LINK_NAMES if name not in link_prims]
     if missing:
-        raise RuntimeError(f"Could not resolve gripper link prims for collision filtering: {missing}")
+        print(f"Warning: skipping gripper collision filtering because these links are absent: {missing}")
+        return
 
     left_prim = link_prims[GRIPPER_LINK_NAMES[0]]
     right_path = link_prims[GRIPPER_LINK_NAMES[1]].GetPath()
@@ -730,6 +750,9 @@ def filter_gripper_finger_pair(stage, root_prim_path: str) -> None:
 
 
 def patch_imported_gripper_collision_meshes_in_physics_layer(robot_usd_path: str) -> bool:
+    if not WITH_GRIPPER:
+        print("Skipping gripper physics patch because A1Z_WITH_GRIPPER=0.")
+        return False
     robot_path = Path(robot_usd_path)
     physics_layer_path = robot_path.parent / "configuration" / f"{robot_path.stem}_physics.usd"
     if not physics_layer_path.is_file():
@@ -756,11 +779,16 @@ def patch_imported_gripper_collision_meshes_in_physics_layer(robot_usd_path: str
             mesh_collision.CreateApproximationAttr().Set(UsdPhysics.Tokens.convexDecomposition)
             patched_prims.append(str(prim.GetPath()))
 
+    if not patched_joint_paths and not patched_prims:
+        print("Warning: gripper physics patch skipped because no gripper joints or collision prims were found.")
+        return False
+
     if not patched_prims:
         print(
             "Warning: no gripper PhysicsMeshCollisionAPI prims were found "
             f"under the expected physics USD subtrees: {prim_roots}"
         )
+        stage.GetRootLayer().Save()
         return True
 
     stage.GetRootLayer().Save()

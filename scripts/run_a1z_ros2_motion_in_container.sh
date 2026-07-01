@@ -25,6 +25,8 @@ docker exec \
   -e A1Z_D405_LINK_FRAME="${A1Z_D405_LINK_FRAME:-d405_link}" \
   -e A1Z_D405_COLOR_FRAME_ID="${A1Z_D405_COLOR_FRAME_ID:-d405_color_optical_frame}" \
   -e A1Z_D405_DEPTH_FRAME_ID="${A1Z_D405_DEPTH_FRAME_ID:-d405_depth_optical_frame}" \
+  -e A1Z_D405_OPTICAL_OFFSET_XYZ_M="${A1Z_D405_OPTICAL_OFFSET_XYZ_M:-0.009,0,-0.0038}" \
+  -e A1Z_D405_CAMERA_OPTICAL_RPY_DEG="${A1Z_D405_CAMERA_OPTICAL_RPY_DEG:-0,180,0}" \
   "${DOCKER_TTY_ARGS[@]}" "$ROS_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail

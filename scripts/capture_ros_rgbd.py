@@ -16,6 +16,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from a1z_ext.interfaces.schemas import write_json
+from a1z_ext.config import get_socket_path, get_tcp_host, get_tcp_port
+from a1z_ext.control_client import send_control_request
 from a1z_ext.runtime.frame_sources import RosRGBDFrameSource
 from a1z_ext.runtime.image_input import _encode_png
 
@@ -33,6 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tf-lookup-timeout-s", type=float, default=1.0)
     parser.add_argument("--tf-cache-time-s", type=float, default=10.0)
     parser.add_argument("--fail-if-tf-unavailable", action="store_true")
+    parser.add_argument("--socket-path", default=get_socket_path())
+    parser.add_argument("--tcp-host", default=get_tcp_host())
+    parser.add_argument("--tcp-port", type=int, default=get_tcp_port())
     parser.add_argument("--output-dir", required=True, help="Directory for color/depth/intrinsics artifacts.")
     return parser
 
@@ -48,6 +53,23 @@ def _write_rgb_png(path: Path, rgb: np.ndarray) -> None:
             color_type=2,
         )
     )
+
+
+def _capture_current_joints_rad(socket_path: str, *, tcp_host: str, tcp_port: int) -> list[float] | None:
+    try:
+        status = send_control_request(
+            "status",
+            socket_path=socket_path,
+            tcp_host=tcp_host,
+            tcp_port=tcp_port,
+        )
+    except Exception:
+        return None
+    pos_deg = status.get("pos_deg")
+    if not isinstance(pos_deg, list) or len(pos_deg) < 6:
+        return None
+    joints = np.deg2rad(np.asarray(pos_deg[:6], dtype=np.float64))
+    return joints.astype(float).tolist()
 
 
 def main() -> int:
@@ -78,6 +100,7 @@ def main() -> int:
     metadata_path = output_dir / "capture_metadata.json"
     extrinsic_target_path = output_dir / "extrinsic_camera_to_target.npy"
     extrinsic_base_path = output_dir / "extrinsic_camera_to_base.npy"
+    current_joints_path = output_dir / "current_joints_rad.json"
 
     _write_rgb_png(rgb_png_path, capture.rgb[:, :, :3])
     np.save(rgb_npy_path, capture.rgb[:, :, :3])
@@ -92,6 +115,13 @@ def main() -> int:
     )
     write_json(observation_path, capture.observation)
     metadata_path.write_text(json.dumps(capture.source_info, ensure_ascii=True, indent=2), encoding="utf-8")
+    current_joints_rad = _capture_current_joints_rad(
+        args.socket_path,
+        tcp_host=args.tcp_host,
+        tcp_port=args.tcp_port,
+    )
+    if current_joints_rad is not None:
+        current_joints_path.write_text(json.dumps(current_joints_rad, ensure_ascii=True, indent=2), encoding="utf-8")
 
     print(
         json.dumps(
@@ -104,6 +134,7 @@ def main() -> int:
                 "metadata_path": str(metadata_path),
                 "extrinsic_target_path": str(extrinsic_target_path),
                 "extrinsic_base_path": str(extrinsic_base_path) if extrinsic_base_path.is_file() else None,
+                "current_joints_path": str(current_joints_path) if current_joints_path.is_file() else None,
                 "width": int(capture.rgb.shape[1]),
                 "height": int(capture.rgb.shape[0]),
                 "camera_frame_id": capture.observation.camera_frame_id,

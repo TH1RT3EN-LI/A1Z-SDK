@@ -181,9 +181,9 @@ class ContactGraspNetA1ZAdapterConfig:
     ik_damping: float = 1e-6
     ik_max_iters: int = 800
     keepout_spheres: list[KeepoutSphere] = field(default_factory=list)
-    ee_grasp_origin_xyz_m: tuple[float, float, float] = (0.0727, 0.0, 0.0)
-    ee_opening_axis_xyz: tuple[float, float, float] = (0.0, 1.0, 0.0)
-    ee_approach_axis_xyz: tuple[float, float, float] = (1.0, 0.0, 0.0)
+    ee_grasp_origin_xyz_m: tuple[float, float, float] = (0.04, 0.0, 0.0)
+    ee_opening_axis_xyz: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    ee_approach_axis_xyz: tuple[float, float, float] = (0.0, -1.0, 0.0)
     segment_timeouts_s: dict[str, float] = field(
         default_factory=lambda: {
             "move_to_pregrasp": 5.0,

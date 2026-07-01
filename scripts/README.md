@@ -6,6 +6,59 @@
 
 这些是日常直接用的脚本。
 
+- `run_target_mask_to_anygrasp_pick_attempt.sh`
+  - 当前推荐的一键抓取入口。
+  - 流程是：
+    `自然语言目标 -> ROS RGB-D 抓图 -> target mask -> AnyGrasp -> A1Z adapter -> execute`
+  - 支持：
+    - `--execution-mode best_direct`：执行 `adapter/best_direct/selected_plan.json`；当前默认就是这一档。
+    - `--execution-mode adapter_selected`：执行 `adapter/selected_plan.json`
+    - `--binding-label <label>`：显式指定本轮 AnyGrasp raw rotation 的列/符号绑定假设。
+    - `--camera-correction-label <label>`：显式指定本轮相机坐标系修正假设，当前默认活路径是 `identity`。
+    - `--extrinsic-correction-label <label>`：显式指定本轮 `extrinsic_camera_to_base` 内部额外修正假设，当前默认活路径是 `identity`。
+    - `--ee-grasp-origin-xyz-m <json>` / `--ee-opening-axis-xyz <json>` / `--ee-approach-axis-xyz <json>`：显式指定本轮 TCP 对齐假设。
+    - `--require-current-joints`：要求本轮必须成功落下 `capture/current_joints_rad.json`；否则流程直接失败，不产出不可靠的对齐目录。
+  - 对齐机械臂映射时，默认就先走 `--execution-mode best_direct`，先固定 AnyGrasp `rank0`，再根据 `adapter/anygrasp_pose_chain_summary.json` 和 renders 图调整 `camera correction / camera->base / TCP` 绑定。
+  - 如果已经从真机观察到“当前 tool 还需要往 base 坐标系的哪边修多少”，可以再用 `rank_anygrasp_binding_hypotheses_in_container.sh` 对 `adapter/mapping_hypotheses.json` 反查，联合缩小 `binding / camera correction / extrinsic correction` 候选；如果旧目录里还没有 `mapping_hypotheses.json`，会退回 `adapter/anygrasp_alignment_report.json` 只排 `binding`。
+  - 如果想直接对某一轮输出目录做统一分析，可以用 `analyze_anygrasp_output_dir.sh <pipeline_dir> [--observed-tool-delta-xyz '[dx,dy,dz]']`，它会在该目录下生成 `analysis/analysis_summary.json`；其中 `diagnostic_summary` 会汇总当前 active 配置、best_direct gap 严重度、扫描到的最佳候选以及三层差异。提供观察误差时还会同时生成 `analysis/binding_hypotheses.json`，优先按 `binding / camera correction / extrinsic correction` 三层候选排序。
+  - 做“从 0 对齐机械臂映射”时，只在 `capture/current_joints_rad.json` 存在且 `analysis/analysis_summary.json` 里的 `best_direct_reference_state_reliable=true` 时，把该轮 `best_direct gap` 当成有效对齐证据；旧目录如果缺这份抓图时刻关节角，gap 只可用于粗看，不足以下结论。
+  - `pipeline_manifest.json` / `analysis/analysis_summary.json` 里的 `active_binding_label`、`active_camera_correction_label`、`active_extrinsic_correction_label` 只表示“这一轮执行时采用的 AnyGrasp frame 假设”，不是已经验证正确的结论。
+  - 当前默认 TCP 假设采用最近一次真机抓图上的 `scan_anygrasp_tcp_alignment.py` 最优解：`ee_grasp_origin_xyz_m=[0.04,0,0]`、`ee_opening_axis_xyz=[0,0,1]`、`ee_approach_axis_xyz=[0,-1,0]`。这组配置在 `binding=opening=c1,height=c2,approach=mc0` 下把 `executable_count` 提到了当前扫描最高值。
+  - 当前默认 AnyGrasp `binding_label` 采用 `opening=c1,height=c2,approach=mc0`，依据是以 `identity camera correction + identity extrinsic correction` 为前提时，它在真实抓图输出里给出的 `best_direct` orientation gap 最小。
+  - 会在 `runtime/anygrasp_target_pick_attempt_<timestamp>/` 下输出：
+    - `capture/`
+    - `target_mask/`
+    - `anygrasp_from_mask/`
+    - `adapter/`
+    - `renders/`
+    - `execute/`
+    - `pipeline_manifest.json`
+  - `adapter/` 里当前会固定包含三类调试结果：
+    - `anygrasp_adapter_result.json` / `selected_plan.json`
+    - `best_direct/anygrasp_best_direct_result.json` / `best_direct/selected_plan.json`
+    - `best_vs_selected_summary.json`
+    - `anygrasp_pose_chain_summary.json`
+    - `anygrasp_frame_binding_analysis.json`
+    - `anygrasp_alignment_report.json`
+  - `execute/` 里会写：
+    - `execution_result.json`
+    - `execution_manifest.json`
+- `run_target_mask_to_anygrasp_from_ros.sh`
+  - 非执行版主入口；会产出 `capture/ target_mask/ anygrasp_from_mask/ adapter/ renders/ analysis/ pipeline_manifest.json`。
+  - 同样支持 `--binding-label`、`--camera-correction-label`、`--extrinsic-correction-label`、`--require-current-joints` 和三组 `--ee-*` 参数，适合做“只采集和分析，不执行”的从 0 对齐。
+- `replay_anygrasp_from_capture.sh`
+  - 对已有抓图目录做 AnyGrasp 重放，适合固定输入后迭代 `binding / camera correction / extrinsic / TCP` 假设。
+  - 加 `--require-current-joints` 时，如果源目录没有 `capture/current_joints_rad.json`，会直接拒绝重放，避免继续使用不可靠对齐证据。
+- `find_anygrasp_alignment_runs.sh`
+  - 扫描 `runtime/` 里的 AnyGrasp 输出目录，并按“是否带抓图时刻关节角、analysis 是否标记为可靠证据”排序。
+  - 默认会跳过 `verify / smoke / analysis_input` 这类夹具目录，避免把测试产物误当成真机对齐依据；需要时可加 `--include-fixtures`。
+  - 常用法：
+    - `bash scripts/find_anygrasp_alignment_runs.sh --require-analysis`
+    - `bash scripts/find_anygrasp_alignment_runs.sh --require-analysis --require-current-joints --require-reliable --json`
+- `print_latest_anygrasp_alignment_run.sh`
+  - 打印“最新且可用于从 0 对齐”的 AnyGrasp 输出目录。
+  - 当前如果还没有任何 `best_direct_reference_state_reliable=true` 的目录，会直接报 `no reliable AnyGrasp alignment run found`；这正说明还需要再跑一轮新的真机采集。
+
 - `verify_a1z_control_stack.sh`
   - 一次性跑 SDK / mock / server contract / Isaac / SocketCAN preflight。
 - `open_a1z_webrtc_host.sh`

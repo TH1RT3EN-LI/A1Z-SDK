@@ -7,7 +7,7 @@ source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
 
 VISION_CONTAINER_NAME="${A1Z_VISION_CONTAINER_NAME:-a1z-vision-gpu}"
 VISION_IMAGE_TAG="${A1Z_VISION_IMAGE_TAG:-a1z-vision-gpu:local}"
-VISION_BASE_IMAGE="${A1Z_VISION_BASE_IMAGE:-a1z-economicgrasp-gpu:local}"
+VISION_BASE_IMAGE="${A1Z_VISION_BASE_IMAGE:-docker.m.daocloud.io/nvidia/cuda:12.8.1-devel-ubuntu22.04}"
 DOCKERFILE_PATH="$ROOT_DIR/docker/vision-gpu/Dockerfile"
 
 docker build \

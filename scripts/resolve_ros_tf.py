@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from a1z_ext.runtime.ros_tf import RosTransformResolver
+from a1z_ext.runtime.ros_env import ensure_ros_logging_env
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,6 +60,7 @@ def main() -> int:
     if not target_frame_id:
         raise ValueError("target_frame_id is required")
 
+    ensure_ros_logging_env()
     rclpy.init(args=None)
     node = Node("a1z_resolve_ros_tf")
     try:

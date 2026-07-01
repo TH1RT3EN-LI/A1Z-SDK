@@ -55,7 +55,16 @@ class A1ZRobotStateNode(Node):
             stamp=stamp,
         )
 
-        optical_rel = xyz_rpy_deg_to_matrix((0.0, 0.0, 0.0, 0.0, 180.0, 0.0))
+        optical_rel = xyz_rpy_deg_to_matrix(
+            (
+                self._cfg.d405_optical_offset_xyz_m[0],
+                self._cfg.d405_optical_offset_xyz_m[1],
+                self._cfg.d405_optical_offset_xyz_m[2],
+                self._cfg.d405_optical_rpy_deg[0],
+                self._cfg.d405_optical_rpy_deg[1],
+                self._cfg.d405_optical_rpy_deg[2],
+            )
+        )
         color_optical = matrix_to_transform_stamped(
             optical_rel,
             parent_frame=self._cfg.d405_link_frame,

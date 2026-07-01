@@ -238,6 +238,7 @@ async def startup() -> None:
                 "A1Z_D405_FK_FRAME",
                 "A1Z_D405_MOUNT_OFFSET",
                 "A1Z_D405_MOUNT_RPY_DEG",
+                "A1Z_D405_OPTICAL_OFFSET_XYZ_M",
                 "A1Z_D405_CAMERA_OPTICAL_RPY_DEG",
             )
         },

@@ -78,17 +78,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-waypoint-delta-rad", type=float, default=2.5)
     parser.add_argument(
         "--ee-grasp-origin-xyz-m",
-        default="[0.0727, 0.0, 0.0]",
+        default="[-0.06, 0.0, 0.0]",
         help="Grasp center expressed in arm_link6 frame.",
     )
     parser.add_argument(
         "--ee-opening-axis-xyz",
-        default="[0.0, 1.0, 0.0]",
+        default="[0.0, 0.8115343414514943, -0.5843047258450759]",
         help="Parallel-jaw opening axis expressed in arm_link6 frame.",
     )
     parser.add_argument(
         "--ee-approach-axis-xyz",
-        default="[1.0, 0.0, 0.0]",
+        default="[-1.0, 0.0, 0.0]",
         help="Tool forward/approach axis expressed in arm_link6 frame.",
     )
     parser.add_argument(

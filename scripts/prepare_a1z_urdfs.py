@@ -50,6 +50,46 @@ GRIPPER_JOINT_NAMES = (
     "gripper_finger_rIght_joint",
 )
 GRIPPER_JOINT_AXIS = "0 1 0"
+LINK3_INERTIA_OVERRIDE = {
+    "mass": 0.93954481,
+    "origin_xyz": (0.16216028, -6.8e-06, 0.05497523),
+    "ixx": 0.0006646,
+    "ixy": -5.769e-05,
+    "ixz": -0.00070446,
+    "iyy": 0.00871203,
+    "iyz": -1.192e-05,
+    "izz": 0.00879503,
+}
+LINK4_INERTIA_OVERRIDE = {
+    "mass": 0.17709874,
+    "origin_xyz": (0.03970651, 0.00298658, 0.03093312),
+    "ixx": 0.00025509,
+    "ixy": 1.994e-05,
+    "ixz": -9.986e-05,
+    "iyy": 0.00027975,
+    "iyz": 1.559e-05,
+    "izz": 0.00029767,
+}
+LINK5_INERTIA_OVERRIDE = {
+    "mass": 0.36875049,
+    "origin_xyz": (-0.00366248, -2.724e-05, -0.03904971),
+    "ixx": 0.00010146,
+    "ixy": -7.0e-08,
+    "ixz": 5.55e-06,
+    "iyy": 0.00011993,
+    "iyz": 0.0,
+    "izz": 8.271e-05,
+}
+LINK6_INERTIA_OVERRIDE = {
+    "mass": 0.42335647,
+    "origin_xyz": (0.05514353, -2.867e-05, -0.00013152),
+    "ixx": 0.00028807,
+    "ixy": -6.5e-07,
+    "ixz": -2.8e-06,
+    "iyy": 0.00050989,
+    "iyz": 1.432e-05,
+    "izz": 0.00062848,
+}
 
 D405_LINK_XML = """
 <link name="d405_link">
@@ -67,13 +107,16 @@ D405_LINK_XML = """
       <color rgba="0.16 0.16 0.15 1" />
     </material>
   </visual>
+</link>
+""".strip()
+
+D405_COLLISION_XML = """
   <collision>
     <origin xyz="0.01465 0 0.021" rpy="0 0 0" />
     <geometry>
       <box size="0.023 0.042 0.042" />
     </geometry>
   </collision>
-</link>
 """.strip()
 
 D405_JOINT_XML = """
@@ -133,6 +176,18 @@ def _env_float(name: str, default: float) -> float:
     return float(raw.strip())
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return bool(default)
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean-like value, got: {raw}")
+
+
 def _set_visual_material_rgba(visual: ET.Element, rgba: tuple[float, float, float, float]) -> None:
     material = visual.find("material")
     if material is None:
@@ -150,24 +205,30 @@ def _upsert_d405(root: ET.Element) -> None:
             _, element = match
             root.remove(element)
 
+    if not _env_bool("A1Z_D405_ENABLED", True):
+        return
+
     gripper_link = _find_named_child(root, "link", "gripper_finger_left_link")
     insert_index = gripper_link[0] if gripper_link is not None else len(root)
     d405_mass_kg = max(_env_float("A1Z_D405_MASS_KG", DEFAULT_D405_MASS_KG), 1e-6)
     inertia_scale = d405_mass_kg / D405_BASE_MASS_KG
     ixx, ixy, ixz, iyy, iyz, izz = (value * inertia_scale for value in D405_BASE_INERTIA)
+    d405_link = ET.fromstring(
+        D405_LINK_XML.format(
+            mass_kg=_float_string(d405_mass_kg),
+            ixx=_float_string(ixx),
+            ixy=_float_string(ixy),
+            ixz=_float_string(ixz),
+            iyy=_float_string(iyy),
+            iyz=_float_string(iyz),
+            izz=_float_string(izz),
+        )
+    )
+    if _env_bool("A1Z_D405_COLLISION_ENABLED", False):
+        d405_link.append(ET.fromstring(D405_COLLISION_XML))
     root.insert(
         insert_index,
-        ET.fromstring(
-            D405_LINK_XML.format(
-                mass_kg=_float_string(d405_mass_kg),
-                ixx=_float_string(ixx),
-                ixy=_float_string(ixy),
-                ixz=_float_string(ixz),
-                iyy=_float_string(iyy),
-                iyz=_float_string(iyz),
-                izz=_float_string(izz),
-            )
-        ),
+        d405_link,
     )
     mount_x, mount_y, mount_z = _env_vec3("A1Z_D405_MOUNT_OFFSET", DEFAULT_D405_MOUNT_OFFSET)
     mount_roll_deg, mount_pitch_deg, mount_yaw_deg = _env_vec3(
@@ -224,12 +285,60 @@ def _set_gripper_joint_mode(root: ET.Element, *, fixed: bool) -> None:
             axis.set("xyz", GRIPPER_JOINT_AXIS)
 
 
+def _override_link_inertial(root: ET.Element, link_name: str, override: dict[str, float | tuple[float, float, float]]) -> None:
+    match = _find_named_child(root, "link", link_name)
+    if match is None:
+        return
+    _, link = match
+    inertial = link.find("inertial")
+    if inertial is None:
+        return
+    origin = inertial.find("origin")
+    if origin is not None:
+        origin.set(
+            "xyz",
+            " ".join(_float_string(value) for value in override["origin_xyz"]),
+        )
+    mass = inertial.find("mass")
+    if mass is not None:
+        mass.set("value", _float_string(override["mass"]))
+    inertia = inertial.find("inertia")
+    if inertia is not None:
+        inertia.set("ixx", _float_string(override["ixx"]))
+        inertia.set("ixy", _float_string(override["ixy"]))
+        inertia.set("ixz", _float_string(override["ixz"]))
+        inertia.set("iyy", _float_string(override["iyy"]))
+        inertia.set("iyz", _float_string(override["iyz"]))
+        inertia.set("izz", _float_string(override["izz"]))
+
+
+def _remove_gripper_subtree(root: ET.Element) -> None:
+    gripper_link_names = {"gripper_finger_left_link", "gripper_finger_rIght_link"}
+    gripper_joint_names = set(GRIPPER_JOINT_NAMES)
+    to_remove = []
+    for child in root:
+        name = child.get("name")
+        if child.tag == "link" and name in gripper_link_names:
+            to_remove.append(child)
+        elif child.tag == "joint" and name in gripper_joint_names:
+            to_remove.append(child)
+    for element in to_remove:
+        root.remove(element)
+
+
 def _build_variant(*, fixed_gripper: bool, limit_kind: str) -> ET.ElementTree:
     base_tree = _parse_urdf(SOURCE_URDF)
     variant_root = deepcopy(base_tree.getroot())
     _apply_arm_joint_limits(variant_root, limit_kind=limit_kind)
+    _override_link_inertial(variant_root, "arm_link3", LINK3_INERTIA_OVERRIDE)
+    _override_link_inertial(variant_root, "arm_link4", LINK4_INERTIA_OVERRIDE)
+    _override_link_inertial(variant_root, "arm_link5", LINK5_INERTIA_OVERRIDE)
+    _override_link_inertial(variant_root, "arm_link6", LINK6_INERTIA_OVERRIDE)
     _upsert_d405(variant_root)
-    _set_gripper_joint_mode(variant_root, fixed=fixed_gripper)
+    if _env_bool("A1Z_WITH_GRIPPER", True):
+        _set_gripper_joint_mode(variant_root, fixed=fixed_gripper)
+    else:
+        _remove_gripper_subtree(variant_root)
     return ET.ElementTree(variant_root)
 
 

@@ -8,7 +8,12 @@ CONTAINER_NAME="${ISAAC_SIM_CONTAINER_NAME:-isaac-sim-5-1-dev}"
 VENV_PYTHON="${A1Z_SDK_VENV_DIR:-/home/ubuntu/.venvs/a1z-sdk}/bin/python"
 DOCKER_ENV_ARGS=()
 
-for var_name in A1Z_CAN_CHANNEL A1Z_SOCKET_PATH A1Z_BACKEND; do
+for var_name in \
+  A1Z_CAN_CHANNEL \
+  A1Z_SOCKET_PATH \
+  A1Z_BACKEND \
+  A1Z_D405_OPTICAL_OFFSET_XYZ_M \
+  A1Z_D405_CAMERA_OPTICAL_RPY_DEG; do
   if [[ -n "${!var_name:-}" ]]; then
     DOCKER_ENV_ARGS+=(-e "$var_name=${!var_name}")
   fi
