@@ -16,7 +16,7 @@ bash "$ROOT_DIR/scripts/analyze_anygrasp_frame_bindings_in_container.sh" \
   --extrinsic-camera-to-base /workspace/A1Z/runtime/target_mask_to_anygrasp/from_ros_live/capture/extrinsic_camera_to_base.npy \
   --output /workspace/A1Z/runtime/anygrasp_replay_compare_summary_v4/adapter/anygrasp_frame_binding_analysis.json \
   --grasp-rank 0 \
-  --binding-label 'opening=c1,height=c2,approach=mc0' \
+  --binding-label 'opening=c1,height=c2,approach=c0' \
   --camera-correction-label 'identity' \
   --extrinsic-correction-label 'identity' \
   --ee-grasp-origin-xyz-m '[0.04, 0.0, 0.0]' \
@@ -47,7 +47,7 @@ summary["tcp_defaults"] = {
     "ee_opening_axis_xyz": [0.0, 0.0, 1.0],
     "ee_approach_axis_xyz": [0.0, -1.0, 0.0],
 }
-summary["active_binding_label"] = "opening=c1,height=c2,approach=mc0"
+summary["active_binding_label"] = "opening=c1,height=c2,approach=c0"
 summary["active_camera_correction_label"] = "identity"
 summary["active_extrinsic_correction_label"] = "identity"
 (dst_dir / "pipeline_manifest.json").write_text(json.dumps(manifest, ensure_ascii=True, indent=2), encoding="utf-8")
@@ -69,13 +69,13 @@ hindex = json.loads((root / "analysis_index.json").read_text(encoding="utf-8"))
 hyp = json.loads((root / "binding_hypotheses.json").read_text(encoding="utf-8"))
 
 assert summary["selected_rank"] == 0, summary
-assert summary["active_binding_label"] == "opening=c1,height=c2,approach=mc0", summary
+assert summary["active_binding_label"] == "opening=c1,height=c2,approach=c0", summary
 assert summary["active_camera_correction_label"] == "identity", summary
 assert summary["active_extrinsic_correction_label"] == "identity", summary
-assert summary["manifest_active_binding_label"] == "opening=c1,height=c2,approach=mc0", summary
+assert summary["manifest_active_binding_label"] == "opening=c1,height=c2,approach=c0", summary
 assert summary["manifest_active_camera_correction_label"] == "identity", summary
 assert summary["manifest_active_extrinsic_correction_label"] == "identity", summary
-assert summary["frame_analysis_active_binding_label"] == "opening=c1,height=c2,approach=mc0", summary
+assert summary["frame_analysis_active_binding_label"] == "opening=c1,height=c2,approach=c0", summary
 assert summary["frame_analysis_active_camera_correction_label"] == "identity", summary
 assert summary["frame_analysis_active_extrinsic_correction_label"] == "identity", summary
 assert summary["binding_label_sources_present"] == ["frame_analysis", "manifest"], summary
@@ -119,10 +119,10 @@ assert (
 ), hindex
 assert isinstance(hyp.get("top_matches"), list) and len(hyp["top_matches"]) == 2, hyp
 assert hyp["top_matches"][0]["binding_label"] in {
-    "opening=c1,height=c2,approach=mc0",
+    "opening=c1,height=c2,approach=c0",
     "opening=c2,height=mc1,approach=c0",
     "opening=mc2,height=c1,approach=c0",
-    "opening=c1,height=c2,approach=mc0",
+    "opening=c1,height=c2,approach=c0",
     "opening=c1,height=c2,approach=c0",
 }, hyp
 assert hyp["top_matches"][0]["residual_norm_m"] >= 0.0, hyp

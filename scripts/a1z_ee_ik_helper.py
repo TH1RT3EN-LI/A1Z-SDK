@@ -362,7 +362,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--end-effector-frame",
-        default=os.environ.get("A1Z_EE_FRAME", "arm_link6"),
+        default=os.environ.get("A1Z_EE_FRAME", "grasp_tcp"),
         help="URDF frame name used as the controlled end effector.",
     )
 

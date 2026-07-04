@@ -39,7 +39,33 @@ Visualization Manager:
       Enabled: true
       Frame Timeout: 15
       Frames:
-        All Enabled: true
+        All Enabled: false
+        base_link:
+          Value: true
+        arm_link1:
+          Value: true
+        arm_link2:
+          Value: true
+        arm_link3:
+          Value: true
+        arm_link4:
+          Value: true
+        arm_link5:
+          Value: true
+        arm_link6:
+          Value: true
+        grasp_tcp:
+          Value: true
+        robot_base_frame:
+          Value: true
+        d405_link:
+          Value: false
+        d405_rectified_link:
+          Value: false
+        d405_depth_optical_frame:
+          Value: false
+        d405_color_optical_frame:
+          Value: true
       Marker Scale: 0.25
       Name: TF
       Show Arrows: true
@@ -82,7 +108,7 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: world
+    Fixed Frame: base_link
     Frame Rate: 30
   Name: root
   Tools:

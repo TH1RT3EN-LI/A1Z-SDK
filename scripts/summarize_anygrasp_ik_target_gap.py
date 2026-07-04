@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Summarize EE pose gap to AnyGrasp best-direct target.")
     parser.add_argument("--best-direct-result", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--end-effector-frame", default="arm_link6")
+    parser.add_argument("--end-effector-frame", default="grasp_tcp")
     parser.add_argument("--control-urdf", default=get_default_control_urdf_path())
     return parser
 

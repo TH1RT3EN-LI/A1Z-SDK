@@ -72,17 +72,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--origin-x-values",
         default="[-0.08,-0.06,-0.04,0.0,0.04,0.06,0.0727,0.08]",
-        help="JSON list of x offsets in arm_link6 frame.",
+        help="JSON list of x offsets in the end-effector frame.",
     )
     parser.add_argument(
         "--origin-y-values",
         default="[0.0]",
-        help="JSON list of y offsets in arm_link6 frame.",
+        help="JSON list of y offsets in the end-effector frame.",
     )
     parser.add_argument(
         "--origin-z-values",
         default="[0.0,-0.02,0.02]",
-        help="JSON list of z offsets in arm_link6 frame.",
+        help="JSON list of z offsets in the end-effector frame.",
     )
     parser.add_argument("--top-k-configs", type=int, default=20)
     return parser

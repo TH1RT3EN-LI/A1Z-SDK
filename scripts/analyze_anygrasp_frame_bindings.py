@@ -31,9 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--binding-label", default=ANYGRASP_ACTIVE_BINDING_LABEL, help="Binding label used by the active execution path.")
     parser.add_argument("--camera-correction-label", default=ANYGRASP_ACTIVE_CAMERA_CORRECTION_LABEL, help="Camera-frame correction used by the active execution path.")
     parser.add_argument("--extrinsic-correction-label", default=ANYGRASP_ACTIVE_EXTRINSIC_CORRECTION_LABEL, help="Extrinsic correction used by the active execution path.")
-    parser.add_argument("--ee-grasp-origin-xyz-m", default="[0.04, 0.0, 0.0]")
-    parser.add_argument("--ee-opening-axis-xyz", default="[0.0, 0.0, 1.0]")
-    parser.add_argument("--ee-approach-axis-xyz", default="[0.0, -1.0, 0.0]")
+    parser.add_argument("--ee-grasp-origin-xyz-m", default="[0.0, 0.0, 0.0]")
+    parser.add_argument("--ee-opening-axis-xyz", default="[0.0, 1.0, 0.0]")
+    parser.add_argument("--ee-approach-axis-xyz", default="[1.0, 0.0, 0.0]")
     return parser
 
 
@@ -114,16 +114,31 @@ def main() -> int:
     rows: list[dict[str, Any]] = []
     columns = [rotation_anygrasp[:, idx].copy() for idx in range(3)]
     for label, (opening_idx, height_idx, approach_idx, signs) in ANYGRASP_SUPPORTED_BINDINGS.items():
-        grasp_cam = anygrasp_item_to_grasp_pose_with_binding_label(
-            item,
-            binding_label=label,
-            camera_correction_label=str(args.camera_correction_label),
-        )
+        try:
+            grasp_cam = anygrasp_item_to_grasp_pose_with_binding_label(
+                item,
+                binding_label=label,
+                camera_correction_label=str(args.camera_correction_label),
+            )
+            binding_error: str | None = None
+        except ValueError as exc:
+            rows.append(
+                {
+                    "binding_label": label,
+                    "error": str(exc),
+                    "raw_opening_idx": int(opening_idx),
+                    "raw_height_idx": int(height_idx),
+                    "raw_approach_idx": int(approach_idx),
+                    "raw_signs": [float(v) for v in signs],
+                }
+            )
+            continue
         grasp_base = _rigidize_transform(extrinsic_camera_to_base @ grasp_cam)
         tool_grasp = _rigidize_transform(grasp_base @ grasp_to_ee)
         rows.append(
             {
                 "binding_label": label,
+                "error": binding_error,
                 "grasp_pose_cam_xyz": _vec3(grasp_cam),
                 "grasp_pose_base_xyz": _vec3(grasp_base),
                 "tool_grasp_pose_xyz": _vec3(tool_grasp),

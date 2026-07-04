@@ -13,7 +13,7 @@ newline-terminated JSON response:
          or {"ok": false, "error": "<message>"}
 
 Commands: status | move | command | gripper | dance | stop | info |
-camera_status | camera_capture
+camera_status | camera_capture | camera_extrinsic
 """
 
 import json
@@ -282,6 +282,11 @@ class RobotServer:
             return {"ok": False, "error": "D405 camera session is not available."}
         return {"ok": True, "data": self._camera_session.latest_payload()}
 
+    def _cmd_camera_extrinsic(self, _args: dict) -> dict:
+        if self._camera_session is None:
+            return {"ok": False, "error": "D405 camera session is not available."}
+        return {"ok": True, "data": self._camera_session.latest_extrinsic_payload()}
+
     # ------------------------------------------------------------------
     # Connection handling
     # ------------------------------------------------------------------
@@ -296,6 +301,7 @@ class RobotServer:
         "info":    _cmd_info,
         "camera_status": _cmd_camera_status,
         "camera_capture": _cmd_camera_capture,
+        "camera_extrinsic": _cmd_camera_extrinsic,
     }
 
     def _handle_connection(self, conn: socket.socket) -> None:

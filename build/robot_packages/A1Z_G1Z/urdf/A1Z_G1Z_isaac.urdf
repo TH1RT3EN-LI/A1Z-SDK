@@ -196,6 +196,12 @@
     <axis xyz="1 0 0" />
     <limit lower="-2.094395" upper="2.094395" effort="3.5" velocity="10.471976" />
   </joint>
+  <link name="grasp_tcp" />
+  <joint name="grasp_tcp_joint" type="fixed">
+    <origin xyz="0.04 0 0" rpy="0 0 0" />
+    <parent link="arm_link6" />
+    <child link="grasp_tcp" />
+  </joint>
   <link name="d405_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -203,7 +209,7 @@
       <inertia ixx="0.000054" ixy="0" ixz="0" iyy="0.000007" iyz="0" izz="0.000054" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin xyz="0 0 0" rpy="2.251475 0 1.570796" />
       <geometry>
         <mesh filename="package://A1Z_G1Z/meshes/d405.stl" scale="0.001 0.001 0.001" />
       </geometry>
@@ -213,9 +219,15 @@
     </visual>
   </link>
   <joint name="d405_mount_joint" type="fixed">
-    <origin xyz="0.08 0 0.086237" rpy="2.251475 0 1.570796" />
+    <origin xyz="0.08 0 0.086237" rpy="0 0 0" />
     <parent link="arm_link6" />
     <child link="d405_link" />
+  </joint>
+  <link name="d405_rectified_link" />
+  <joint name="d405_rectified_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="d405_link" />
+    <child link="d405_rectified_link" />
   </joint>
   <link name="gripper_finger_left_link">
     <inertial>

@@ -14,14 +14,15 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 ROBOT_PACKAGE_DIR = ROOT_DIR / "build" / "robot_packages" / "A1Z_G1Z"
 ROBOT_URDF_DIR = ROBOT_PACKAGE_DIR / "urdf"
 ROBOT_MESH_DIR = ROBOT_PACKAGE_DIR / "meshes"
+DEFAULT_ENV_FILE = ROOT_DIR / "config" / "a1z_container.env"
 VENDOR_SOURCE_URDF = ROOT_DIR / "vendor" / "GALAXEA-A1Z" / "a1z" / "robot_models" / "a1z" / "A1Z_G1Z.urdf"
 SOURCE_URDF = ROBOT_URDF_DIR / "A1Z_G1Z.urdf"
 ISAAC_URDF = ROBOT_URDF_DIR / "A1Z_G1Z_isaac.urdf"
 CONTROL_URDF = ROBOT_URDF_DIR / "A1Z_G1Z_control.urdf"
 ASSET_D405_MESH = ROOT_DIR / "assets" / "realsense_d405" / "d405.stl"
 PACKAGE_D405_MESH = ROBOT_MESH_DIR / "d405.stl"
-DEFAULT_D405_MOUNT_OFFSET = (0.0, 0.0, 0.05623718)
-DEFAULT_D405_MOUNT_RPY_DEG = (0.0, 0.0, 0.0)
+DEFAULT_D405_STAGE_MOUNT_OFFSET_XYZ_M = (0.08, 0.0, 0.08623718)
+DEFAULT_D405_STAGE_MOUNT_RPY_DEG = (0.0, 0.0, 0.0)
 DEFAULT_D405_MASS_KG = 0.001
 D405_BASE_MASS_KG = 0.072
 D405_BASE_INERTIA = (
@@ -99,7 +100,7 @@ D405_LINK_XML = """
     <inertia ixx="{ixx}" ixy="{ixy}" ixz="{ixz}" iyy="{iyy}" iyz="{iyz}" izz="{izz}" />
   </inertial>
   <visual>
-    <origin xyz="0 0 0" rpy="0 0 0" />
+    <origin xyz="0 0 0" rpy="{visual_roll} {visual_pitch} {visual_yaw}" />
     <geometry>
       <mesh filename="package://A1Z_G1Z/meshes/d405.stl" scale="0.001 0.001 0.001" />
     </geometry>
@@ -124,6 +125,30 @@ D405_JOINT_XML = """
   <origin xyz="{mount_x} {mount_y} {mount_z}" rpy="{mount_roll} {mount_pitch} {mount_yaw}" />
   <parent link="arm_link6" />
   <child link="d405_link" />
+</joint>
+""".strip()
+
+D405_RECTIFIED_LINK_XML = """
+<link name="d405_rectified_link" />
+""".strip()
+
+D405_RECTIFIED_JOINT_XML = """
+<joint name="d405_rectified_joint" type="fixed">
+  <origin xyz="0 0 0" rpy="{rectify_roll} {rectify_pitch} {rectify_yaw}" />
+  <parent link="d405_link" />
+  <child link="d405_rectified_link" />
+</joint>
+""".strip()
+
+GRASP_TCP_LINK_XML = """
+<link name="grasp_tcp" />
+""".strip()
+
+GRASP_TCP_JOINT_XML = """
+<joint name="grasp_tcp_joint" type="fixed">
+  <origin xyz="{tcp_x} {tcp_y} {tcp_z}" rpy="0 0 0" />
+  <parent link="arm_link6" />
+  <child link="grasp_tcp" />
 </joint>
 """.strip()
 
@@ -188,6 +213,21 @@ def _env_bool(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be a boolean-like value, got: {raw}")
 
 
+def _load_project_env_defaults() -> None:
+    env_path = Path(os.environ.get("A1Z_CONTAINER_ENV_FILE", str(DEFAULT_ENV_FILE))).expanduser()
+    if not env_path.is_file():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in raw_line:
+            continue
+        key, value = raw_line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 def _set_visual_material_rgba(visual: ET.Element, rgba: tuple[float, float, float, float]) -> None:
     material = visual.find("material")
     if material is None:
@@ -199,7 +239,12 @@ def _set_visual_material_rgba(visual: ET.Element, rgba: tuple[float, float, floa
 
 
 def _upsert_d405(root: ET.Element) -> None:
-    for tag, name in (("link", "d405_link"), ("joint", "d405_mount_joint")):
+    for tag, name in (
+        ("link", "d405_link"),
+        ("link", "d405_rectified_link"),
+        ("joint", "d405_mount_joint"),
+        ("joint", "d405_rectified_joint"),
+    ):
         match = _find_named_child(root, tag, name)
         if match is not None:
             _, element = match
@@ -213,6 +258,10 @@ def _upsert_d405(root: ET.Element) -> None:
     d405_mass_kg = max(_env_float("A1Z_D405_MASS_KG", DEFAULT_D405_MASS_KG), 1e-6)
     inertia_scale = d405_mass_kg / D405_BASE_MASS_KG
     ixx, ixy, ixz, iyy, iyz, izz = (value * inertia_scale for value in D405_BASE_INERTIA)
+    visual_roll_deg, visual_pitch_deg, visual_yaw_deg = _env_vec3(
+        "A1Z_D405_BODY_VISUAL_RPY_DEG",
+        (0.0, 0.0, 0.0),
+    )
     d405_link = ET.fromstring(
         D405_LINK_XML.format(
             mass_kg=_float_string(d405_mass_kg),
@@ -222,6 +271,9 @@ def _upsert_d405(root: ET.Element) -> None:
             iyy=_float_string(iyy),
             iyz=_float_string(iyz),
             izz=_float_string(izz),
+            visual_roll=_deg_to_rad_string(visual_roll_deg),
+            visual_pitch=_deg_to_rad_string(visual_pitch_deg),
+            visual_yaw=_deg_to_rad_string(visual_yaw_deg),
         )
     )
     if _env_bool("A1Z_D405_COLLISION_ENABLED", False):
@@ -230,10 +282,17 @@ def _upsert_d405(root: ET.Element) -> None:
         insert_index,
         d405_link,
     )
-    mount_x, mount_y, mount_z = _env_vec3("A1Z_D405_MOUNT_OFFSET", DEFAULT_D405_MOUNT_OFFSET)
+    mount_x, mount_y, mount_z = _env_vec3(
+        "A1Z_D405_STAGE_MOUNT_OFFSET_XYZ_M",
+        DEFAULT_D405_STAGE_MOUNT_OFFSET_XYZ_M,
+    )
     mount_roll_deg, mount_pitch_deg, mount_yaw_deg = _env_vec3(
-        "A1Z_D405_MOUNT_RPY_DEG",
-        DEFAULT_D405_MOUNT_RPY_DEG,
+        "A1Z_D405_STAGE_MOUNT_RPY_DEG",
+        DEFAULT_D405_STAGE_MOUNT_RPY_DEG,
+    )
+    rectify_roll_deg, rectify_pitch_deg, rectify_yaw_deg = _env_vec3(
+        "A1Z_D405_STAGE_RECTIFY_RPY_DEG",
+        (0.0, 0.0, 0.0),
     )
     root.insert(
         insert_index + 1,
@@ -245,6 +304,39 @@ def _upsert_d405(root: ET.Element) -> None:
                 mount_roll=_deg_to_rad_string(mount_roll_deg),
                 mount_pitch=_deg_to_rad_string(mount_pitch_deg),
                 mount_yaw=_deg_to_rad_string(mount_yaw_deg),
+            )
+        ),
+    )
+    root.insert(insert_index + 2, ET.fromstring(D405_RECTIFIED_LINK_XML))
+    root.insert(
+        insert_index + 3,
+        ET.fromstring(
+            D405_RECTIFIED_JOINT_XML.format(
+                rectify_roll=_deg_to_rad_string(rectify_roll_deg),
+                rectify_pitch=_deg_to_rad_string(rectify_pitch_deg),
+                rectify_yaw=_deg_to_rad_string(rectify_yaw_deg),
+            )
+        ),
+    )
+
+
+def _upsert_grasp_tcp(root: ET.Element) -> None:
+    for tag, name in (("link", "grasp_tcp"), ("joint", "grasp_tcp_joint")):
+        match = _find_named_child(root, tag, name)
+        if match is not None:
+            _, element = match
+            root.remove(element)
+
+    left_finger = _find_named_child(root, "link", "gripper_finger_left_link")
+    insert_index = left_finger[0] if left_finger is not None else len(root)
+    root.insert(insert_index, ET.fromstring(GRASP_TCP_LINK_XML))
+    root.insert(
+        insert_index + 1,
+        ET.fromstring(
+            GRASP_TCP_JOINT_XML.format(
+                tcp_x=_float_string(0.04),
+                tcp_y=_float_string(0.0),
+                tcp_z=_float_string(0.0),
             )
         ),
     )
@@ -334,6 +426,7 @@ def _build_variant(*, fixed_gripper: bool, limit_kind: str) -> ET.ElementTree:
     _override_link_inertial(variant_root, "arm_link4", LINK4_INERTIA_OVERRIDE)
     _override_link_inertial(variant_root, "arm_link5", LINK5_INERTIA_OVERRIDE)
     _override_link_inertial(variant_root, "arm_link6", LINK6_INERTIA_OVERRIDE)
+    _upsert_grasp_tcp(variant_root)
     _upsert_d405(variant_root)
     if _env_bool("A1Z_WITH_GRIPPER", True):
         _set_gripper_joint_mode(variant_root, fixed=fixed_gripper)
@@ -357,6 +450,7 @@ def sync_d405_mesh() -> None:
 
 
 def main() -> None:
+    _load_project_env_defaults()
     sync_d405_mesh()
     prepare_robot_package_urdfs()
     print(f"Prepared: {ISAAC_URDF}")

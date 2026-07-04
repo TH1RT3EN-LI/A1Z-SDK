@@ -4,13 +4,13 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "A1Z_G1Z"
-    doc = """Generated from Composed Stage of root layer /tmp/tmpqnwazgp6/A1Z_G1Z.usdc
+    doc = """Generated from Composed Stage of root layer /tmp/tmprt32piey/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
 """
     kilogramsPerUnit = 1
     metersPerUnit = 1
@@ -81,6 +81,11 @@ over "A1Z_G1Z" (
                                         prepend apiSchemas = ["IsaacLinkAPI"]
                                     )
                                     {
+                                        over "d405_rectified_link" (
+                                            prepend apiSchemas = ["IsaacSiteAPI"]
+                                        )
+                                        {
+                                        }
                                     }
 
                                     over "gripper_finger_left_link" (
@@ -91,6 +96,12 @@ over "A1Z_G1Z" (
 
                                     over "gripper_finger_rIght_link" (
                                         prepend apiSchemas = ["IsaacLinkAPI"]
+                                    )
+                                    {
+                                    }
+
+                                    over "grasp_tcp" (
+                                        prepend apiSchemas = ["IsaacSiteAPI"]
                                     )
                                     {
                                     }

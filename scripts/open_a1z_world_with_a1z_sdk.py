@@ -629,7 +629,12 @@ class EndEffectorDragTarget:
         self._joint_names = [f"J{i + 1}" for i in range(self._joint_lower.size)]
 
         self._base_link_prim_path = self._resolve_descendant_prim_path("base_link")
-        self._ee_link_prim_path = self._resolve_descendant_prim_path(end_effector_frame)
+        try:
+            self._ee_link_prim_path = self._resolve_descendant_prim_path(end_effector_frame)
+        except RuntimeError:
+            # Some end-effector frames exist only in the control URDF for FK/IK and do not
+            # correspond to a concrete rigid prim inside the Isaac stage.
+            self._ee_link_prim_path = self._resolve_descendant_prim_path("arm_link6")
         self._target_geom: UsdGeom.Cube | None = None
         self._translate_op = None
         self._orient_op = None
@@ -1079,7 +1084,7 @@ def parse_args():
     )
     parser.add_argument(
         "--ee-frame",
-        default=_env_str("A1Z_EE_FRAME", "arm_link6"),
+        default=_env_str("A1Z_EE_FRAME", "grasp_tcp"),
         help="Control URDF frame used as the IK end effector.",
     )
     parser.add_argument(

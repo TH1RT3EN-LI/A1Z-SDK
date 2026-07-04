@@ -156,7 +156,7 @@ class KeepoutSphere:
 @dataclass(slots=True)
 class ContactGraspNetA1ZAdapterConfig:
     urdf_path: str = field(default_factory=get_default_control_urdf_path)
-    end_effector_frame: str = "arm_link6"
+    end_effector_frame: str = "grasp_tcp"
     frame_id: str = "robot_base_frame"
     transform_source: str = "extrinsic_camera_to_base"
     grasp_mode: str = "top_down_parallel_jaw"
@@ -181,9 +181,9 @@ class ContactGraspNetA1ZAdapterConfig:
     ik_damping: float = 1e-6
     ik_max_iters: int = 800
     keepout_spheres: list[KeepoutSphere] = field(default_factory=list)
-    ee_grasp_origin_xyz_m: tuple[float, float, float] = (0.04, 0.0, 0.0)
-    ee_opening_axis_xyz: tuple[float, float, float] = (0.0, 0.0, 1.0)
-    ee_approach_axis_xyz: tuple[float, float, float] = (0.0, -1.0, 0.0)
+    ee_grasp_origin_xyz_m: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    ee_opening_axis_xyz: tuple[float, float, float] = (0.0, 1.0, 0.0)
+    ee_approach_axis_xyz: tuple[float, float, float] = (1.0, 0.0, 0.0)
     segment_timeouts_s: dict[str, float] = field(
         default_factory=lambda: {
             "move_to_pregrasp": 5.0,

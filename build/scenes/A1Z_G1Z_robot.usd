@@ -4,13 +4,13 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "A1Z_G1Z"
-    doc = """Generated from Composed Stage of root layer /tmp/tmpqnwazgp6/A1Z_G1Z.usdc
+    doc = """Generated from Composed Stage of root layer /tmp/tmprt32piey/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
 
 
 Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
@@ -63,9 +63,9 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint1"
         {
-            float drive:angular:physics:damping = 22
+            float drive:angular:physics:damping = 26
             float drive:angular:physics:maxForce = 50
-            float drive:angular:physics:stiffness = 220
+            float drive:angular:physics:stiffness = 240
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
             uniform token drive:angular:physics:type = "acceleration"
@@ -78,9 +78,9 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint2"
         {
-            float drive:angular:physics:damping = 28
+            float drive:angular:physics:damping = 32
             float drive:angular:physics:maxForce = 50
-            float drive:angular:physics:stiffness = 260
+            float drive:angular:physics:stiffness = 280
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
             uniform token drive:angular:physics:type = "acceleration"
@@ -93,9 +93,9 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint3"
         {
-            float drive:angular:physics:damping = 22
+            float drive:angular:physics:damping = 26
             float drive:angular:physics:maxForce = 50
-            float drive:angular:physics:stiffness = 220
+            float drive:angular:physics:stiffness = 240
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
             uniform token drive:angular:physics:type = "acceleration"
@@ -108,9 +108,9 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint4"
         {
-            float drive:angular:physics:damping = 10
-            float drive:angular:physics:maxForce = 25
-            float drive:angular:physics:stiffness = 110
+            float drive:angular:physics:damping = 16
+            float drive:angular:physics:maxForce = 27
+            float drive:angular:physics:stiffness = 150
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
             uniform token drive:angular:physics:type = "acceleration"
@@ -123,9 +123,9 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint5"
         {
-            float drive:angular:physics:damping = 5
-            float drive:angular:physics:maxForce = 9
-            float drive:angular:physics:stiffness = 24
+            float drive:angular:physics:damping = 9
+            float drive:angular:physics:maxForce = 10
+            float drive:angular:physics:stiffness = 42
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
             uniform token drive:angular:physics:type = "acceleration"
@@ -138,9 +138,9 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint6"
         {
-            float drive:angular:physics:damping = 6
-            float drive:angular:physics:maxForce = 9
-            float drive:angular:physics:stiffness = 30
+            float drive:angular:physics:damping = 10
+            float drive:angular:physics:maxForce = 10
+            float drive:angular:physics:stiffness = 48
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
             uniform token drive:angular:physics:type = "acceleration"

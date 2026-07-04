@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--depth-topic", default="/a1z/d405/depth/image_rect")
     parser.add_argument("--color-camera-info-topic", default="/a1z/d405/color/camera_info")
     parser.add_argument("--depth-camera-info-topic", default="/a1z/d405/depth/camera_info")
-    parser.add_argument("--target-frame-id", default="robot_base_frame")
+    parser.add_argument("--target-frame-id", default="base_link")
     parser.add_argument("--timeout-s", type=float, default=30.0)
     parser.add_argument("--sync-slop-s", type=float, default=0.25)
     parser.add_argument("--depth-uint16-scale-m", type=float, default=0.001)
@@ -107,7 +107,7 @@ def main() -> int:
     np.save(depth_npy_path, capture.depth_m.astype(np.float32, copy=False))
     extrinsic_matrix = capture.observation.extrinsic_matrix()
     np.save(extrinsic_target_path, extrinsic_matrix)
-    if capture.observation.target_frame_id == "robot_base_frame":
+    if capture.observation.target_frame_id in {"robot_base_frame", "base_link"}:
         np.save(extrinsic_base_path, extrinsic_matrix)
     intrinsics_path.write_text(
         json.dumps(capture.observation.intrinsics_dict(), ensure_ascii=True, indent=2),

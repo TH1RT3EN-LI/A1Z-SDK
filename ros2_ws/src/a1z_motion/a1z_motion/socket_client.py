@@ -7,6 +7,15 @@ import socket
 from typing import Any
 
 
+def _tcp_connect_hosts(tcp_host: str) -> list[str]:
+    host = str(tcp_host or "").strip()
+    if not host or host == "0.0.0.0":
+        return ["127.0.0.1", "localhost"]
+    if host == "::":
+        return ["::1", "127.0.0.1", "localhost"]
+    return [host]
+
+
 class A1ZSocketClient:
     def __init__(
         self,
@@ -21,21 +30,32 @@ class A1ZSocketClient:
 
     def call(self, cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         request = json.dumps({"cmd": cmd, "args": args or {}}) + "\n"
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(self._timeout_s)
-        try:
-            sock.connect((self._tcp_host, self._tcp_port))
-            sock.sendall(request.encode("utf-8"))
-            payload = b""
-            while b"\n" not in payload:
-                chunk = sock.recv(4096)
-                if not chunk:
+        payload = b""
+        last_error: Exception | None = None
+        for host in _tcp_connect_hosts(self._tcp_host):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self._timeout_s)
+            try:
+                sock.connect((host, self._tcp_port))
+                sock.sendall(request.encode("utf-8"))
+                while b"\n" not in payload:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    payload += chunk
+                if payload:
                     break
-                payload += chunk
-        finally:
-            sock.close()
+            except Exception as exc:
+                last_error = exc
+                payload = b""
+            finally:
+                sock.close()
 
         if not payload:
+            if last_error is not None:
+                raise RuntimeError(
+                    f"No response from A1Z TCP server via {self._tcp_host}:{self._tcp_port}: {last_error}"
+                ) from last_error
             raise RuntimeError("No response from A1Z TCP server.")
         response = json.loads(payload.split(b"\n", 1)[0].decode("utf-8"))
         if not response.get("ok"):

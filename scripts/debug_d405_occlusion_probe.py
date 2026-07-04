@@ -178,8 +178,7 @@ async def startup() -> None:
         await _step_app(int(args.post_camera_warmup_frames))
 
         d405_body_paths = [
-            "/World/D405_Wrist/D405Link/D405BodyMesh",
-            "/World/D405_Wrist/D405Link/D405BodyFallback",
+            "/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/d405_link",
         ]
         local_wrist_paths = [
             "/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6",

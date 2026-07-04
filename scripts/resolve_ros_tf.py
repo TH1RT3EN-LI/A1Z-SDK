@@ -22,7 +22,7 @@ from a1z_ext.runtime.ros_env import ensure_ros_logging_env
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Resolve ROS TF into a .npy matrix.")
     parser.add_argument("--source-frame-id", default="")
-    parser.add_argument("--target-frame-id", default="robot_base_frame")
+    parser.add_argument("--target-frame-id", default="base_link")
     parser.add_argument("--observation-json", default="")
     parser.add_argument("--output-path", required=True)
     parser.add_argument("--timeout-s", type=float, default=2.0)

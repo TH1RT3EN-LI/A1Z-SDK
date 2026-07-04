@@ -236,10 +236,11 @@ async def startup() -> None:
                 "A1Z_D405_PARENT_PRIM",
                 "A1Z_D405_FALLBACK_PARENT_PRIM",
                 "A1Z_D405_FK_FRAME",
-                "A1Z_D405_MOUNT_OFFSET",
-                "A1Z_D405_MOUNT_RPY_DEG",
-                "A1Z_D405_OPTICAL_OFFSET_XYZ_M",
-                "A1Z_D405_CAMERA_OPTICAL_RPY_DEG",
+                "A1Z_D405_STAGE_MOUNT_OFFSET_XYZ_M",
+                "A1Z_D405_STAGE_MOUNT_RPY_DEG",
+                "A1Z_D405_STAGE_RECTIFY_RPY_DEG",
+                "A1Z_D405_STAGE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M",
+                "A1Z_D405_STAGE_RECTIFIED_TO_OPTICAL_RPY_DEG",
             )
         },
     }
@@ -287,7 +288,7 @@ async def startup() -> None:
         attachment.update(joint_pos)
         report["edit_target_after_attachment_update"] = _edit_target_payload(stage)
         mount_path = attachment.mount_path.pathString
-        link_path = f"{mount_path}/D405Link"
+        link_path = mount_path
         report["mount_world_immediate_after_update"] = _world_transform(stage, mount_path)
         report["mount_local_immediate_after_update"] = _local_transform(stage, mount_path)
         report["mount_ops_immediate_after_update"] = _xform_ops(stage, mount_path)

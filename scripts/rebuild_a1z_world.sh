@@ -37,6 +37,7 @@ python3 "$ROOT_DIR/scripts/prepare_a1z_urdfs.py"
 
 IMPORT_ARGS=(
   "$ROOT_DIR/scripts/import_a1z_g1z_to_usd.py"
+  "--rebuild-world"
   "--/exts/omni.services.facilities.monitoring.metrics/enabled=0"
 )
 

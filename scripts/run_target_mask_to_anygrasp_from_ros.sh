@@ -14,12 +14,13 @@ ANYGRASP_SDK_DIR="${A1Z_ANYGRASP_SDK_DIR:-/workspace/A1Z/vendor/vision/anygrasp_
 ANYGRASP_CKPT="${A1Z_ANYGRASP_DETECTION_CKPT:-/workspace/A1Z/runtime/models/anygrasp/checkpoint_detection.tar}"
 ANYGRASP_LICENSE_DIR="${A1Z_ANYGRASP_LICENSE_DIR:-/workspace/A1Z/runtime/licenses/anygrasp}"
 ANYGRASP_IFCONFIG_SNAPSHOT="${A1Z_ANYGRASP_IFCONFIG_SNAPSHOT:-/workspace/A1Z/runtime/anygrasp/ifconfig.snapshot}"
-ANYGRASP_BINDING_LABEL="${A1Z_ANYGRASP_BINDING_LABEL:-opening=c1,height=c2,approach=mc0}"
+ANYGRASP_BINDING_LABEL="${A1Z_ANYGRASP_BINDING_LABEL:-opening=c1,height=c2,approach=c0}"
 ANYGRASP_CAMERA_CORRECTION_LABEL="${A1Z_ANYGRASP_CAMERA_CORRECTION_LABEL:-identity}"
 ANYGRASP_EXTRINSIC_CORRECTION_LABEL="${A1Z_ANYGRASP_EXTRINSIC_CORRECTION_LABEL:-identity}"
-ANYGRASP_EE_GRASP_ORIGIN="${A1Z_ANYGRASP_EE_GRASP_ORIGIN:-[0.04, 0.0, 0.0]}"
-ANYGRASP_EE_OPENING_AXIS="${A1Z_ANYGRASP_EE_OPENING_AXIS:-[0.0, 0.0, 1.0]}"
-ANYGRASP_EE_APPROACH_AXIS="${A1Z_ANYGRASP_EE_APPROACH_AXIS:-[0.0, -1.0, 0.0]}"
+ANYGRASP_EE_GRASP_ORIGIN="${A1Z_ANYGRASP_EE_GRASP_ORIGIN:-[0.0, 0.0, 0.0]}"
+ANYGRASP_EE_OPENING_AXIS="${A1Z_ANYGRASP_EE_OPENING_AXIS:-[0.0, 1.0, 0.0]}"
+ANYGRASP_EE_APPROACH_AXIS="${A1Z_ANYGRASP_EE_APPROACH_AXIS:-[1.0, 0.0, 0.0]}"
+TARGET_FRAME_ID="${A1Z_BASE_LINK_FRAME:-base_link}"
 ROS_CAPTURE_TIMEOUT_S="${A1Z_ROS_CAPTURE_TIMEOUT_S:-30}"
 ROS_CAPTURE_RETRIES="${A1Z_ROS_CAPTURE_RETRIES:-3}"
 REQUIRE_CURRENT_JOINTS=0
@@ -81,12 +82,31 @@ fi
 
 OUTPUT_DIR="${2:-/workspace/A1Z/runtime/target_mask_to_anygrasp/from_ros_live}"
 PROVIDER="${3:-kimi}"
-CAPTURE_DIR="$OUTPUT_DIR/capture"
-TARGET_MASK_DIR="$OUTPUT_DIR/target_mask"
-ANYGRASP_DIR="$OUTPUT_DIR/anygrasp_from_mask"
-ADAPTER_DIR="$OUTPUT_DIR/adapter"
-RENDERS_DIR="$OUTPUT_DIR/renders"
-HOST_OUTPUT_DIR="$ROOT_DIR/${OUTPUT_DIR#/workspace/A1Z/}"
+
+if [[ "$OUTPUT_DIR" == /workspace/A1Z/* ]]; then
+  CONTAINER_OUTPUT_DIR="$OUTPUT_DIR"
+  HOST_OUTPUT_DIR="$ROOT_DIR/${OUTPUT_DIR#/workspace/A1Z/}"
+elif [[ "$OUTPUT_DIR" == /* ]]; then
+  HOST_OUTPUT_DIR="$OUTPUT_DIR"
+  case "$HOST_OUTPUT_DIR" in
+    "$ROOT_DIR"/*)
+      CONTAINER_OUTPUT_DIR="/workspace/A1Z/${HOST_OUTPUT_DIR#$ROOT_DIR/}"
+      ;;
+    *)
+      echo "error: absolute output_dir outside repo is not supported: $OUTPUT_DIR" >&2
+      exit 2
+      ;;
+  esac
+else
+  HOST_OUTPUT_DIR="$ROOT_DIR/$OUTPUT_DIR"
+  CONTAINER_OUTPUT_DIR="/workspace/A1Z/$OUTPUT_DIR"
+fi
+
+CAPTURE_DIR="$CONTAINER_OUTPUT_DIR/capture"
+TARGET_MASK_DIR="$CONTAINER_OUTPUT_DIR/target_mask"
+ANYGRASP_DIR="$CONTAINER_OUTPUT_DIR/anygrasp_from_mask"
+ADAPTER_DIR="$CONTAINER_OUTPUT_DIR/adapter"
+RENDERS_DIR="$CONTAINER_OUTPUT_DIR/renders"
 CAPTURE_STATUS=-1
 TARGET_MASK_STATUS=-1
 ANYGRASP_STATUS=-1
@@ -111,21 +131,13 @@ wait_for_ros_tf() {
       set -u
       python3 /workspace/A1Z/scripts/resolve_ros_tf.py \
         --source-frame-id d405_color_optical_frame \
-        --target-frame-id robot_base_frame \
+        --target-frame-id "'"$TARGET_FRAME_ID"'" \
         --output-path /tmp/a1z_ros_tf_ready.npy \
         --timeout-s 8.0 \
         --cache-time-s 10.0 \
         --allow-latest >/dev/null
     '
 }
-
-mkdir -p \
-  "$HOST_OUTPUT_DIR/capture" \
-  "$HOST_OUTPUT_DIR/target_mask" \
-  "$HOST_OUTPUT_DIR/anygrasp_from_mask" \
-  "$HOST_OUTPUT_DIR/adapter" \
-  "$HOST_OUTPUT_DIR/analysis" \
-  "$HOST_OUTPUT_DIR/renders"
 
 write_pipeline_artifacts() {
   set +e
@@ -134,6 +146,9 @@ import json
 from pathlib import Path
 
 output_dir = Path(r"$HOST_OUTPUT_DIR")
+output_dir.mkdir(parents=True, exist_ok=True)
+for child in ("capture", "target_mask", "anygrasp_from_mask", "adapter", "analysis", "renders"):
+    (output_dir / child).mkdir(parents=True, exist_ok=True)
 anygrasp_result_path = output_dir / "anygrasp_from_mask" / "anygrasp" / "anygrasp_result.json"
 adapter_result_path = output_dir / "adapter" / "anygrasp_adapter_result.json"
 
@@ -255,6 +270,7 @@ print(json.dumps({
     "pipeline_manifest": str(output_dir / "pipeline_manifest.json"),
 }, ensure_ascii=True))
 PY
+  return 0
 }
 
 on_exit() {
@@ -267,14 +283,32 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$ROS_CONTAINER_NAME" 2>/dev/nul
   docker start "$ROS_CONTAINER_NAME" >/dev/null
 fi
 
+bash "$ROOT_DIR/scripts/run_a1z_ros2_motion_in_container.sh" restart
+bash "$ROOT_DIR/scripts/run_a1z_ros2_motion_in_container.sh" wait
+
 if [[ "$(docker inspect -f '{{.State.Running}}' "$VISION_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
   docker start "$VISION_CONTAINER_NAME" >/dev/null
 fi
 
+mkdir -p "$HOST_OUTPUT_DIR" || true
+chmod 0777 "$HOST_OUTPUT_DIR" || true
+
+docker exec "$ROS_CONTAINER_NAME" bash -lc "
+  set -euo pipefail
+  mkdir -p \
+    '$CONTAINER_OUTPUT_DIR/capture' \
+    '$CONTAINER_OUTPUT_DIR/target_mask' \
+    '$CONTAINER_OUTPUT_DIR/anygrasp_from_mask' \
+    '$CONTAINER_OUTPUT_DIR/adapter' \
+    '$CONTAINER_OUTPUT_DIR/analysis' \
+    '$CONTAINER_OUTPUT_DIR/renders'
+  chmod -R 0777 '$CONTAINER_OUTPUT_DIR'
+"
+
 "$ROOT_DIR/scripts/freeze_anygrasp_machine_fingerprint.sh" "${ANYGRASP_IFCONFIG_SNAPSHOT/#\/workspace\/A1Z/$ROOT_DIR}"
 
 if ! wait_for_ros_tf; then
-  echo "error: robot_base_frame <- d405_color_optical_frame TF did not become available before capture" >&2
+  echo "error: $TARGET_FRAME_ID <- d405_color_optical_frame TF did not become available before capture" >&2
   exit 3
 fi
 
@@ -291,7 +325,7 @@ if docker exec \
     set -u
     for attempt in $(seq 1 "'"$ROS_CAPTURE_RETRIES"'"); do
       if python3 /workspace/A1Z/scripts/capture_ros_rgbd.py \
-        --target-frame-id robot_base_frame \
+        --target-frame-id "'"$TARGET_FRAME_ID"'" \
         --timeout-s "'"$ROS_CAPTURE_TIMEOUT_S"'" \
         --tf-lookup-timeout-s 5.0 \
         --fail-if-tf-unavailable \
@@ -315,8 +349,15 @@ fi
 
 if [[ -f "$HOST_OUTPUT_DIR/capture/current_joints_rad.json" ]]; then
   :
-elif python3 "$ROOT_DIR/scripts/capture_a1z_current_joints.py" \
-  --output-path "$HOST_OUTPUT_DIR/capture/current_joints_rad.json" >/dev/null 2>&1
+elif docker exec \
+  -e A1Z_TCP_HOST="${A1Z_TCP_HOST:-127.0.0.1}" \
+  -e A1Z_TCP_PORT="${A1Z_TCP_PORT:-18080}" \
+  "$ROS_CONTAINER_NAME" \
+  bash -lc '
+    set -euo pipefail
+    python3 /workspace/A1Z/scripts/capture_a1z_current_joints.py \
+      --output-path "'"$CAPTURE_DIR"'/current_joints_rad.json"
+  ' >/dev/null 2>&1
 then
   :
 else
@@ -412,7 +453,7 @@ if [[ ! -f "$ROOT_DIR/${CAPTURE_DIR#/workspace/A1Z/}/extrinsic_camera_to_base.np
       set -u
       python3 /workspace/A1Z/scripts/resolve_ros_tf.py \
         --observation-json "'"$CAPTURE_DIR/observation.json"'" \
-        --target-frame-id robot_base_frame \
+        --target-frame-id "'"$TARGET_FRAME_ID"'" \
         --output-path "'"$CAPTURE_DIR/extrinsic_camera_to_base.npy"'" \
         --timeout-s 2.0 \
         --allow-latest
@@ -436,6 +477,7 @@ if [[ -f "$ROOT_DIR/${CAPTURE_DIR#/workspace/A1Z/}/extrinsic_camera_to_base.npy"
     --extrinsic-camera-to-base "$CAPTURE_DIR/extrinsic_camera_to_base.npy" \
     "${CURRENT_JOINTS_ARG[@]}" \
     --output-dir "$ADAPTER_DIR" \
+    --frame-id "$TARGET_FRAME_ID" \
     --binding-label "$ANYGRASP_BINDING_LABEL" \
     --camera-correction-label "$ANYGRASP_CAMERA_CORRECTION_LABEL" \
     --extrinsic-correction-label "$ANYGRASP_EXTRINSIC_CORRECTION_LABEL" \
@@ -466,6 +508,7 @@ PY
     --extrinsic-camera-to-base "$CAPTURE_DIR/extrinsic_camera_to_base.npy" \
     "${CURRENT_JOINTS_ARG[@]}" \
     --output-dir "$ADAPTER_DIR/best_direct" \
+    --frame-id "$TARGET_FRAME_ID" \
     --grasp-rank 0 \
     --binding-label "$ANYGRASP_BINDING_LABEL" \
     --camera-correction-label "$ANYGRASP_CAMERA_CORRECTION_LABEL" \

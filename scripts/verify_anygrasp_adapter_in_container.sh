@@ -109,7 +109,7 @@ result = json.loads(result_path.read_text(encoding='utf-8'))
 
 assert result['summary']['candidate_count'] >= 1, result
 assert result['summary']['source_model'] == 'anygrasp', result
-assert result['summary']['active_binding_label'] == 'opening=c1,height=c2,approach=mc0', result
+assert result['summary']['active_binding_label'] == 'opening=c1,height=c2,approach=c0', result
 assert result['summary']['active_camera_correction_label'] == 'identity', result
 assert result['summary']['active_extrinsic_correction_label'] == 'identity', result
 candidate = result['candidates'][0]

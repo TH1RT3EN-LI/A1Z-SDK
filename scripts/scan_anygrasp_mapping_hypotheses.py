@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera-correction-labels", default="", help="Optional JSON list of camera correction labels to test.")
     parser.add_argument("--extrinsic-correction-labels", default="", help="Optional JSON list of camera-to-base correction labels to test.")
     parser.add_argument("--top-k", type=int, default=24)
-    parser.add_argument("--end-effector-frame", default="arm_link6")
+    parser.add_argument("--end-effector-frame", default="grasp_tcp")
     parser.add_argument("--control-urdf", default=get_default_control_urdf_path())
     return parser
 
@@ -170,11 +170,14 @@ def main() -> int:
         extrinsic_corrected = _rigidize_transform(extrinsic @ extrinsic_correction)
         for camera_correction_label, _ in camera_corrections:
             for binding_label in binding_labels:
-                grasp_cam = anygrasp_item_to_grasp_pose_with_binding_label(
-                    grasp_item,
-                    binding_label=binding_label,
-                    camera_correction_label=camera_correction_label,
-                )
+                try:
+                    grasp_cam = anygrasp_item_to_grasp_pose_with_binding_label(
+                        grasp_item,
+                        binding_label=binding_label,
+                        camera_correction_label=camera_correction_label,
+                    )
+                except ValueError:
+                    continue
                 grasp_base = _rigidize_transform(extrinsic_corrected @ grasp_cam)
                 tool_grasp = _rigidize_transform(grasp_base @ grasp_to_ee)
                 approach = _normalize(grasp_base[:3, 2])

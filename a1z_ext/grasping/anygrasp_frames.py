@@ -9,16 +9,16 @@ import numpy as np
 from .contact_graspnet_adapter import _rigidize_transform
 
 
-ANYGRASP_ACTIVE_BINDING_LABEL = "opening=c1,height=c2,approach=mc0"
+ANYGRASP_ACTIVE_BINDING_LABEL = "opening=c1,height=c2,approach=c0"
 ANYGRASP_ACTIVE_CAMERA_CORRECTION_LABEL = "identity"
 ANYGRASP_RAW_FRAME_CONVENTION = {
     "column_0": "approach_depth_axis",
     "column_1": "gripper_opening_axis",
-    "column_2": "negative_gripper_height_axis",
+    "column_2": "gripper_height_axis",
 }
 ANYGRASP_PLANNER_FRAME_CONVENTION = {
     "column_0": "gripper_opening_axis",
-    "column_1": "negative_gripper_height_axis",
+    "column_1": "gripper_height_axis",
     "column_2": "approach_depth_axis",
 }
 ANYGRASP_SUPPORTED_BINDINGS = {
@@ -67,7 +67,7 @@ def anygrasp_rotation_to_planner_rotation(rotation_anygrasp: np.ndarray) -> np.n
     rotation_anygrasp = np.asarray(rotation_anygrasp, dtype=np.float64).reshape(3, 3)
     approach = rotation_anygrasp[:, 0]
     opening = rotation_anygrasp[:, 1]
-    height = -rotation_anygrasp[:, 2]
+    height = rotation_anygrasp[:, 2]
     return np.column_stack([opening, height, approach])
 
 
@@ -85,7 +85,13 @@ def anygrasp_rotation_to_planner_rotation_with_binding_label(
     opening = columns[opening_idx] * float(signs[0])
     height = columns[height_idx] * float(signs[1])
     approach = columns[approach_idx] * float(signs[2])
-    return np.column_stack([opening, height, approach])
+    planner_rotation = np.column_stack([opening, height, approach])
+    det = float(np.linalg.det(planner_rotation))
+    if det <= 0.0:
+        raise ValueError(
+            f"binding_label {binding_label!r} produces a non-right-handed planner rotation (det={det:.6f})"
+        )
+    return planner_rotation
 
 
 def anygrasp_camera_correction_transform(

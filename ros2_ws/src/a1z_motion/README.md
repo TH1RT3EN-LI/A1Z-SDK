@@ -17,5 +17,7 @@ Primary action:
 
 - `a1z_msgs/action/MoveEndEffector`
 
-The action goal pose may be expressed in `world_frame`, `robot_base_frame`, or
-any frame already resolvable through TF.
+The action goal pose may be expressed in `world_frame`, `base_link`,
+`robot_base_frame`, or any frame already resolvable through TF. Internally, FK,
+IK, and TF math are resolved in `base_link`; `robot_base_frame` is kept only as
+an optional compatibility alias.

@@ -23,8 +23,8 @@
   - 如果想直接对某一轮输出目录做统一分析，可以用 `analyze_anygrasp_output_dir.sh <pipeline_dir> [--observed-tool-delta-xyz '[dx,dy,dz]']`，它会在该目录下生成 `analysis/analysis_summary.json`；其中 `diagnostic_summary` 会汇总当前 active 配置、best_direct gap 严重度、扫描到的最佳候选以及三层差异。提供观察误差时还会同时生成 `analysis/binding_hypotheses.json`，优先按 `binding / camera correction / extrinsic correction` 三层候选排序。
   - 做“从 0 对齐机械臂映射”时，只在 `capture/current_joints_rad.json` 存在且 `analysis/analysis_summary.json` 里的 `best_direct_reference_state_reliable=true` 时，把该轮 `best_direct gap` 当成有效对齐证据；旧目录如果缺这份抓图时刻关节角，gap 只可用于粗看，不足以下结论。
   - `pipeline_manifest.json` / `analysis/analysis_summary.json` 里的 `active_binding_label`、`active_camera_correction_label`、`active_extrinsic_correction_label` 只表示“这一轮执行时采用的 AnyGrasp frame 假设”，不是已经验证正确的结论。
-  - 当前默认 TCP 假设采用最近一次真机抓图上的 `scan_anygrasp_tcp_alignment.py` 最优解：`ee_grasp_origin_xyz_m=[0.04,0,0]`、`ee_opening_axis_xyz=[0,0,1]`、`ee_approach_axis_xyz=[0,-1,0]`。这组配置在 `binding=opening=c1,height=c2,approach=mc0` 下把 `executable_count` 提到了当前扫描最高值。
-  - 当前默认 AnyGrasp `binding_label` 采用 `opening=c1,height=c2,approach=mc0`，依据是以 `identity camera correction + identity extrinsic correction` 为前提时，它在真实抓图输出里给出的 `best_direct` orientation gap 最小。
+  - 当前默认 TCP 假设采用最近一次真机抓图上的 `scan_anygrasp_tcp_alignment.py` 最优解：`ee_grasp_origin_xyz_m=[0.04,0,0]`、`ee_opening_axis_xyz=[0,0,1]`、`ee_approach_axis_xyz=[0,-1,0]`。这组配置现在应与官方 AnyGrasp 旋转语义一起使用，即 `binding=opening=c1,height=c2,approach=c0`。
+  - 当前默认 AnyGrasp `binding_label` 采用 `opening=c1,height=c2,approach=c0`，对应官方 `rotation_matrix` 定义：`column_0=approach`、`column_1=opening`、`column_2=height`。
   - 会在 `runtime/anygrasp_target_pick_attempt_<timestamp>/` 下输出：
     - `capture/`
     - `target_mask/`

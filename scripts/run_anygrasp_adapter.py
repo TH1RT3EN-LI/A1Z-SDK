@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default=str(REPO_ROOT / "runtime" / "anygrasp_adapter"))
     parser.add_argument("--frame-id", default="robot_base_frame")
     parser.add_argument("--transform-source", default="extrinsic_camera_to_base")
-    parser.add_argument("--end-effector-frame", default="arm_link6")
+    parser.add_argument("--end-effector-frame", default="grasp_tcp")
     parser.add_argument("--pregrasp-offset-m", type=float, default=0.08)
     parser.add_argument("--lift-offset-m", type=float, default=0.10)
     parser.add_argument("--retreat-offset-m", type=float, default=0.04)
@@ -71,18 +71,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--approach-linear-waypoint-count", type=int, default=0)
     parser.add_argument(
         "--ee-grasp-origin-xyz-m",
-        default="[0.04, 0.0, 0.0]",
-        help="Grasp center expressed in arm_link6 frame.",
+        default="[0.0, 0.0, 0.0]",
+        help="Grasp center expressed in the end-effector frame.",
     )
     parser.add_argument(
         "--ee-opening-axis-xyz",
-        default="[0.0, 0.0, 1.0]",
-        help="Parallel-jaw opening axis expressed in arm_link6 frame.",
+        default="[0.0, 1.0, 0.0]",
+        help="Parallel-jaw opening axis expressed in the end-effector frame.",
     )
     parser.add_argument(
         "--ee-approach-axis-xyz",
-        default="[0.0, -1.0, 0.0]",
-        help="Tool forward/approach axis expressed in arm_link6 frame.",
+        default="[1.0, 0.0, 0.0]",
+        help="Tool forward/approach axis expressed in the end-effector frame.",
     )
     parser.add_argument("--keepout-sphere", action="append", default=[])
     parser.add_argument(

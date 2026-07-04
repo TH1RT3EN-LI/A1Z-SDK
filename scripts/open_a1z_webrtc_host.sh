@@ -10,6 +10,10 @@ CLIENT_APP="${A1Z_WEBRTC_CLIENT_APP:-}"
 LAUNCH_CLIENT="${A1Z_WEBRTC_LAUNCH_CLIENT:-auto}"
 RESTART_ARG=()
 
+# WebRTC is the primary viewport path for this workspace. Enable viewport
+# operations by default unless the caller explicitly disables them.
+export A1Z_VIEWPORT_ENABLED="${A1Z_VIEWPORT_ENABLED:-1}"
+
 usage() {
   cat <<'EOF'
 Usage: ./scripts/open_a1z_webrtc_host.sh [--restart] [--client|--no-client] [server-ip]

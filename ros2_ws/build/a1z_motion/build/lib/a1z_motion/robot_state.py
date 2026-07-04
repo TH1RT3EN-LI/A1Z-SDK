@@ -11,6 +11,10 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 
+from a1z_ext.runtime.d405.geometry import (
+    d405_install_rotation_matrix,
+    d405_rectified_to_optical_transform,
+)
 from .config import load_motion_config
 from .kinematics_bridge import KinematicsBridge
 from .socket_client import A1ZSocketClient
@@ -37,17 +41,32 @@ class A1ZRobotStateNode(Node):
     def _publish_static_transforms(self) -> None:
         stamp = self.get_clock().now().to_msg()
         identity = np.eye(4, dtype=np.float64)
-        tool_alias = matrix_to_transform_stamped(
-            identity,
-            parent_frame=self._cfg.tool_link_frame,
-            child_frame=self._cfg.tool_frame,
-            stamp=stamp,
-        )
+        static_tfs = []
+        if self._cfg.robot_base_frame != self._cfg.base_link_frame:
+            static_tfs.append(
+                matrix_to_transform_stamped(
+                    identity,
+                    parent_frame=self._cfg.base_link_frame,
+                    child_frame=self._cfg.robot_base_frame,
+                    stamp=stamp,
+                )
+            )
+        if self._cfg.tool_frame != self._cfg.tool_link_frame:
+            static_tfs.append(
+                matrix_to_transform_stamped(
+                    identity,
+                    parent_frame=self._cfg.tool_link_frame,
+                    child_frame=self._cfg.tool_frame,
+                    stamp=stamp,
+                )
+            )
 
         d405_rel = self._kinematics.fixed_relative_transform(
             parent_frame=self._cfg.tool_link_frame,
             child_frame=self._cfg.d405_link_frame,
         )
+        d405_rel = np.asarray(d405_rel, dtype=np.float64).copy()
+        d405_rel[:3, :3] = d405_rel[:3, :3] @ d405_install_rotation_matrix(self._cfg.d405_install_rpy_deg)
         d405_mount = matrix_to_transform_stamped(
             d405_rel,
             parent_frame=self._cfg.tool_link_frame,
@@ -55,36 +74,40 @@ class A1ZRobotStateNode(Node):
             stamp=stamp,
         )
 
-        optical_rel = xyz_rpy_deg_to_matrix(
+        rectify_rel = xyz_rpy_deg_to_matrix(
             (
-                self._cfg.d405_optical_offset_xyz_m[0],
-                self._cfg.d405_optical_offset_xyz_m[1],
-                self._cfg.d405_optical_offset_xyz_m[2],
-                self._cfg.d405_optical_rpy_deg[0],
-                self._cfg.d405_optical_rpy_deg[1],
-                self._cfg.d405_optical_rpy_deg[2],
+                0.0,
+                0.0,
+                0.0,
+                self._cfg.d405_rectify_rpy_deg[0],
+                self._cfg.d405_rectify_rpy_deg[1],
+                self._cfg.d405_rectify_rpy_deg[2],
             )
+        )
+        d405_rectified = matrix_to_transform_stamped(
+            rectify_rel,
+            parent_frame=self._cfg.d405_link_frame,
+            child_frame=self._cfg.d405_rectified_frame,
+            stamp=stamp,
+        )
+        optical_rel = d405_rectified_to_optical_transform(
+            offset_xyz_m=self._cfg.d405_rectified_to_optical_offset_xyz_m,
         )
         color_optical = matrix_to_transform_stamped(
             optical_rel,
-            parent_frame=self._cfg.d405_link_frame,
+            parent_frame=self._cfg.d405_rectified_frame,
             child_frame=self._cfg.d405_color_optical_frame,
             stamp=stamp,
         )
         depth_optical = matrix_to_transform_stamped(
             optical_rel,
-            parent_frame=self._cfg.d405_link_frame,
+            parent_frame=self._cfg.d405_rectified_frame,
             child_frame=self._cfg.d405_depth_optical_frame,
             stamp=stamp,
         )
 
-        world_to_base = matrix_to_transform_stamped(
-            identity,
-            parent_frame=self._cfg.world_frame,
-            child_frame=self._cfg.robot_base_frame,
-            stamp=stamp,
-        )
-        self._static_tf_pub.sendTransform([world_to_base, tool_alias, d405_mount, color_optical, depth_optical])
+        static_tfs.extend([d405_mount, d405_rectified, color_optical, depth_optical])
+        self._static_tf_pub.sendTransform(static_tfs)
 
     def _poll_state(self) -> None:
         try:
@@ -111,7 +134,7 @@ class A1ZRobotStateNode(Node):
         tool_in_base = self._kinematics.fk(q, frame_name=self._cfg.tool_link_frame)
         tool_tf = matrix_to_transform_stamped(
             tool_in_base,
-            parent_frame=self._cfg.robot_base_frame,
+            parent_frame=self._cfg.base_link_frame,
             child_frame=self._cfg.tool_link_frame,
             stamp=now,
         )

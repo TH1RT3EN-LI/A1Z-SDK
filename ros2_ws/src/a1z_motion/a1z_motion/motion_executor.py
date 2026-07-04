@@ -72,10 +72,10 @@ class A1ZMotionExecutor(Node):
         return self._client.call("info")
 
     def _resolve_goal_pose(self, goal_pose: PoseStamped) -> PoseStamped:
-        if goal_pose.header.frame_id == self._cfg.robot_base_frame:
+        if goal_pose.header.frame_id == self._cfg.base_link_frame:
             return goal_pose
         transform = self._tf_buffer.lookup_transform(
-            self._cfg.robot_base_frame,
+            self._cfg.base_link_frame,
             goal_pose.header.frame_id,
             rclpy.time.Time(),
         )
@@ -108,7 +108,7 @@ class A1ZMotionExecutor(Node):
         try:
             self._publish_feedback(goal_handle, "task_received", "received end-effector target")
             target_pose = self._resolve_goal_pose(goal.goal_pose)
-            self._publish_feedback(goal_handle, "tf_resolved", "goal pose transformed into robot_base_frame")
+            self._publish_feedback(goal_handle, "tf_resolved", "goal pose transformed into base_link")
 
             if target_pose.pose.position.z < goal.min_target_z_m or target_pose.pose.position.z > goal.max_target_z_m:
                 raise RuntimeError(
@@ -172,7 +172,7 @@ class A1ZMotionExecutor(Node):
             final_tool_pose = self._kinematics.fk(final_q, frame_name=self._cfg.tool_link_frame)
             final_pose_msg = matrix_to_pose_stamped(
                 final_tool_pose,
-                frame_id=self._cfg.robot_base_frame,
+                frame_id=self._cfg.base_link_frame,
                 stamp=self.get_clock().now().to_msg(),
             )
             pos_error = float(np.linalg.norm(final_tool_pose[:3, 3] - target_matrix[:3, 3]))

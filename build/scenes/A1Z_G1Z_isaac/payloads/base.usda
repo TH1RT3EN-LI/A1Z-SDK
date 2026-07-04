@@ -4,13 +4,13 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "A1Z_G1Z"
-    doc = """Generated from Composed Stage of root layer /tmp/tmpqnwazgp6/A1Z_G1Z.usdc
+    doc = """Generated from Composed Stage of root layer /tmp/tmprt32piey/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
 
 
 Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
@@ -160,15 +160,31 @@ def Xform "A1Z_G1Z" (
                                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                     }
 
-                                    def Xform "d405_link" (
-                                        instanceable = true
-                                        prepend references = @./instances.usda@</Instances/d405>
-                                    )
+                                    def Xform "d405_link"
                                     {
-                                        quatd xformOp:orient = (0.3044172823, 0.6382243021, 0.6382241233, 0.3044171922)
-                                        double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                                        quatf xformOp:orient = (1, 0, 0, 0)
+                                        float3 xformOp:scale = (1, 1, 1)
                                         double3 xformOp:translate = (0.08, 0, 0.086237)
                                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+                                        def Xform "d405" (
+                                            instanceable = true
+                                            prepend references = @./instances.usda@</Instances/d405>
+                                        )
+                                        {
+                                            quatd xformOp:orient = (0.3044172823, 0.6382243037, 0.6382241249, 0.3044171929)
+                                            double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                                            double3 xformOp:translate = (0, 0, 0)
+                                            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                                        }
+
+                                        def Xform "d405_rectified_link"
+                                        {
+                                            quatf xformOp:orient = (1, 0, 0, 0)
+                                            float3 xformOp:scale = (1, 1, 1)
+                                            double3 xformOp:translate = (0, 0, 0)
+                                            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                                        }
                                     }
 
                                     def Xform "gripper_finger_left_link"
@@ -242,6 +258,14 @@ def Xform "A1Z_G1Z" (
                                         quatd xformOp:orient = (1, 0, 0, 0)
                                         double3 xformOp:scale = (1, 1, 1)
                                         double3 xformOp:translate = (0, 0, 0)
+                                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                                    }
+
+                                    def Xform "grasp_tcp"
+                                    {
+                                        quatf xformOp:orient = (1, 0, 0, 0)
+                                        float3 xformOp:scale = (1, 1, 1)
+                                        double3 xformOp:translate = (0.04, 0, 0)
                                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                     }
                                 }

@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from a1z_ext.runtime.d405.settings import D405ComputeSettings
+
 
 def _env_vec3(name: str, default: tuple[float, float, float]) -> tuple[float, float, float]:
     raw = os.environ.get(name)
@@ -36,15 +38,17 @@ class MotionConfig:
     sdk_root: Path
     tcp_host: str
     tcp_port: int
-    world_frame: str
+    base_link_frame: str
     robot_base_frame: str
     tool_link_frame: str
     tool_frame: str
     d405_link_frame: str
+    d405_rectified_frame: str
     d405_color_optical_frame: str
     d405_depth_optical_frame: str
-    d405_optical_offset_xyz_m: tuple[float, float, float]
-    d405_optical_rpy_deg: tuple[float, float, float]
+    d405_rectify_rpy_deg: tuple[float, float, float]
+    d405_rectified_to_optical_offset_xyz_m: tuple[float, float, float]
+    d405_install_rpy_deg: tuple[float, float, float]
     poll_hz: float
 
 
@@ -56,20 +60,23 @@ def load_motion_config() -> MotionConfig:
             repo_root / "build" / "robot_packages" / "A1Z_G1Z" / "urdf" / "A1Z_G1Z_control.urdf",
         )
     )
+    d405_compute = D405ComputeSettings.from_env()
     return MotionConfig(
         repo_root=repo_root,
         control_urdf=control_urdf,
         sdk_root=Path(os.environ.get("A1Z_SDK_DIR", repo_root / "vendor" / "GALAXEA-A1Z")),
         tcp_host=os.environ.get("A1Z_TCP_HOST", "127.0.0.1"),
         tcp_port=int(os.environ.get("A1Z_TCP_PORT", "18080")),
-        world_frame=os.environ.get("A1Z_WORLD_FRAME", "world_frame"),
+        base_link_frame=os.environ.get("A1Z_BASE_LINK_FRAME", "base_link"),
         robot_base_frame=os.environ.get("A1Z_ROBOT_BASE_FRAME", "robot_base_frame"),
-        tool_link_frame=os.environ.get("A1Z_TOOL_LINK_FRAME", "arm_link6"),
-        tool_frame=os.environ.get("A1Z_TOOL_FRAME", "tool_frame"),
+        tool_link_frame=os.environ.get("A1Z_TOOL_LINK_FRAME", "grasp_tcp"),
+        tool_frame=os.environ.get("A1Z_TOOL_FRAME", "grasp_tcp"),
         d405_link_frame=os.environ.get("A1Z_D405_LINK_FRAME", "d405_link"),
+        d405_rectified_frame=os.environ.get("A1Z_D405_RECTIFIED_FRAME_ID", "d405_rectified_link"),
         d405_color_optical_frame=os.environ.get("A1Z_D405_COLOR_FRAME_ID", "d405_color_optical_frame"),
         d405_depth_optical_frame=os.environ.get("A1Z_D405_DEPTH_FRAME_ID", "d405_depth_optical_frame"),
-        d405_optical_offset_xyz_m=_env_vec3("A1Z_D405_OPTICAL_OFFSET_XYZ_M", (0.009, 0.0, -0.0038)),
-        d405_optical_rpy_deg=_env_vec3("A1Z_D405_CAMERA_OPTICAL_RPY_DEG", (0.0, 180.0, 0.0)),
+        d405_rectify_rpy_deg=d405_compute.rectify_rpy_deg,
+        d405_rectified_to_optical_offset_xyz_m=d405_compute.rectified_to_optical_offset_xyz_m,
+        d405_install_rpy_deg=d405_compute.install_rpy_deg,
         poll_hz=float(os.environ.get("A1Z_ROS_POLL_HZ", "10.0")),
     )

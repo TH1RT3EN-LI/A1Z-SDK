@@ -4,13 +4,13 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "A1Z_G1Z"
-    doc = """Generated from Composed Stage of root layer /tmp/tmpqnwazgp6/A1Z_G1Z.usdc
+    doc = """Generated from Composed Stage of root layer /tmp/tmprt32piey/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
 
 
 Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
@@ -29,11 +29,11 @@ over "A1Z_G1Z"
     {
         def MjcActuator "arm_joint1_actuator"
         {
-            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:biasPrm = [0, -4.8869218826293945, -0.5585053563117981, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
             uniform double mjc:forceRange:max = 20
             uniform double mjc:forceRange:min = -20
-            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:gainPrm = [4.8869218826293945, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
             prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint1>
@@ -41,11 +41,11 @@ over "A1Z_G1Z"
 
         def MjcActuator "arm_joint2_actuator"
         {
-            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:biasPrm = [0, -4.8869218826293945, -0.5585053563117981, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
             uniform double mjc:forceRange:max = 25
             uniform double mjc:forceRange:min = -25
-            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:gainPrm = [4.8869218826293945, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
             prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint2>
@@ -53,11 +53,11 @@ over "A1Z_G1Z"
 
         def MjcActuator "arm_joint3_actuator"
         {
-            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:biasPrm = [0, -4.8869218826293945, -0.5585053563117981, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
             uniform double mjc:forceRange:max = 20
             uniform double mjc:forceRange:min = -20
-            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:gainPrm = [4.8869218826293945, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
             prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint3>
@@ -65,11 +65,11 @@ over "A1Z_G1Z"
 
         def MjcActuator "arm_joint4_actuator"
         {
-            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:biasPrm = [0, -4.8869218826293945, -0.5585053563117981, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
             uniform double mjc:forceRange:max = 9
             uniform double mjc:forceRange:min = -9
-            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:gainPrm = [4.8869218826293945, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
             prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint4>
@@ -77,11 +77,11 @@ over "A1Z_G1Z"
 
         def MjcActuator "arm_joint5_actuator"
         {
-            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:biasPrm = [0, -4.8869218826293945, -0.5585053563117981, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
             uniform double mjc:forceRange:max = 3.5
             uniform double mjc:forceRange:min = -3.5
-            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:gainPrm = [4.8869218826293945, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
             prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint5>
@@ -89,11 +89,11 @@ over "A1Z_G1Z"
 
         def MjcActuator "arm_joint6_actuator"
         {
-            uniform double[] mjc:biasPrm = [0, -4.537856101989746, -0.48869219422340393, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:biasPrm = [0, -4.8869218826293945, -0.5585053563117981, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
             uniform double mjc:forceRange:max = 3.5
             uniform double mjc:forceRange:min = -3.5
-            uniform double[] mjc:gainPrm = [4.537856101989746, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:gainPrm = [4.8869218826293945, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
             prepend rel mjc:target = </A1Z_G1Z/Physics/arm_joint6>
@@ -101,11 +101,11 @@ over "A1Z_G1Z"
 
         def MjcActuator "gripper_finger_left_joint_actuator"
         {
-            uniform double[] mjc:biasPrm = [0, -260, -28, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:biasPrm = [0, -280, -32, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
             uniform double mjc:forceRange:max = inf
             uniform double mjc:forceRange:min = -inf
-            uniform double[] mjc:gainPrm = [260, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:gainPrm = [280, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
             prepend rel mjc:target = </A1Z_G1Z/Physics/gripper_finger_left_joint>
@@ -113,11 +113,11 @@ over "A1Z_G1Z"
 
         def MjcActuator "gripper_finger_rIght_joint_actuator"
         {
-            uniform double[] mjc:biasPrm = [0, -260, -28, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:biasPrm = [0, -280, -32, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
             uniform double mjc:forceRange:max = inf
             uniform double mjc:forceRange:min = -inf
-            uniform double[] mjc:gainPrm = [260, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            uniform double[] mjc:gainPrm = [280, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
             prepend rel mjc:target = </A1Z_G1Z/Physics/gripper_finger_rIght_joint>
@@ -198,6 +198,13 @@ over "A1Z_G1Z"
                                 {
                                     over "d405_link"
                                     {
+                                        over "d405_rectified_link"
+                                        {
+                                        }
+
+                                        over "d405"
+                                        {
+                                        }
                                     }
 
                                     over "gripper_finger_left_link"
@@ -220,6 +227,10 @@ over "A1Z_G1Z"
                                         over "gripper_finger_rIght_link_1"
                                         {
                                         }
+                                    }
+
+                                    over "grasp_tcp"
+                                    {
                                     }
 
                                     over "arm_link6"

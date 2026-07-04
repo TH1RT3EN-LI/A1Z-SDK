@@ -4,13 +4,13 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "A1Z_G1Z"
-    doc = """Generated from Composed Stage of root layer /tmp/tmpqnwazgp6/A1Z_G1Z.usdc
+    doc = """Generated from Composed Stage of root layer /tmp/tmprt32piey/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_nnnk_47j/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
 
 
 Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
@@ -135,9 +135,9 @@ over "A1Z_G1Z"
             prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.4886922
+            float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 20
-            float drive:angular:physics:stiffness = 4.537856
+            float drive:angular:physics:stiffness = 4.886922
             uniform token drive:angular:physics:type = "acceleration"
             uniform token physics:axis = "Z"
             custom rel physics:body0
@@ -158,9 +158,9 @@ over "A1Z_G1Z"
             prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.4886922
+            float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 25
-            float drive:angular:physics:stiffness = 4.537856
+            float drive:angular:physics:stiffness = 4.886922
             uniform token drive:angular:physics:type = "acceleration"
             uniform token physics:axis = "Y"
             custom rel physics:body0
@@ -181,9 +181,9 @@ over "A1Z_G1Z"
             prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.4886922
+            float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 20
-            float drive:angular:physics:stiffness = 4.537856
+            float drive:angular:physics:stiffness = 4.886922
             uniform token drive:angular:physics:type = "acceleration"
             uniform token physics:axis = "Y"
             custom rel physics:body0
@@ -204,9 +204,9 @@ over "A1Z_G1Z"
             prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.4886922
+            float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 9
-            float drive:angular:physics:stiffness = 4.537856
+            float drive:angular:physics:stiffness = 4.886922
             uniform token drive:angular:physics:type = "acceleration"
             uniform token physics:axis = "Y"
             custom rel physics:body0
@@ -227,9 +227,9 @@ over "A1Z_G1Z"
             prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.4886922
+            float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 3.5
-            float drive:angular:physics:stiffness = 4.537856
+            float drive:angular:physics:stiffness = 4.886922
             uniform token drive:angular:physics:type = "acceleration"
             uniform token physics:axis = "Z"
             custom rel physics:body0
@@ -250,9 +250,9 @@ over "A1Z_G1Z"
             prepend apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.4886922
+            float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 3.5
-            float drive:angular:physics:stiffness = 4.537856
+            float drive:angular:physics:stiffness = 4.886922
             uniform token drive:angular:physics:type = "acceleration"
             uniform token physics:axis = "X"
             custom rel physics:body0
@@ -273,8 +273,8 @@ over "A1Z_G1Z"
             prepend apiSchemas = ["PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
         )
         {
-            float drive:linear:physics:damping = 28
-            float drive:linear:physics:stiffness = 260
+            float drive:linear:physics:damping = 32
+            float drive:linear:physics:stiffness = 280
             uniform token drive:linear:physics:type = "acceleration"
             uniform token physics:axis = "Y"
             custom rel physics:body0
@@ -293,8 +293,8 @@ over "A1Z_G1Z"
             prepend apiSchemas = ["PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
         )
         {
-            float drive:linear:physics:damping = 28
-            float drive:linear:physics:stiffness = 260
+            float drive:linear:physics:damping = 32
+            float drive:linear:physics:stiffness = 280
             uniform token drive:linear:physics:type = "acceleration"
             uniform token physics:axis = "Y"
             custom rel physics:body0
@@ -328,9 +328,9 @@ over "A1Z_G1Z"
             custom rel physics:body1
             prepend rel physics:body1 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/d405_link>
             point3f physics:localPos0 = (0.08, 0, 0.086237)
-            point3f physics:localPos1 = (0, -5.684342e-14, -7.1054274e-15)
-            quatf physics:localRot0 = (0.30441728, 0.6382243, 0.6382241, 0.3044172)
-            quatf physics:localRot1 = (1, -2.1421429e-10, -1.9800521e-9, -5.459028e-10)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
         }
     }
 }
