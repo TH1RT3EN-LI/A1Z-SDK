@@ -60,6 +60,10 @@ def main() -> int:
 
     rows: list[dict[str, Any]] = []
     for binding in frame_binding.get("bindings", []):
+        if binding.get("error"):
+            continue
+        if "tool_grasp_pose_xyz" not in binding or "grasp_base_axes" not in binding:
+            continue
         tool = _vec3(binding["tool_grasp_pose_xyz"])
         axes = _axes_from_summary(binding["grasp_base_axes"])
         delta_tool = tool - default_tool

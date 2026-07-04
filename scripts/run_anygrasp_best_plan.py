@@ -79,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ik-max-iters", type=int, default=800)
     parser.add_argument("--approach-linear-waypoint-count", type=int, default=0)
     parser.add_argument("--ee-grasp-origin-xyz-m", default="[0.0, 0.0, 0.0]")
-    parser.add_argument("--ee-opening-axis-xyz", default="[0.0, 1.0, 0.0]")
+    parser.add_argument("--ee-opening-axis-xyz", default="[0.0, 0.0, 1.0]")
     parser.add_argument("--ee-approach-axis-xyz", default="[1.0, 0.0, 0.0]")
     parser.add_argument("--keepout-sphere", action="append", default=[])
     parser.add_argument("--grasp-rank", type=int, default=0, help="Rank inside AnyGrasp top_grasps to use directly.")

@@ -210,9 +210,9 @@ manifest = {
         "best_vs_selected_summary_present": True,
         "analysis_summary_present": True,
         "tcp_defaults": {
-            "ee_grasp_origin_xyz_m": [0.04, 0.0, 0.0],
+            "ee_grasp_origin_xyz_m": [0.0, 0.0, 0.0],
             "ee_opening_axis_xyz": [0.0, 0.0, 1.0],
-            "ee_approach_axis_xyz": [0.0, -1.0, 0.0],
+            "ee_approach_axis_xyz": [1.0, 0.0, 0.0],
         },
         "active_binding_label": "opening=c1,height=c2,approach=c0",
         "active_camera_correction_label": "identity",
@@ -260,7 +260,7 @@ assert "analysis_summary_json" in manifest["analysis"], manifest
 assert "analysis_index_json" in manifest["analysis"], manifest
 assert (root / "analysis" / "analysis_summary.json").is_file(), manifest
 assert (root / "analysis" / "analysis_index.json").is_file(), manifest
-assert manifest["summary"]["tcp_defaults"]["ee_approach_axis_xyz"] == [0.0, -1.0, 0.0], manifest
+assert manifest["summary"]["tcp_defaults"]["ee_approach_axis_xyz"] == [1.0, 0.0, 0.0], manifest
 assert manifest["summary"]["active_binding_label"] == "opening=c1,height=c2,approach=c0", manifest
 assert manifest["summary"]["active_camera_correction_label"] == "identity", manifest
 assert manifest["summary"]["active_extrinsic_correction_label"] == "identity", manifest

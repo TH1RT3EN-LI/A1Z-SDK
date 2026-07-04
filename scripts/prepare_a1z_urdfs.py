@@ -334,7 +334,7 @@ def _upsert_grasp_tcp(root: ET.Element) -> None:
         insert_index + 1,
         ET.fromstring(
             GRASP_TCP_JOINT_XML.format(
-                tcp_x=_float_string(0.04),
+                tcp_x=_float_string(0.08),
                 tcp_y=_float_string(0.0),
                 tcp_z=_float_string(0.0),
             )

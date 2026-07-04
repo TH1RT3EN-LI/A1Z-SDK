@@ -43,10 +43,12 @@ def main() -> int:
     rows: list[dict[str, Any]] = []
     source_kind = ""
     source_path = ""
+    preferred_binding_label = ""
     if args.mapping_hypotheses:
         mapping = _load_json(args.mapping_hypotheses)
         source_kind = "mapping_hypotheses"
         source_path = str(Path(args.mapping_hypotheses).resolve())
+        preferred_binding_label = str(mapping.get("active_binding_label") or "")
         for hyp in mapping.get("all_hypotheses", []):
             predicted = np.asarray(hyp["grasp_gap"]["delta_xyz"], dtype=np.float64).reshape(3)
             residual = observed - predicted
@@ -67,6 +69,7 @@ def main() -> int:
         report = _load_json(args.alignment_report)
         source_kind = "alignment_report"
         source_path = str(Path(args.alignment_report).resolve())
+        preferred_binding_label = str(report.get("active_binding_label") or "")
         for binding in report.get("bindings", []):
             predicted = np.asarray(binding["tool_delta_vs_default_xyz"], dtype=np.float64).reshape(3)
             residual = observed - predicted
@@ -84,7 +87,13 @@ def main() -> int:
     else:
         raise ValueError("one of --mapping-hypotheses or --alignment-report is required")
 
-    rows.sort(key=lambda row: row["residual_norm_m"])
+    rows.sort(
+        key=lambda row: (
+            row["residual_norm_m"],
+            0 if preferred_binding_label and row["binding_label"] == preferred_binding_label else 1,
+            row["binding_label"],
+        )
+    )
     payload = {
         "source_kind": source_kind,
         "source_path": source_path,

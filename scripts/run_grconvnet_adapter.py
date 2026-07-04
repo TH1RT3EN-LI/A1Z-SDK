@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-joint-margin-deg", type=float, default=5.0)
     parser.add_argument("--max-waypoint-delta-rad", type=float, default=2.5)
     parser.add_argument("--ee-grasp-origin-xyz-m", default="[0.0, 0.0, 0.0]")
-    parser.add_argument("--ee-opening-axis-xyz", default="[0.0, 1.0, 0.0]")
+    parser.add_argument("--ee-opening-axis-xyz", default="[0.0, 0.0, 1.0]")
     parser.add_argument("--ee-approach-axis-xyz", default="[1.0, 0.0, 0.0]")
     parser.add_argument("--keepout-sphere", action="append", default=[])
     parser.add_argument("--top-k", type=int, default=20)

@@ -198,7 +198,7 @@
   </joint>
   <link name="grasp_tcp" />
   <joint name="grasp_tcp_joint" type="fixed">
-    <origin xyz="0.04 0 0" rpy="0 0 0" />
+    <origin xyz="0.08 0 0" rpy="0 0 0" />
     <parent link="arm_link6" />
     <child link="grasp_tcp" />
   </joint>

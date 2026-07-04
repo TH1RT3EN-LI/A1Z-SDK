@@ -76,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--ee-opening-axis-xyz",
-        default="[0.0, 1.0, 0.0]",
+        default="[0.0, 0.0, 1.0]",
         help="Parallel-jaw opening axis expressed in the end-effector frame.",
     )
     parser.add_argument(

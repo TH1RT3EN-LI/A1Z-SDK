@@ -22,20 +22,20 @@ if root.exists():
 root.mkdir(parents=True, exist_ok=True)
 
 q = np.array([0.0, 1.05, -1.55, 0.0, 0.45, 0.0], dtype=np.float64)
-kin = Kinematics(get_default_control_urdf_path(), end_effector_frame='arm_link6')
-ee_pose = kin.fk(q, frame_name='arm_link6')
+kin = Kinematics(get_default_control_urdf_path(), end_effector_frame='grasp_tcp')
+ee_pose = kin.fk(q, frame_name='grasp_tcp')
 
 cfg = ContactGraspNetA1ZAdapterConfig(
     use_ik=False,
     require_approach_downward=False,
-    ee_grasp_origin_xyz_m=(0.04, 0.0, 0.0),
+    ee_grasp_origin_xyz_m=(0.0, 0.0, 0.0),
     ee_opening_axis_xyz=(0.0, 0.0, 1.0),
-    ee_approach_axis_xyz=(0.0, -1.0, 0.0),
+    ee_approach_axis_xyz=(1.0, 0.0, 0.0),
 )
 ee_to_grasp = cfg.ee_to_grasp_transform()
 grasp_pose = ee_pose @ ee_to_grasp
 raw_anygrasp_rotation = np.column_stack([
-    -grasp_pose[:3, 2],
+    grasp_pose[:3, 2],
     grasp_pose[:3, 0],
     grasp_pose[:3, 1],
 ])
@@ -87,9 +87,9 @@ if ! bash "$ROOT_DIR/scripts/run_anygrasp_adapter_in_container.sh" \
   --pregrasp-offset-m 0.0 \
   --lift-offset-m 0.0 \
   --retreat-offset-m 0.0 \
-  --ee-grasp-origin-xyz-m '[0.04, 0.0, 0.0]' \
+  --ee-grasp-origin-xyz-m '[0.0, 0.0, 0.0]' \
   --ee-opening-axis-xyz '[0.0, 0.0, 1.0]' \
-  --ee-approach-axis-xyz '[0.0, -1.0, 0.0]' \
+  --ee-approach-axis-xyz '[1.0, 0.0, 0.0]' \
   --max-approach-deviation-deg 180 \
   --min-joint-margin-deg 0
 then

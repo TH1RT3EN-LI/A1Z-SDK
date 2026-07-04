@@ -19,9 +19,9 @@ bash "$ROOT_DIR/scripts/analyze_anygrasp_frame_bindings_in_container.sh" \
   --binding-label 'opening=c1,height=c2,approach=c0' \
   --camera-correction-label 'identity' \
   --extrinsic-correction-label 'identity' \
-  --ee-grasp-origin-xyz-m '[0.04, 0.0, 0.0]' \
+  --ee-grasp-origin-xyz-m '[0.0, 0.0, 0.0]' \
   --ee-opening-axis-xyz '[0.0, 0.0, 1.0]' \
-  --ee-approach-axis-xyz '[0.0, -1.0, 0.0]' >/dev/null
+  --ee-approach-axis-xyz '[1.0, 0.0, 0.0]' >/dev/null
 
 bash "$ROOT_DIR/scripts/summarize_anygrasp_alignment_report_in_container.sh" \
   --pose-chain /workspace/A1Z/runtime/anygrasp_replay_compare_summary_v4/adapter/anygrasp_pose_chain_summary.json \
@@ -43,9 +43,9 @@ manifest = json.loads((src_dir / "pipeline_manifest.json").read_text(encoding="u
 manifest["output_dir"] = str(dst_dir)
 summary = manifest.setdefault("summary", {})
 summary["tcp_defaults"] = {
-    "ee_grasp_origin_xyz_m": [0.04, 0.0, 0.0],
+    "ee_grasp_origin_xyz_m": [0.0, 0.0, 0.0],
     "ee_opening_axis_xyz": [0.0, 0.0, 1.0],
-    "ee_approach_axis_xyz": [0.0, -1.0, 0.0],
+    "ee_approach_axis_xyz": [1.0, 0.0, 0.0],
 }
 summary["active_binding_label"] = "opening=c1,height=c2,approach=c0"
 summary["active_camera_correction_label"] = "identity"
@@ -93,7 +93,7 @@ assert (
     or summary["best_direct_ik_target_gap_json"].endswith("/adapter/best_direct/ik_target_gap.json")
 ), summary
 assert summary["binding_hypotheses_json"].endswith("/binding_hypotheses.json"), summary
-assert summary["tcp_defaults"]["ee_approach_axis_xyz"] == [0.0, -1.0, 0.0], summary
+assert summary["tcp_defaults"]["ee_approach_axis_xyz"] == [1.0, 0.0, 0.0], summary
 assert (
     summary["capture_current_joints_rad_json"] is None
     or summary["capture_current_joints_rad_json"].endswith("/capture/current_joints_rad.json")
