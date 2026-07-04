@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import threading
+import time
 from typing import Optional
 
 import numpy as np
@@ -34,9 +36,41 @@ class A1ZRobotStateNode(Node):
         self._tf_pub = TransformBroadcaster(self)
         self._static_tf_pub = StaticTransformBroadcaster(self)
         self._joint_names = [f"arm_joint{i}" for i in range(1, 7)]
+        self._state_lock = threading.Lock()
+        self._latest_status: dict | None = None
+        self._latest_status_error: str = ""
+        self._last_status_warn_monotonic = 0.0
+        self._status_poll_hz = max(1.0, float(self._cfg.poll_hz))
+        self._status_thread = threading.Thread(target=self._status_poll_loop, daemon=True)
         self._publish_static_transforms()
+        self._status_thread.start()
         period_s = 1.0 / max(1.0, self._cfg.poll_hz)
         self.create_timer(period_s, self._poll_state)
+
+    def _status_poll_loop(self) -> None:
+        period_s = 1.0 / self._status_poll_hz
+        next_deadline = time.monotonic()
+        while rclpy.ok():
+            try:
+                status = self._client.call("status")
+            except Exception as exc:
+                with self._state_lock:
+                    self._latest_status_error = str(exc)
+                now = time.monotonic()
+                if now - self._last_status_warn_monotonic >= 5.0:
+                    self.get_logger().warn(f"Could not query A1Z state: {exc}")
+                    self._last_status_warn_monotonic = now
+            else:
+                with self._state_lock:
+                    self._latest_status = status
+                    self._latest_status_error = ""
+                self._last_status_warn_monotonic = 0.0
+            next_deadline += period_s
+            sleep_s = next_deadline - time.monotonic()
+            if sleep_s <= 0.0:
+                next_deadline = time.monotonic()
+                continue
+            time.sleep(sleep_s)
 
     def _publish_static_transforms(self) -> None:
         stamp = self.get_clock().now().to_msg()
@@ -110,10 +144,9 @@ class A1ZRobotStateNode(Node):
         self._static_tf_pub.sendTransform(static_tfs)
 
     def _poll_state(self) -> None:
-        try:
-            status = self._client.call("status")
-        except Exception as exc:
-            self.get_logger().warn(f"Could not query A1Z state: {exc}")
+        with self._state_lock:
+            status = None if self._latest_status is None else dict(self._latest_status)
+        if status is None:
             return
 
         joint_deg = status.get("pos_deg", [])

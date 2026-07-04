@@ -58,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--license-dir",
         default=str(REPO_ROOT / "runtime" / "licenses" / "anygrasp"),
     )
-    parser.add_argument("--max-gripper-width", type=float, default=0.1)
+    parser.add_argument("--max-gripper-width", type=float, default=0.7)
     parser.add_argument("--gripper-height", type=float, default=0.03)
     parser.add_argument("--top-down-grasp", action="store_true")
     parser.add_argument("--disable-collision-detection", action="store_true")

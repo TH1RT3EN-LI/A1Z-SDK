@@ -1,0 +1,12 @@
+digraph G {
+"base_link" -> "robot_base_frame"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"grasp_tcp" -> "d405_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"base_link" -> "grasp_tcp"[label=" Broadcaster: default_authority\nAverage rate: 0.749\nBuffer length: 4.006\nMost recent transform: 1783141996.364352\nOldest transform: 1783141992.358852\n"];
+"d405_link" -> "d405_rectified_link"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"d405_rectified_link" -> "d405_color_optical_frame"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"d405_rectified_link" -> "d405_depth_optical_frame"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1783141996.3698647"[ shape=plaintext ] ;
+}->"base_link";
+}

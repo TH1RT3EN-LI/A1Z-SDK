@@ -211,7 +211,7 @@ manifest = {
         "analysis_summary_present": True,
         "tcp_defaults": {
             "ee_grasp_origin_xyz_m": [0.0, 0.0, 0.0],
-            "ee_opening_axis_xyz": [0.0, 0.0, 1.0],
+            "ee_opening_axis_xyz": [0.0, 1.0, 0.0],
             "ee_approach_axis_xyz": [1.0, 0.0, 0.0],
         },
         "active_binding_label": "opening=c1,height=c2,approach=c0",

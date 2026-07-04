@@ -31,7 +31,7 @@ expected_env = {
     "A1Z_ANYGRASP_EXTRINSIC_CORRECTION_LABEL": frame_extrinsic,
     "A1Z_ANYGRASP_EXECUTION_MODE": "best_direct",
     "A1Z_ANYGRASP_EE_GRASP_ORIGIN": "[0.0, 0.0, 0.0]",
-    "A1Z_ANYGRASP_EE_OPENING_AXIS": "[0.0, 0.0, 1.0]",
+    "A1Z_ANYGRASP_EE_OPENING_AXIS": "[0.0, 1.0, 0.0]",
     "A1Z_ANYGRASP_EE_APPROACH_AXIS": "[1.0, 0.0, 0.0]",
 }
 

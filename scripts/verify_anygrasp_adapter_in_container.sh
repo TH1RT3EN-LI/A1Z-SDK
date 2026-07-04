@@ -29,7 +29,7 @@ cfg = ContactGraspNetA1ZAdapterConfig(
     use_ik=False,
     require_approach_downward=False,
     ee_grasp_origin_xyz_m=(0.0, 0.0, 0.0),
-    ee_opening_axis_xyz=(0.0, 0.0, 1.0),
+    ee_opening_axis_xyz=(0.0, 1.0, 0.0),
     ee_approach_axis_xyz=(1.0, 0.0, 0.0),
 )
 ee_to_grasp = cfg.ee_to_grasp_transform()
@@ -88,7 +88,7 @@ if ! bash "$ROOT_DIR/scripts/run_anygrasp_adapter_in_container.sh" \
   --lift-offset-m 0.0 \
   --retreat-offset-m 0.0 \
   --ee-grasp-origin-xyz-m '[0.0, 0.0, 0.0]' \
-  --ee-opening-axis-xyz '[0.0, 0.0, 1.0]' \
+  --ee-opening-axis-xyz '[0.0, 1.0, 0.0]' \
   --ee-approach-axis-xyz '[1.0, 0.0, 0.0]' \
   --max-approach-deviation-deg 180 \
   --min-joint-margin-deg 0

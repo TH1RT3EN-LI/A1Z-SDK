@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--camera-correction-label", default=ANYGRASP_ACTIVE_CAMERA_CORRECTION_LABEL, help="Camera-frame correction used by the active execution path.")
     parser.add_argument("--extrinsic-correction-label", default=ANYGRASP_ACTIVE_EXTRINSIC_CORRECTION_LABEL, help="Extrinsic correction used by the active execution path.")
     parser.add_argument("--ee-grasp-origin-xyz-m", default="[0.0, 0.0, 0.0]")
-    parser.add_argument("--ee-opening-axis-xyz", default="[0.0, 0.0, 1.0]")
+    parser.add_argument("--ee-opening-axis-xyz", default="[0.0, 1.0, 0.0]")
     parser.add_argument("--ee-approach-axis-xyz", default="[1.0, 0.0, 0.0]")
     return parser
 

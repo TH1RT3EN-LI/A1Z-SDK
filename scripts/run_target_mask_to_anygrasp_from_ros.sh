@@ -18,7 +18,7 @@ ANYGRASP_BINDING_LABEL="${A1Z_ANYGRASP_BINDING_LABEL:-opening=c1,height=c2,appro
 ANYGRASP_CAMERA_CORRECTION_LABEL="${A1Z_ANYGRASP_CAMERA_CORRECTION_LABEL:-identity}"
 ANYGRASP_EXTRINSIC_CORRECTION_LABEL="${A1Z_ANYGRASP_EXTRINSIC_CORRECTION_LABEL:-identity}"
 ANYGRASP_EE_GRASP_ORIGIN="${A1Z_ANYGRASP_EE_GRASP_ORIGIN:-[0.0, 0.0, 0.0]}"
-ANYGRASP_EE_OPENING_AXIS="${A1Z_ANYGRASP_EE_OPENING_AXIS:-[0.0, 0.0, 1.0]}"
+ANYGRASP_EE_OPENING_AXIS="${A1Z_ANYGRASP_EE_OPENING_AXIS:-[0.0, 1.0, 0.0]}"
 ANYGRASP_EE_APPROACH_AXIS="${A1Z_ANYGRASP_EE_APPROACH_AXIS:-[1.0, 0.0, 0.0]}"
 TARGET_FRAME_ID="${A1Z_BASE_LINK_FRAME:-base_link}"
 ROS_CAPTURE_TIMEOUT_S="${A1Z_ROS_CAPTURE_TIMEOUT_S:-30}"
@@ -648,9 +648,6 @@ if [[ -f "$ROOT_DIR/${ANYGRASP_DIR#/workspace/A1Z/}/masked_point_cloud/points.np
       if ! "$ROOT_DIR/scripts/render_anygrasp_open3d_in_container.sh" \
         --points "$ANYGRASP_DIR/masked_point_cloud/points.npy" \
         --colors "$ANYGRASP_DIR/masked_point_cloud/colors.npy" \
-        --depth "$CAPTURE_DIR/depth_m.npy" \
-        --mask "$TARGET_MASK_DIR/selection/selected_mask.npy" \
-        --highlight-mask \
         --result-json "$ANYGRASP_DIR/anygrasp/anygrasp_result.json" \
         --binding-label "$ANYGRASP_BINDING_LABEL" \
         --camera-correction-label "$ANYGRASP_CAMERA_CORRECTION_LABEL" \
@@ -661,9 +658,7 @@ if [[ -f "$ROOT_DIR/${ANYGRASP_DIR#/workspace/A1Z/}/masked_point_cloud/points.np
         --camera-view \
         --intrinsics "$CAPTURE_DIR/intrinsics.json" \
         --crop-radius-m -1 \
-        --disable-offscreen-renderer \
-        --selected-gripper-color "[0.0, 0.2, 1.0]" \
-        --mask-highlight-color "[0.0, 1.0, 0.2]"
+        --selected-gripper-color "[0.0, 0.2, 1.0]"
       then
         echo "warning: failed to render anygrasp_selected" >&2
       fi

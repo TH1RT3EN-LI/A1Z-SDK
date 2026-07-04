@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--backend", default="anygrasp_tcp_scan")
     parser.add_argument("--max-approach-deviation-deg", type=float, default=85.0)
     parser.add_argument("--min-joint-margin-deg", type=float, default=5.0)
-    parser.add_argument("--pregrasp-offset-m", type=float, default=0.08)
+    parser.add_argument("--pregrasp-offset-m", type=float, default=0.15)
     parser.add_argument("--lift-offset-m", type=float, default=0.10)
     parser.add_argument("--retreat-offset-m", type=float, default=0.04)
     parser.add_argument("--approach-linear-waypoint-count", type=int, default=0)

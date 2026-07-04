@@ -13,7 +13,7 @@
 - ROS 工具 frame：`grasp_tcp`
 - adapter 默认 `ee_grasp_origin_xyz_m`：`[0, 0, 0]`
 - adapter 默认 `ee_approach_axis_xyz`：`[1, 0, 0]`
-- adapter 默认 `ee_opening_axis_xyz`：`[0, 0, 1]`
+- adapter 默认 `ee_opening_axis_xyz`：`[0, 1, 0]`
 
 其中 `grasp_tcp` 相对 `arm_link6` 的固定偏移为：
 
@@ -70,14 +70,14 @@
 
 同时将主链默认 TCP 轴定义切到：
 
-- opening = `+Z`
+- opening = `+Y`
 - approach = `+X`
 
 配合官方 AnyGrasp `binding=opening=c1,height=c2,approach=c0` 后，当前默认目标 TCP 语义为：
 
 - `tcp_x = approach`
-- `tcp_y = -height`
-- `tcp_z = opening`
+- `tcp_y = opening`
+- `tcp_z = height`
 
 因此主链默认 `ee_grasp_origin_xyz_m` 为 `[0,0,0]`，不再额外补抓取中心平移。
 

@@ -160,7 +160,7 @@ class ContactGraspNetA1ZAdapterConfig:
     frame_id: str = "robot_base_frame"
     transform_source: str = "extrinsic_camera_to_base"
     grasp_mode: str = "top_down_parallel_jaw"
-    pregrasp_offset_m: float = 0.08
+    pregrasp_offset_m: float = 0.15
     lift_offset_m: float = 0.10
     retreat_offset_m: float = 0.04
     table_height_m: float = 0.0
@@ -182,7 +182,7 @@ class ContactGraspNetA1ZAdapterConfig:
     ik_max_iters: int = 800
     keepout_spheres: list[KeepoutSphere] = field(default_factory=list)
     ee_grasp_origin_xyz_m: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    ee_opening_axis_xyz: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    ee_opening_axis_xyz: tuple[float, float, float] = (0.0, 1.0, 0.0)
     ee_approach_axis_xyz: tuple[float, float, float] = (1.0, 0.0, 0.0)
     segment_timeouts_s: dict[str, float] = field(
         default_factory=lambda: {

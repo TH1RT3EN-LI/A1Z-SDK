@@ -66,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frame-id", default="robot_base_frame")
     parser.add_argument("--transform-source", default="extrinsic_camera_to_base")
     parser.add_argument("--end-effector-frame", default="grasp_tcp")
-    parser.add_argument("--pregrasp-offset-m", type=float, default=0.08)
+    parser.add_argument("--pregrasp-offset-m", type=float, default=0.15)
     parser.add_argument("--lift-offset-m", type=float, default=0.10)
     parser.add_argument("--retreat-offset-m", type=float, default=0.04)
     parser.add_argument("--table-height-m", type=float, default=0.0)
@@ -83,7 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--ee-opening-axis-xyz",
-        default="[0.0, 0.0, 1.0]",
+        default="[0.0, 1.0, 0.0]",
         help="Parallel-jaw opening axis expressed in the end-effector frame.",
     )
     parser.add_argument(

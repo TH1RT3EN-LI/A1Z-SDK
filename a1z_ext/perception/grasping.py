@@ -332,7 +332,7 @@ def check_anygrasp_runtime(
 
             cfgs = SimpleNamespace(
                 checkpoint_path=str(checkpoint),
-                max_gripper_width=0.1,
+                max_gripper_width=0.7,
                 gripper_height=0.03,
                 top_down_grasp=False,
                 debug=False,
@@ -415,7 +415,7 @@ def run_anygrasp_detection(
     sdk_dir: str | Path,
     checkpoint_path: str | Path,
     license_dir: str | Path,
-    max_gripper_width: float = 0.1,
+    max_gripper_width: float = 0.7,
     gripper_height: float = 0.03,
     top_down_grasp: bool = False,
     collision_detection: bool = True,
@@ -459,7 +459,7 @@ def run_anygrasp_detection(
 
         cfgs = SimpleNamespace(
             checkpoint_path=str(checkpoint_path),
-            max_gripper_width=max(0.0, min(0.1, float(max_gripper_width))),
+            max_gripper_width=max(0.0, min(0.7, float(max_gripper_width))),
             gripper_height=float(gripper_height),
             top_down_grasp=bool(top_down_grasp),
             debug=False,

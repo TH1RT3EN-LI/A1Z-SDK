@@ -20,7 +20,7 @@ bash "$ROOT_DIR/scripts/analyze_anygrasp_frame_bindings_in_container.sh" \
   --camera-correction-label 'identity' \
   --extrinsic-correction-label 'identity' \
   --ee-grasp-origin-xyz-m '[0.0, 0.0, 0.0]' \
-  --ee-opening-axis-xyz '[0.0, 0.0, 1.0]' \
+  --ee-opening-axis-xyz '[0.0, 1.0, 0.0]' \
   --ee-approach-axis-xyz '[1.0, 0.0, 0.0]' >/dev/null
 
 bash "$ROOT_DIR/scripts/summarize_anygrasp_alignment_report_in_container.sh" \
@@ -44,7 +44,7 @@ manifest["output_dir"] = str(dst_dir)
 summary = manifest.setdefault("summary", {})
 summary["tcp_defaults"] = {
     "ee_grasp_origin_xyz_m": [0.0, 0.0, 0.0],
-    "ee_opening_axis_xyz": [0.0, 0.0, 1.0],
+    "ee_opening_axis_xyz": [0.0, 1.0, 0.0],
     "ee_approach_axis_xyz": [1.0, 0.0, 0.0],
 }
 summary["active_binding_label"] = "opening=c1,height=c2,approach=c0"

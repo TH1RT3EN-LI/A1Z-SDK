@@ -6,7 +6,7 @@ The active AnyGrasp-to-TCP mapping was updated to:
 
 - `grasp_tcp` fixed offset from `arm_link6`: `[0.08, 0.0, 0.0]`
 - `ee_grasp_origin_xyz_m = [0.0, 0.0, 0.0]`
-- `ee_opening_axis_xyz = [0.0, 0.0, 1.0]`
+- `ee_opening_axis_xyz = [0.0, 1.0, 0.0]`
 - `ee_approach_axis_xyz = [1.0, 0.0, 0.0]`
 - active AnyGrasp binding remains `opening=c1,height=c2,approach=c0`
 
@@ -14,15 +14,15 @@ The active AnyGrasp-to-TCP mapping was updated to:
 
 With the adapter's `ee_to_grasp_transform` convention:
 
-- grasp-frame `opening` maps to TCP `+z`
-- grasp-frame `height` maps to TCP `-y`
+- grasp-frame `opening` maps to TCP `+y`
+- grasp-frame `height` maps to TCP `+z`
 - grasp-frame `approach` maps to TCP `+x`
 
 So the effective target TCP interpretation is:
 
 - `tcp_x = approach`
-- `tcp_y = -height`
-- `tcp_z = opening`
+- `tcp_y = opening`
+- `tcp_z = height`
 
 ## Why this was selected
 
@@ -53,3 +53,13 @@ It does not solve remaining issues such as:
 - possible `J3/J5` sign-semantic mismatch between SDK and URDF/IK
 - possible additional roll freedom around `approach`
 - final real-robot TCP calibration beyond the current `0.08 m` offset
+
+## Current pregrasp default
+
+The current default `pregrasp_offset_m` should be treated separately from TCP semantics.
+
+- active default `pregrasp_offset_m = 0.15`
+
+This is intentionally conservative. Based on the current URDF + finger mesh geometry,
+the finger bodies extend about `0.103 m` ahead of `grasp_tcp` along TCP `+x`, so `0.15 m`
+leaves additional clearance before the grasp target plane.
