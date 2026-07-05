@@ -153,6 +153,54 @@ class MockArmRobot:
         with self._lock:
             return self._gripper_pos
 
+    def grasp_close_and_attach(
+        self,
+        target_prim_path: str = "",
+        *,
+        timeout_s: float = 2.0,
+        contact_window_s: float = 0.15,
+        require_bilateral_contact: bool = True,
+    ) -> Dict[str, Any]:
+        del timeout_s, contact_window_s, require_bilateral_contact
+        self.command_gripper(0.0)
+        attached_object_path = str(target_prim_path or "")
+        return {
+            "success": True,
+            "target_prim_path": str(target_prim_path or ""),
+            "attached_object_path": attached_object_path or None,
+            "attachment_joint_path": None,
+            "contact_summary": {"mode": "mock", "simulated": True},
+            "failure_reason": None,
+            "timing": {},
+        }
+
+    def release_attached_object(
+        self,
+        *,
+        open_gripper: bool = True,
+        timeout_s: float = 2.0,
+    ) -> Dict[str, Any]:
+        del timeout_s
+        if open_gripper:
+            self.command_gripper(1.0)
+        return {
+            "success": True,
+            "released": True,
+            "attached_object_path": None,
+            "attachment_joint_path": None,
+            "failure_reason": None,
+        }
+
+    def get_sim_grasp_status(self) -> Dict[str, Any]:
+        return {
+            "has_attached_object": False,
+            "attached_object_path": None,
+            "attachment_joint_path": None,
+            "grasp_state": "idle",
+            "last_contact_time": None,
+            "last_failure_reason": None,
+        }
+
     def command_joint_pos(self, pos: np.ndarray) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")

@@ -59,8 +59,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(REPO_ROOT / "runtime" / "licenses" / "anygrasp"),
     )
     parser.add_argument("--max-gripper-width", type=float, default=0.7)
-    parser.add_argument("--gripper-height", type=float, default=0.03)
-    parser.add_argument("--top-down-grasp", action="store_true")
+    parser.add_argument("--gripper-height", type=float, default=0.022)
+    parser.add_argument("--top-down-grasp", action="store_true", default=True)
+    parser.add_argument("--no-top-down-grasp", dest="top_down_grasp", action="store_false")
     parser.add_argument("--disable-collision-detection", action="store_true")
     parser.add_argument("--dense-grasp", action="store_true")
     parser.add_argument("--top-k", type=int, default=20)

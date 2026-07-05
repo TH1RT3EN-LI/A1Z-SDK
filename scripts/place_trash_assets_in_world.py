@@ -38,7 +38,7 @@ Y_UP_TO_Z_UP = np.array(
 )
 
 OBJECT_LAYOUT = {
-    "can_upright": {
+    "marker_upright": {
         "position": (0.30, -0.12, 0.0),
         "yaw_deg": 0.0,
         "scale_mode": "height",
@@ -73,9 +73,10 @@ CATEGORY_SURFACE = {
 }
 
 DEFAULT_COLLISION_APPROXIMATION = "convexHull"
-DEFAULT_CONTACT_OFFSET_M = 0.0
-DEFAULT_REST_OFFSET_M = 0.0
+DEFAULT_CONTACT_OFFSET_M = 0.002
+DEFAULT_REST_OFFSET_M = 0.001
 DEFAULT_GROUND_SURFACE_PAD_M = 0.0
+DEFAULT_TRASH_COLLISION_MODE = "mesh"
 
 
 def parse_args() -> argparse.Namespace:
@@ -165,6 +166,15 @@ def _env_str(name: str, default: str) -> str:
 
 def _env_float(name: str, default: float) -> float:
     return float(_env_str(name, str(default)))
+
+
+def _trash_collision_mode() -> str:
+    mode = _env_str("A1Z_TRASH_COLLISION_MODE", DEFAULT_TRASH_COLLISION_MODE).strip().lower()
+    if mode not in {"mesh", "box"}:
+        raise RuntimeError(
+            f"Unsupported A1Z_TRASH_COLLISION_MODE={mode!r}; expected 'mesh' or 'box'."
+        )
+    return mode
 
 
 def _load_manifest(path: Path) -> list[dict]:
@@ -290,13 +300,26 @@ def _create_collision_box(
     stage: Usd.Stage,
     object_path: Sdf.Path,
     dims: np.ndarray,
+    *,
+    center: np.ndarray | None = None,
+    contact_offset_m: float,
+    rest_offset_m: float,
 ) -> None:
     collider = UsdGeom.Cube.Define(stage, object_path.AppendChild("CollisionBox"))
     collider.CreateSizeAttr(1.0)
-    collider.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, float(dims[2] * 0.5)))
+    if center is None:
+        center = np.asarray((0.0, 0.0, float(dims[2] * 0.5)), dtype=np.float64)
+    else:
+        center = np.asarray(center, dtype=np.float64).reshape(3)
+    collider.AddTranslateOp().Set(Gf.Vec3f(*center.tolist()))
     collider.AddScaleOp().Set(Gf.Vec3f(*dims.tolist()))
     collider.MakeInvisible()
     UsdPhysics.CollisionAPI.Apply(collider.GetPrim())
+    _set_collision_offsets(
+        collider.GetPrim(),
+        contact_offset_m=contact_offset_m,
+        rest_offset_m=rest_offset_m,
+    )
 
 
 def _set_collision_offsets(prim: Usd.Prim, *, contact_offset_m: float, rest_offset_m: float) -> None:
@@ -322,6 +345,42 @@ def _apply_mesh_collision(
     )
 
 
+def _disable_descendant_mesh_collisions(root_prim: Usd.Prim) -> int:
+    disabled = 0
+    for mesh_prim in _iter_mesh_descendants(root_prim):
+        collision_api = UsdPhysics.CollisionAPI.Apply(mesh_prim)
+        collision_api.CreateCollisionEnabledAttr(False)
+        if mesh_prim.HasAPI(UsdPhysics.MeshCollisionAPI):
+            mesh_prim.RemoveAPI(UsdPhysics.MeshCollisionAPI)
+        if mesh_prim.HasAPI(UsdPhysics.CollisionAPI):
+            mesh_prim.RemoveAPI(UsdPhysics.CollisionAPI)
+        if mesh_prim.HasAPI(PhysxSchema.PhysxCollisionAPI):
+            mesh_prim.RemoveAPI(PhysxSchema.PhysxCollisionAPI)
+        disabled += 1
+    return disabled
+
+
+def _enable_descendant_mesh_collisions(
+    root_prim: Usd.Prim,
+    *,
+    approximation: str,
+    contact_offset_m: float,
+    rest_offset_m: float,
+) -> int:
+    enabled = 0
+    for mesh_prim in _iter_mesh_descendants(root_prim):
+        _apply_mesh_collision(
+            mesh_prim,
+            approximation=approximation,
+            contact_offset_m=contact_offset_m,
+            rest_offset_m=rest_offset_m,
+        )
+        collision_api = UsdPhysics.CollisionAPI.Apply(mesh_prim)
+        collision_api.CreateCollisionEnabledAttr(True)
+        enabled += 1
+    return enabled
+
+
 def _iter_mesh_descendants(root_prim: Usd.Prim) -> list[Usd.Prim]:
     meshes: list[Usd.Prim] = []
     for prim in Usd.PrimRange(root_prim):
@@ -330,25 +389,77 @@ def _iter_mesh_descendants(root_prim: Usd.Prim) -> list[Usd.Prim]:
     return meshes
 
 
-def _configure_reference_mesh_collisions(stage: Usd.Stage, object_path: Sdf.Path) -> int:
+def _compute_reference_asset_local_bbox(asset_reference: str) -> tuple[np.ndarray, np.ndarray]:
+    reference_stage = Usd.Stage.Open(asset_reference)
+    if reference_stage is None:
+        raise RuntimeError(f"Failed to open referenced asset stage: {asset_reference}")
+    reference_prim = reference_stage.GetDefaultPrim()
+    if not reference_prim or not reference_prim.IsValid():
+        children = [prim for prim in reference_stage.GetPseudoRoot().GetChildren()]
+        if not children:
+            raise RuntimeError(f"Referenced asset has no default prim or root child: {asset_reference}")
+        reference_prim = children[0]
+
+    bbox_cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(),
+        [UsdGeom.Tokens.default_, UsdGeom.Tokens.render],
+    )
+    box = bbox_cache.ComputeLocalBound(reference_prim).GetBox()
+    bound_min = np.asarray([float(box.GetMin()[axis]) for axis in range(3)], dtype=np.float64)
+    bound_max = np.asarray([float(box.GetMax()[axis]) for axis in range(3)], dtype=np.float64)
+    if not np.all(np.isfinite(bound_min)) or not np.all(np.isfinite(bound_max)) or np.any(bound_max < bound_min):
+        raise RuntimeError(f"Failed to compute referenced asset bbox: {asset_reference}")
+    return bound_min, bound_max
+
+
+def _create_reference_collision_proxy(
+    stage: Usd.Stage,
+    object_path: Sdf.Path,
+    *,
+    bbox_min_m: np.ndarray,
+    bbox_max_m: np.ndarray,
+) -> int:
     root_prim = stage.GetPrimAtPath(object_path)
     if not root_prim or not root_prim.IsValid():
         return 0
 
-    approximation = _env_str("A1Z_TRASH_COLLISION_APPROXIMATION", DEFAULT_COLLISION_APPROXIMATION)
     contact_offset_m = _env_float("A1Z_TRASH_CONTACT_OFFSET_M", DEFAULT_CONTACT_OFFSET_M)
     rest_offset_m = _env_float("A1Z_TRASH_REST_OFFSET_M", DEFAULT_REST_OFFSET_M)
+    _disable_descendant_mesh_collisions(root_prim)
+    bbox_min = np.asarray(bbox_min_m, dtype=np.float64).reshape(3)
+    bbox_max = np.asarray(bbox_max_m, dtype=np.float64).reshape(3)
+    bbox_dims = bbox_max - bbox_min
+    bbox_center = 0.5 * (bbox_min + bbox_max)
+    _create_collision_box(
+        stage=stage,
+        object_path=object_path,
+        dims=bbox_dims,
+        center=bbox_center,
+        contact_offset_m=contact_offset_m,
+        rest_offset_m=rest_offset_m,
+    )
+    return 1
 
-    configured = 0
-    for mesh_prim in _iter_mesh_descendants(root_prim):
-        _apply_mesh_collision(
-            mesh_prim,
-            approximation=approximation,
-            contact_offset_m=contact_offset_m,
-            rest_offset_m=rest_offset_m,
-        )
-        configured += 1
-    return configured
+
+def _create_reference_mesh_colliders(
+    stage: Usd.Stage,
+    object_path: Sdf.Path,
+) -> int:
+    root_prim = stage.GetPrimAtPath(object_path)
+    if not root_prim or not root_prim.IsValid():
+        return 0
+    contact_offset_m = _env_float("A1Z_TRASH_CONTACT_OFFSET_M", DEFAULT_CONTACT_OFFSET_M)
+    rest_offset_m = _env_float("A1Z_TRASH_REST_OFFSET_M", DEFAULT_REST_OFFSET_M)
+    approximation = _env_str("A1Z_TRASH_COLLISION_APPROXIMATION", DEFAULT_COLLISION_APPROXIMATION)
+    collision_box_prim = root_prim.GetChild("CollisionBox")
+    if collision_box_prim and collision_box_prim.IsValid():
+        stage.RemovePrim(collision_box_prim.GetPath())
+    return _enable_descendant_mesh_collisions(
+        root_prim,
+        approximation=approximation,
+        contact_offset_m=contact_offset_m,
+        rest_offset_m=rest_offset_m,
+    )
 
 
 def _align_ground_surface(stage: Usd.Stage) -> None:
@@ -414,17 +525,26 @@ def _reference_usd_asset(
 
     object_path = trash_root.AppendChild(_sanitize_name(asset_id))
     object_xform = UsdGeom.Xform.Define(stage, object_path)
-    object_xform.AddTranslateOp().Set(Gf.Vec3d(*layout["position"]))
+    object_translate = np.asarray(layout["position"], dtype=np.float64).reshape(3)
+    scale_xyz = np.ones(3, dtype=np.float64)
+    if "scale" in asset:
+        scale = float(asset["scale"])
+        scale_xyz[:] = scale
+    elif "scale_xyz" in asset:
+        scale_xyz = np.asarray(asset["scale_xyz"], dtype=np.float64).reshape(3)
+        scale = float(scale_xyz[0])
+    else:
+        scale = 1.0
+
+    object_xform.AddTranslateOp().Set(Gf.Vec3d(*object_translate.tolist()))
     object_xform.AddRotateZOp().Set(float(layout["yaw_deg"]))
 
     if "scale" in asset:
-        scale = float(asset["scale"])
         object_xform.AddScaleOp().Set(Gf.Vec3f(scale, scale, scale))
     elif "scale_xyz" in asset:
-        scale_xyz = asset["scale_xyz"]
-        if len(scale_xyz) != 3:
+        if len(asset["scale_xyz"]) != 3:
             raise RuntimeError(f"USD asset '{asset_id}' scale_xyz must have 3 values")
-        object_xform.AddScaleOp().Set(Gf.Vec3f(*[float(v) for v in scale_xyz]))
+        object_xform.AddScaleOp().Set(Gf.Vec3f(*scale_xyz.tolist()))
 
     references = object_xform.GetPrim().GetReferences()
     references.AddReference(resolved_reference)
@@ -433,16 +553,44 @@ def _reference_usd_asset(
         UsdPhysics.RigidBodyAPI.Apply(object_xform.GetPrim()).CreateRigidBodyEnabledAttr(True)
     if "suggested_mass_kg" in asset:
         UsdPhysics.MassAPI.Apply(object_xform.GetPrim()).CreateMassAttr(float(asset["suggested_mass_kg"]))
-    mesh_collider_count = _configure_reference_mesh_collisions(stage=stage, object_path=object_path)
+
+    visual_bbox_min, visual_bbox_max = _compute_reference_asset_local_bbox(resolved_reference)
+    object_translate[2] += float(-visual_bbox_min[2] * scale_xyz[2])
+    translate_ops = [
+        op
+        for op in object_xform.GetOrderedXformOps()
+        if op.GetOpType() == UsdGeom.XformOp.TypeTranslate
+    ]
+    if not translate_ops:
+        raise RuntimeError(f"Failed to find translate op for referenced asset '{asset_id}'")
+    translate_ops[0].Set(Gf.Vec3d(*object_translate.tolist()))
+
+    target_bbox_m = tuple(float(v) for v in asset.get("target_bbox_m", []))
+    if len(target_bbox_m) != 3:
+        raise RuntimeError(f"USD asset entry '{asset_id}' is missing a valid target_bbox_m")
+    if _trash_collision_mode() == "mesh":
+        mesh_collider_count = _create_reference_mesh_colliders(
+            stage=stage,
+            object_path=object_path,
+        )
+    else:
+        mesh_collider_count = _create_reference_collision_proxy(
+            stage=stage,
+            object_path=object_path,
+            bbox_min_m=visual_bbox_min,
+            bbox_max_m=visual_bbox_max,
+        )
 
     return {
         "id": asset_id,
         "usd": resolved_reference,
-        "position": tuple(layout["position"]),
+        "position": tuple(float(v) for v in object_translate.tolist()),
         "yaw_deg": float(layout["yaw_deg"]),
-        "scale": float(asset.get("scale", 1.0)),
+        "scale": scale,
         "mesh_collider_count": mesh_collider_count,
-        "target_bbox_m": tuple(float(v) for v in asset.get("target_bbox_m", [])),
+        "target_bbox_m": target_bbox_m,
+        "visual_bbox_min_m": tuple(float(v) for v in visual_bbox_min.tolist()),
+        "visual_bbox_max_m": tuple(float(v) for v in visual_bbox_max.tolist()),
     }
 
 
@@ -489,6 +637,8 @@ def _build_asset(
 
     UsdPhysics.RigidBodyAPI.Apply(object_xform.GetPrim()).CreateRigidBodyEnabledAttr(True)
     UsdPhysics.MassAPI.Apply(object_xform.GetPrim()).CreateMassAttr(float(asset["suggested_mass_kg"]))
+    contact_offset_m = _env_float("A1Z_TRASH_CONTACT_OFFSET_M", DEFAULT_CONTACT_OFFSET_M)
+    rest_offset_m = _env_float("A1Z_TRASH_REST_OFFSET_M", DEFAULT_REST_OFFSET_M)
 
     visuals_path = object_path.AppendChild("Visuals")
     UsdGeom.Xform.Define(stage, visuals_path)
@@ -517,7 +667,13 @@ def _build_asset(
             material=material,
         )
 
-    _create_collision_box(stage=stage, object_path=object_path, dims=target_bbox)
+    _create_collision_box(
+        stage=stage,
+        object_path=object_path,
+        dims=target_bbox,
+        contact_offset_m=contact_offset_m,
+        rest_offset_m=rest_offset_m,
+    )
 
     return {
         "id": asset_id,
@@ -591,7 +747,9 @@ def main() -> int:
             )
         )
 
+    stage.SetEditTarget(root_layer)
     _align_ground_surface(stage)
+    stage.SetEditTarget(overlay_layer)
 
     overlay_layer.Save()
     if root_layer_changed or removed_inline:

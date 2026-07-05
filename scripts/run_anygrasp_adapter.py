@@ -205,6 +205,7 @@ def main() -> int:
     )
     scores = np.asarray([float(item["score"]) for item in top_grasps], dtype=np.float64)
     gripper_openings_m = np.asarray([float(item["width_m"]) for item in top_grasps], dtype=np.float64)
+    grasp_depths_m = np.asarray([float(item.get("depth_m", 0.0)) for item in top_grasps], dtype=np.float64)
     contact_points_cam = np.asarray([grasp[:3, 3] for grasp in pred_grasps_cam], dtype=np.float64)
 
     current_q = _load_current_joints(args.current_joints_rad, socket_path=args.socket_path)
@@ -247,6 +248,7 @@ def main() -> int:
         pred_grasps_cam=pred_grasps_cam,
         scores=scores,
         gripper_openings_m=gripper_openings_m,
+        grasp_depths_m=grasp_depths_m,
         contact_points_cam=contact_points_cam,
         extrinsic_camera_to_base=extrinsic_camera_to_base,
         current_q=current_q,

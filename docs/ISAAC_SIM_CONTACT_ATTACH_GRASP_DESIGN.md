@@ -574,7 +574,7 @@ def get_sim_grasp_status(self) -> dict[str, Any]:
 {
   "execution_policy": {
     "grasp_mode": "sim_contact_attach",
-    "target_prim_path": "/World/TrashSet/can_upright",
+    "target_prim_path": "/World/TrashSet/marker_upright",
     "require_bilateral_contact": true
   }
 }
@@ -596,9 +596,9 @@ def get_sim_grasp_status(self) -> dict[str, Any]:
 {
   "backend_execution_details": {
     "grasp_mode": "sim_contact_attach",
-    "target_prim_path": "/World/TrashSet/can_upright",
-    "attached_object_path": "/World/TrashSet/can_upright",
-    "attachment_joint_path": "/World/SimulationGraspAttachments/plan123_can_upright",
+    "target_prim_path": "/World/TrashSet/marker_upright",
+    "attached_object_path": "/World/TrashSet/marker_upright",
+    "attachment_joint_path": "/World/SimulationGraspAttachments/plan123_marker_upright",
     "attach_success": true,
     "attach_failure_reason": null
   }

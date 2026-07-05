@@ -205,9 +205,9 @@ def _build_contact_sheet(
 
         crop = image_rgb[crop_y0:crop_y1, crop_x0:crop_x1].copy()
         crop_mask = mask[crop_y0:crop_y1, crop_x0:crop_x1]
-        dimmed = crop.copy()
-        dimmed[~crop_mask] = (dimmed[~crop_mask] * 0.35 + 255 * 0.65).astype(np.uint8)
-        preview = _resize_to_fit(dimmed, width=cell_w - 20, height=cell_h - 52)
+        isolated = np.full_like(crop, 255)
+        isolated[crop_mask] = crop[crop_mask]
+        preview = _resize_to_fit(isolated, width=cell_w - 20, height=cell_h - 52)
 
         canvas[y0 + 32 : y0 + 32 + preview.shape[0], x0 + 10 : x0 + 10 + preview.shape[1]] = preview
         color = _make_color(record.mask_index)

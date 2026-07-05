@@ -10,6 +10,7 @@ from isaacsim import SimulationApp
 
 simulation_app = SimulationApp({"headless": True})
 
+import numpy as np  # noqa: E402
 from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics  # noqa: E402
 
 
@@ -33,29 +34,88 @@ def _format_vec3(value) -> str:
     return f"({float(value[0]):.6f}, {float(value[1]):.6f}, {float(value[2]):.6f})"
 
 
-def _mesh_summary(root_prim: Usd.Prim) -> tuple[int, int, set[str], list[tuple[float | None, float | None]]]:
+def _format_bbox(min_vec, max_vec) -> str:
+    if min_vec is None or max_vec is None:
+        return "None"
+    return f"min={_format_vec3(min_vec)} max={_format_vec3(max_vec)}"
+
+
+def _local_bbox(prim: Usd.Prim) -> tuple[Gf.Vec3d | None, Gf.Vec3d | None]:
+    if not prim.IsValid():
+        return None, None
+    bbox_cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(),
+        [UsdGeom.Tokens.default_, UsdGeom.Tokens.render],
+    )
+    box = bbox_cache.ComputeLocalBound(prim).GetBox()
+    return box.GetMin(), box.GetMax()
+
+
+def _relative_bbox(prim: Usd.Prim, ancestor: Usd.Prim) -> tuple[Gf.Vec3d | None, Gf.Vec3d | None]:
+    if not prim.IsValid() or not ancestor.IsValid():
+        return None, None
+    bbox_cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(),
+        [UsdGeom.Tokens.default_, UsdGeom.Tokens.render],
+    )
+    box = bbox_cache.ComputeRelativeBound(prim, ancestor).GetBox()
+    return box.GetMin(), box.GetMax()
+
+
+def _collision_box_effective_local_bbox(prim: Usd.Prim) -> tuple[Gf.Vec3d | None, Gf.Vec3d | None]:
+    if not prim.IsValid() or not prim.IsA(UsdGeom.Cube):
+        return None, None
+    cube = UsdGeom.Cube(prim)
+    size = float(cube.GetSizeAttr().Get() or 1.0)
+    half = 0.5 * size
+    translate = np.zeros(3, dtype=float)
+    scale = np.ones(3, dtype=float)
+    for op in cube.GetOrderedXformOps():
+        if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
+            value = op.Get()
+            translate = np.asarray([float(value[i]) for i in range(3)], dtype=float)
+        elif op.GetOpType() == UsdGeom.XformOp.TypeScale:
+            value = op.Get()
+            scale = np.asarray([float(value[i]) for i in range(3)], dtype=float)
+    extent = half * scale
+    min_vec = translate - extent
+    max_vec = translate + extent
+    return Gf.Vec3d(*min_vec.tolist()), Gf.Vec3d(*max_vec.tolist())
+
+
+def _collision_summary(
+    root_prim: Usd.Prim,
+) -> tuple[int, int, int, set[str], list[tuple[float | None, float | None]], list[str]]:
     mesh_count = 0
-    collider_count = 0
+    mesh_collider_count = 0
+    collision_prim_count = 0
     approximations: set[str] = set()
     offsets: list[tuple[float | None, float | None]] = []
+    collision_paths: list[str] = []
     for prim in Usd.PrimRange(root_prim):
-        if not prim.IsA(UsdGeom.Mesh):
+        if prim.IsA(UsdGeom.Mesh):
+            mesh_count += 1
+        if not prim.HasAPI(UsdPhysics.CollisionAPI):
             continue
-        mesh_count += 1
-        has_collision = prim.HasAPI(UsdPhysics.CollisionAPI) and prim.HasAPI(UsdPhysics.MeshCollisionAPI)
-        if not has_collision:
+        collision_api = UsdPhysics.CollisionAPI(prim)
+        enabled = collision_api.GetCollisionEnabledAttr().Get()
+        if enabled is False:
             continue
-        collider_count += 1
-        mesh_collision = UsdPhysics.MeshCollisionAPI(prim)
-        approximations.add(str(mesh_collision.GetApproximationAttr().Get()))
-        physx_collision = PhysxSchema.PhysxCollisionAPI(prim)
-        offsets.append(
-            (
-                physx_collision.GetContactOffsetAttr().Get(),
-                physx_collision.GetRestOffsetAttr().Get(),
+        collision_prim_count += 1
+        collision_paths.append(str(prim.GetPath()))
+        if prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.MeshCollisionAPI):
+            mesh_collider_count += 1
+            mesh_collision = UsdPhysics.MeshCollisionAPI(prim)
+            approximations.add(str(mesh_collision.GetApproximationAttr().Get()))
+        if prim.HasAPI(PhysxSchema.PhysxCollisionAPI):
+            physx_collision = PhysxSchema.PhysxCollisionAPI(prim)
+            offsets.append(
+                (
+                    physx_collision.GetContactOffsetAttr().Get(),
+                    physx_collision.GetRestOffsetAttr().Get(),
+                )
             )
-        )
-    return mesh_count, collider_count, approximations, offsets
+    return mesh_count, mesh_collider_count, collision_prim_count, approximations, offsets, collision_paths
 
 
 def _ground_summary(stage: Usd.Stage) -> None:
@@ -96,12 +156,23 @@ def main() -> int:
     lines.append(f"trash_root.valid={stage.GetPrimAtPath(TRASH_ROOT).IsValid()}")
 
     for child in stage.GetPrimAtPath(TRASH_ROOT).GetChildren():
-        mesh_count, collider_count, approximations, offsets = _mesh_summary(child)
+        mesh_count, mesh_collider_count, collision_prim_count, approximations, offsets, collision_paths = (
+            _collision_summary(child)
+        )
+        visual_min, visual_max = _local_bbox(child)
+        collision_box_prim = child.GetPrimAtPath(child.GetPath().AppendChild("CollisionBox"))
+        collision_min, collision_max = (
+            _collision_box_effective_local_bbox(collision_box_prim) if collision_box_prim.IsValid() else (None, None)
+        )
         lines.append(f"asset={child.GetName()}")
         lines.append(f"  mesh_count={mesh_count}")
-        lines.append(f"  mesh_collider_count={collider_count}")
+        lines.append(f"  mesh_collider_count={mesh_collider_count}")
+        lines.append(f"  collision_prim_count={collision_prim_count}")
+        lines.append(f"  collision_paths={collision_paths[:3]}")
         lines.append(f"  approximations={sorted(approximations)}")
         lines.append(f"  offset_samples={offsets[:3]}")
+        lines.append(f"  visual_local_bbox={_format_bbox(visual_min, visual_max)}")
+        lines.append(f"  collision_box_local_bbox={_format_bbox(collision_min, collision_max)}")
 
     prim = stage.GetPrimAtPath(GROUND_PATH)
     lines.append(f"ground.valid={prim.IsValid()}")

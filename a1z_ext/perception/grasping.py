@@ -333,8 +333,8 @@ def check_anygrasp_runtime(
             cfgs = SimpleNamespace(
                 checkpoint_path=str(checkpoint),
                 max_gripper_width=0.7,
-                gripper_height=0.03,
-                top_down_grasp=False,
+                gripper_height=0.022,
+                top_down_grasp=True,
                 debug=False,
             )
             detector = gsnet_module.create_detector(cfgs)
@@ -416,8 +416,8 @@ def run_anygrasp_detection(
     checkpoint_path: str | Path,
     license_dir: str | Path,
     max_gripper_width: float = 0.7,
-    gripper_height: float = 0.03,
-    top_down_grasp: bool = False,
+    gripper_height: float = 0.022,
+    top_down_grasp: bool = True,
     collision_detection: bool = True,
     dense_grasp: bool = False,
     top_k: int = 20,

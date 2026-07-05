@@ -155,6 +155,36 @@ class RobotServer:
         self._robot.command_gripper(value)
         return {"ok": True, "data": {"gripper": value}}
 
+    def _cmd_grasp_attach(self, args: dict) -> dict:
+        if not self._with_gripper:
+            return {"ok": False, "error": "Server was started without --with-gripper"}
+        if not hasattr(self._robot, "grasp_close_and_attach"):
+            return {"ok": False, "error": "Active backend does not support grasp_attach"}
+        data = self._robot.grasp_close_and_attach(
+            str(args.get("target_prim_path", "") or ""),
+            timeout_s=float(args.get("timeout_s", 2.0)),
+            contact_window_s=float(args.get("contact_window_s", 0.15)),
+            require_bilateral_contact=bool(args.get("require_bilateral_contact", True)),
+        )
+        return {"ok": True, "data": dict(data)}
+
+    def _cmd_grasp_release(self, args: dict) -> dict:
+        if not self._with_gripper:
+            return {"ok": False, "error": "Server was started without --with-gripper"}
+        if not hasattr(self._robot, "release_attached_object"):
+            return {"ok": False, "error": "Active backend does not support grasp_release"}
+        data = self._robot.release_attached_object(
+            open_gripper=bool(args.get("open_gripper", True)),
+            timeout_s=float(args.get("timeout_s", 2.0)),
+        )
+        return {"ok": True, "data": dict(data)}
+
+    def _cmd_grasp_status(self, _args: dict) -> dict:
+        if not hasattr(self._robot, "get_sim_grasp_status"):
+            return {"ok": True, "data": {"has_attached_object": False, "grasp_state": "unsupported"}}
+        data = self._robot.get_sim_grasp_status()
+        return {"ok": True, "data": dict(data)}
+
     def _cmd_dance(self, args: dict) -> dict:
         moves_list = args.get("moves", DEFAULT_DANCE_ORDER)
         speed = float(args.get("speed", 0.6))
@@ -296,6 +326,9 @@ class RobotServer:
         "move":    _cmd_move,
         "command": _cmd_command,
         "gripper": _cmd_gripper,
+        "grasp_attach": _cmd_grasp_attach,
+        "grasp_release": _cmd_grasp_release,
+        "grasp_status": _cmd_grasp_status,
         "dance":   _cmd_dance,
         "stop":    _cmd_stop,
         "info":    _cmd_info,

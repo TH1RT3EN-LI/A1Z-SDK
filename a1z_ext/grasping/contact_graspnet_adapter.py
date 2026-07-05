@@ -171,6 +171,8 @@ class ContactGraspNetA1ZAdapterConfig:
     max_gripper_opening_m: float = 0.096
     pregrasp_opening_margin_m: float = 0.008
     close_gripper_command: float = 0.0
+    tool_front_extent_m: float = 0.1032
+    min_approach_travel_m: float = 0.015
     min_joint_margin_deg: float = 5.0
     max_waypoint_delta_rad: float = 2.5
     use_ik: bool = True
@@ -223,6 +225,7 @@ class _FlatPrediction:
     grasp_cam: np.ndarray
     score: float
     gripper_opening_m: float
+    grasp_depth_m: float
     contact_point_cam: np.ndarray | None
 
 
@@ -254,6 +257,7 @@ class ContactGraspNetA1ZAdapter:
         object_id: str,
         backend: str = "unknown",
         contact_points_cam: Any | None = None,
+        grasp_depths_m: Any | None = None,
         source_model: str = "contact_graspnet",
     ) -> ContactGraspNetPlanResult:
         current_q_array = np.asarray(current_q, dtype=np.float64).reshape(-1)
@@ -265,6 +269,7 @@ class ContactGraspNetA1ZAdapter:
             scores=scores,
             gripper_openings_m=gripper_openings_m,
             contact_points_cam=contact_points_cam,
+            grasp_depths_m=grasp_depths_m,
         )
         candidates = self._build_candidates(
             flat_predictions=flat_predictions,
@@ -310,17 +315,21 @@ class ContactGraspNetA1ZAdapter:
         scores: Any,
         gripper_openings_m: Any,
         contact_points_cam: Any | None,
+        grasp_depths_m: Any | None,
     ) -> list[_FlatPrediction]:
         pred_grasps_cam = _unwrap_npz_object(pred_grasps_cam)
         scores = _unwrap_npz_object(scores)
         gripper_openings_m = _unwrap_npz_object(gripper_openings_m)
         contact_points_cam = _unwrap_npz_object(contact_points_cam)
+        grasp_depths_m = _unwrap_npz_object(grasp_depths_m)
 
         if isinstance(pred_grasps_cam, Mapping):
             if not isinstance(scores, Mapping):
                 raise ValueError("scores must be a mapping when pred_grasps_cam is a mapping")
             if gripper_openings_m is not None and not isinstance(gripper_openings_m, Mapping):
                 raise ValueError("gripper_openings_m must be a mapping when pred_grasps_cam is a mapping")
+            if grasp_depths_m is not None and not isinstance(grasp_depths_m, Mapping):
+                raise ValueError("grasp_depths_m must be a mapping when pred_grasps_cam is a mapping")
             contact_map = contact_points_cam if isinstance(contact_points_cam, Mapping) else {}
             flattened: list[_FlatPrediction] = []
             for group_key in _sort_group_keys(pred_grasps_cam):
@@ -356,6 +365,14 @@ class ContactGraspNetA1ZAdapter:
                     raise ValueError(
                         "gripper_openings_m is missing and cannot be recovered without contact_points_cam"
                     )
+                if grasp_depths_m is not None and group_key in grasp_depths_m:
+                    depth_group = _as_scalar_array(
+                        grasp_depths_m[group_key],
+                        expected_len=len(grasp_group),
+                        name=f"grasp_depths_m[{group_key!r}]",
+                    )
+                else:
+                    depth_group = np.zeros(len(grasp_group), dtype=np.float64)
                 for index in range(len(grasp_group)):
                     flattened.append(
                         _FlatPrediction(
@@ -364,6 +381,7 @@ class ContactGraspNetA1ZAdapter:
                             grasp_cam=_rigidize_transform(grasp_group[index]),
                             score=float(score_group[index]),
                             gripper_opening_m=float(opening_group[index]),
+                            grasp_depth_m=float(depth_group[index]),
                             contact_point_cam=None if contact_group is None else contact_group[index].copy(),
                         )
                     )
@@ -393,6 +411,10 @@ class ContactGraspNetA1ZAdapter:
             )
         else:
             raise ValueError("gripper_openings_m is missing and cannot be recovered without contact_points_cam")
+        if grasp_depths_m is not None:
+            depth_array = _as_scalar_array(grasp_depths_m, expected_len=len(grasp_array), name="grasp_depths_m")
+        else:
+            depth_array = np.zeros(len(grasp_array), dtype=np.float64)
         return [
             _FlatPrediction(
                 group_id="-1",
@@ -400,6 +422,7 @@ class ContactGraspNetA1ZAdapter:
                 grasp_cam=_rigidize_transform(grasp_array[index]),
                 score=float(score_array[index]),
                 gripper_opening_m=float(opening_array[index]),
+                grasp_depth_m=float(depth_array[index]),
                 contact_point_cam=None if contact_array is None else contact_array[index].copy(),
             )
             for index in range(len(grasp_array))
@@ -433,9 +456,19 @@ class ContactGraspNetA1ZAdapter:
             approach_alignment = float(np.clip(-np.dot(approach, table_normal), -1.0, 1.0))
             topdown_ok = (not self.config.require_approach_downward) or (approach_alignment >= downward_alignment_threshold)
 
-            tool_grasp = _rigidize_transform(grasp_base @ self._grasp_to_ee)
+            tool_reference = _rigidize_transform(grasp_base @ self._grasp_to_ee)
+            front_to_target_m = max(
+                0.0,
+                float(self.config.tool_front_extent_m) - max(0.0, float(prediction.grasp_depth_m)),
+            )
+            approach_travel_m = max(
+                float(self.config.min_approach_travel_m),
+                min(float(self.config.pregrasp_offset_m), front_to_target_m),
+            )
+            tool_grasp = tool_reference.copy()
+            tool_grasp[:3, 3] += retreat * front_to_target_m
             tool_pregrasp = tool_grasp.copy()
-            tool_pregrasp[:3, 3] += retreat * float(self.config.pregrasp_offset_m)
+            tool_pregrasp[:3, 3] += retreat * approach_travel_m
             tool_lift = tool_grasp.copy()
             tool_lift[:3, 3] += table_normal * float(self.config.lift_offset_m)
             tool_retreat = tool_lift.copy()
@@ -537,6 +570,7 @@ class ContactGraspNetA1ZAdapter:
                     gripper_opening_m=opening_m,
                     gripper_command_open=open_command,
                     gripper_command_close=close_command,
+                    grasp_depth_m=float(prediction.grasp_depth_m),
                     contact_point_xyz=contact_point_xyz,
                     source_grasp_pose_matrix=_matrix_to_list(grasp_base),
                     tool_pregrasp_pose_matrix=_matrix_to_list(poses["pregrasp"]),
@@ -551,6 +585,11 @@ class ContactGraspNetA1ZAdapter:
                         "transform_source": self.config.transform_source,
                         "approach_down_alignment": approach_alignment,
                         "min_joint_margin_score": min_margin_score,
+                        "grasp_depth_m": float(prediction.grasp_depth_m),
+                        "tool_front_extent_m": float(self.config.tool_front_extent_m),
+                        "front_to_target_m": float(front_to_target_m),
+                        "approach_travel_m": float(approach_travel_m),
+                        "tool_reference_pose_matrix": _matrix_to_list(tool_reference),
                     },
                 )
             )
@@ -693,6 +732,11 @@ class ContactGraspNetA1ZAdapter:
                 ik_summary=dict(candidate.ik_summary),
                 safety_summary=dict(candidate.safety_summary),
                 candidate_rank=int(candidate.rank),
+                execution_policy={
+                    "grasp_mode": "sim_contact_attach",
+                    "target_prim_path": str(candidate.metadata.get("target_prim_path", "") or ""),
+                    "require_bilateral_contact": bool(candidate.metadata.get("require_bilateral_contact", True)),
+                },
                 source_model=source_model,
                 )
         return None

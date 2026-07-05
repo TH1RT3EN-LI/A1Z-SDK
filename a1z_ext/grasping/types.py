@@ -47,6 +47,7 @@ class GraspExecutionCandidate:
     gripper_opening_m: float
     gripper_command_open: float
     gripper_command_close: float
+    grasp_depth_m: float = 0.0
     contact_point_xyz: list[float] | None = None
     source_grasp_pose_matrix: list[list[float]] = field(default_factory=list)
     tool_pregrasp_pose_matrix: list[list[float]] = field(default_factory=list)
@@ -74,6 +75,7 @@ class ExecutablePlan:
     ik_summary: dict[str, bool]
     safety_summary: dict[str, bool]
     candidate_rank: int
+    execution_policy: dict[str, Any] = field(default_factory=dict)
     source_model: str = "contact_graspnet"
     schema_name: str = "ExecutablePlan"
     schema_version: str = "v1"

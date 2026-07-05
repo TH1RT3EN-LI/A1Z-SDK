@@ -24,6 +24,24 @@ ARTICULATION_ROOT="${A1Z_ISAAC_ARTICULATION_ROOT:-}"
 TCP_HOST="${A1Z_TCP_HOST:-}"
 TCP_PORT="${A1Z_TCP_PORT:-}"
 RUN_SIGNATURE="gravity=${GRAVITY_MODE};gripper=${WITH_GRIPPER};freq=${CONTROL_FREQ_HZ};root=${ARTICULATION_ROOT};world=${WORLD_USD}"
+SIGNATURE_INPUTS=(
+  "$ROOT_DIR/scripts/open_a1z_world_with_a1z_sdk.py"
+  "$ROOT_DIR/a1z_ext/robots/server.py"
+  "$ROOT_DIR/a1z_ext/robots/isaacsim_robot.py"
+  "$ROOT_DIR/a1z_ext/robots/get_robot.py"
+)
+SIGNATURE_HASH="$(
+  {
+    for path in "${SIGNATURE_INPUTS[@]}"; do
+      if [[ -f "$path" ]]; then
+        sha256sum "$path"
+      else
+        echo "missing  $path"
+      fi
+    done
+  } | sha256sum | awk '{print $1}'
+)"
+RUN_SIGNATURE="${RUN_SIGNATURE};code=${SIGNATURE_HASH}"
 RUNNING_KIT_PID="$(
   ps -ef \
     | grep -F "$STARTUP_SCRIPT" \

@@ -73,6 +73,37 @@ def _gripper(socket_path: str, value: float) -> dict[str, Any]:
     return _send_socket_request(socket_path, "gripper", {"value": float(value)})
 
 
+def _grasp_attach(
+    socket_path: str,
+    *,
+    target_prim_path: str,
+    timeout_s: float,
+    contact_window_s: float,
+    require_bilateral_contact: bool,
+) -> dict[str, Any]:
+    return _send_socket_request(
+        socket_path,
+        "grasp_attach",
+        {
+            "target_prim_path": str(target_prim_path or ""),
+            "timeout_s": float(timeout_s),
+            "contact_window_s": float(contact_window_s),
+            "require_bilateral_contact": bool(require_bilateral_contact),
+        },
+    )
+
+
+def _grasp_release(socket_path: str, *, open_gripper: bool = True, timeout_s: float = 2.0) -> dict[str, Any]:
+    return _send_socket_request(
+        socket_path,
+        "grasp_release",
+        {
+            "open_gripper": bool(open_gripper),
+            "timeout_s": float(timeout_s),
+        },
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     plan_path = Path(args.plan).resolve()
@@ -84,6 +115,8 @@ def main() -> int:
         "steps": [],
         "success": False,
     }
+    execution_policy = dict(plan.get("execution_policy", {}) or {})
+    backend_execution_details: dict[str, Any] = {}
 
     try:
         if bool(args.pre_open):
@@ -115,15 +148,45 @@ def main() -> int:
                 close_value = float(plan.get("gripper_commands", {}).get("close_after_approach", 0.0))
                 close_step = {"type": "gripper_close", "value": close_value}
                 if not args.dry_run:
-                    close_step["response"] = _gripper(args.socket_path, close_value)
+                    if str(execution_policy.get("grasp_mode", "")) == "sim_contact_attach":
+                        close_step["type"] = "grasp_attach"
+                        close_step["response"] = _grasp_attach(
+                            args.socket_path,
+                            target_prim_path=str(execution_policy.get("target_prim_path", "") or ""),
+                            timeout_s=float(execution_policy.get("timeout_s", 2.0)),
+                            contact_window_s=float(execution_policy.get("contact_window_s", 0.15)),
+                            require_bilateral_contact=bool(execution_policy.get("require_bilateral_contact", True)),
+                        )
+                        backend_execution_details = dict(close_step["response"])
+                        if not bool(close_step["response"].get("success", False)):
+                            raise RuntimeError(str(close_step["response"].get("failure_reason", "grasp_attach_failed")))
+                    else:
+                        close_step["response"] = _gripper(args.socket_path, close_value)
                     time.sleep(max(0.0, float(args.settle_s)))
                 result["steps"].append(close_step)
 
+        if not args.dry_run and bool(execution_policy.get("release_after_retreat", False)):
+            release_step = {"type": "grasp_release"}
+            release_step["response"] = _grasp_release(
+                args.socket_path,
+                open_gripper=True,
+                timeout_s=float(execution_policy.get("release_timeout_s", 2.0)),
+            )
+            result["steps"].append(release_step)
         result["final_status"] = _status(args.socket_path) if not args.dry_run else {}
+        if backend_execution_details:
+            result["backend_execution_details"] = backend_execution_details
         result["success"] = True
     except Exception as exc:
         result["success"] = False
         result["error"] = str(exc)
+        if backend_execution_details:
+            result["backend_execution_details"] = backend_execution_details
+        if not args.dry_run:
+            try:
+                result["final_status"] = _status(args.socket_path)
+            except Exception as status_exc:
+                result["final_status_error"] = str(status_exc)
 
     output_path = Path(args.output).resolve() if args.output else None
     if output_path is not None:

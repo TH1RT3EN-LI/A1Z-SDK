@@ -8,7 +8,7 @@
   - Source: <https://poly.pizza/m/F9RZE7EnWl>
   - License: `CC-BY 3.0`
 
-- `can_upright`
+- `marker_upright`
   - Title: `Can`
   - Creator: `Poly by Google`
   - Source: <https://poly.pizza/m/YnowJvWqxE>

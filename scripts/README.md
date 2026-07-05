@@ -25,6 +25,7 @@
   - `pipeline_manifest.json` / `analysis/analysis_summary.json` 里的 `active_binding_label`、`active_camera_correction_label`、`active_extrinsic_correction_label` 只表示“这一轮执行时采用的 AnyGrasp frame 假设”，不是已经验证正确的结论。
   - 当前默认 TCP 假设为：`ee_grasp_origin_xyz_m=[0,0,0]`、`ee_opening_axis_xyz=[0,1,0]`、`ee_approach_axis_xyz=[1,0,0]`。配合官方 AnyGrasp 旋转语义 `binding=opening=c1,height=c2,approach=c0` 后，会把目标 TCP 解释成 `tcp_x=approach`、`tcp_y=opening`、`tcp_z=height`。
   - 当前默认 AnyGrasp `binding_label` 采用 `opening=c1,height=c2,approach=c0`，对应官方 `rotation_matrix` 定义：`column_0=approach`、`column_1=opening`、`column_2=height`。
+  - 当前默认 AnyGrasp 检测也改为更偏向桌面抓取：`top_down_grasp=true`，`gripper_height=0.022`。其中 `0.022 m` 是按当前 finger mesh 末端厚度量出来的近似值，比旧的 `0.03 m` 更贴模型。
   - 会在 `runtime/anygrasp_target_pick_attempt_<timestamp>/` 下输出：
     - `capture/`
     - `target_mask/`

@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DRY_RUN=0
-ARM_SPEED="${A1Z_EXEC_ARM_SPEED:-0.12}"
+ARM_SPEED="${A1Z_EXEC_ARM_SPEED:-0.3}"
 SETTLE_S="${A1Z_EXEC_SETTLE_S:-0.75}"
 EXECUTION_MODE="${A1Z_ANYGRASP_EXECUTION_MODE:-best_direct}"
 BINDING_LABEL=""
@@ -15,6 +15,7 @@ EE_GRASP_ORIGIN=""
 EE_OPENING_AXIS=""
 EE_APPROACH_AXIS=""
 REQUIRE_CURRENT_JOINTS=0
+TARGET_PRIM_PATH=""
 
 POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
@@ -63,6 +64,10 @@ while [[ $# -gt 0 ]]; do
       REQUIRE_CURRENT_JOINTS=1
       shift
       ;;
+    --target-prim-path)
+      TARGET_PRIM_PATH="${2:?missing value for --target-prim-path}"
+      shift 2
+      ;;
     -h|--help)
       cat <<'EOF'
 usage: run_target_mask_to_anygrasp_pick_attempt.sh [--dry-run] [--arm-speed <value>] [--settle-s <value>] [--execution-mode <adapter_selected|best_direct>] [--binding-label <label>] [--camera-correction-label <label>] [--extrinsic-correction-label <label>] [--ee-grasp-origin-xyz-m <json>] [--ee-opening-axis-xyz <json>] [--ee-approach-axis-xyz <json>] [--require-current-joints] '<instruction>' [output_dir] [provider]
@@ -83,7 +88,7 @@ set -- "${POSITIONAL_ARGS[@]}"
 
 INSTRUCTION="${1:-}"
 if [[ -z "$INSTRUCTION" ]]; then
-  echo "usage: $0 [--dry-run] [--arm-speed <value>] [--settle-s <value>] [--execution-mode <adapter_selected|best_direct>] [--binding-label <label>] [--camera-correction-label <label>] [--extrinsic-correction-label <label>] [--ee-grasp-origin-xyz-m <json>] [--ee-opening-axis-xyz <json>] [--ee-approach-axis-xyz <json>] [--require-current-joints] '<instruction>' [output_dir] [provider]" >&2
+  echo "usage: $0 [--dry-run] [--arm-speed <value>] [--settle-s <value>] [--execution-mode <adapter_selected|best_direct>] [--binding-label <label>] [--camera-correction-label <label>] [--extrinsic-correction-label <label>] [--ee-grasp-origin-xyz-m <json>] [--ee-opening-axis-xyz <json>] [--ee-approach-axis-xyz <json>] [--require-current-joints] [--target-prim-path <path>] '<instruction>' [output_dir] [provider]" >&2
   exit 2
 fi
 
@@ -150,6 +155,20 @@ EXEC_ARGS=(
 
 if [[ "$DRY_RUN" == "1" ]]; then
   EXEC_ARGS+=(--dry-run)
+fi
+
+if [[ -n "$TARGET_PRIM_PATH" && -f "$ROOT_DIR/${PLAN_PATH_WS#/workspace/A1Z/}" ]]; then
+  python3 - <<PY
+import json
+from pathlib import Path
+
+plan_path = Path(r"$ROOT_DIR/${PLAN_PATH_WS#/workspace/A1Z/}")
+plan = json.loads(plan_path.read_text(encoding="utf-8"))
+policy = dict(plan.get("execution_policy", {}) or {})
+policy["target_prim_path"] = r"$TARGET_PRIM_PATH"
+plan["execution_policy"] = policy
+plan_path.write_text(json.dumps(plan, ensure_ascii=True, indent=2), encoding="utf-8")
+PY
 fi
 
 "$ROOT_DIR/scripts/execute_a1z_plan_in_container.sh" "${EXEC_ARGS[@]}"

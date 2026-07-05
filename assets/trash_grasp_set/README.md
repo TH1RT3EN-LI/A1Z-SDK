@@ -56,9 +56,9 @@ assets/trash_grasp_set/raw/poly_pizza/
 1. `can_crushed`
    - 压扁易拉罐
    - 适合测试非规则圆柱抓取
-2. `can_upright`
-   - 直立易拉罐
-   - 适合 top-down baseline
+2. `marker_upright`
+   - 直立白板笔 / marker
+   - 适合测试细长物体的 top-down baseline
 3. `bottle_plastic`
    - 塑料瓶
    - 细长、轻质、常见垃圾形态
@@ -97,8 +97,8 @@ assets/trash_grasp_set/raw/poly_pizza/
 
 - `can_crushed`
   - `0.095 x 0.070 x 0.045 m`
-- `can_upright`
-  - `0.066 x 0.066 x 0.122 m`
+- `marker_upright`
+  - `0.028 x 0.028 x 0.150 m`
 - `bottle_plastic`
   - `0.070 x 0.070 x 0.220 m`
 - `bottle_water`
@@ -112,7 +112,7 @@ assets/trash_grasp_set/raw/poly_pizza/
 
 - `can_crushed`
   - `Convex Decomposition`
-- `can_upright`
+- `marker_upright`
   - `Convex Hull` 或单圆柱近似
 - `bottle_plastic`
   - `Convex Hull`

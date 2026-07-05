@@ -31,7 +31,7 @@ run_mode() {
     --output "$output_dir/execute/execution_result.json" \
     --pre-open \
     --dry-run \
-    --arm-speed 0.12 \
+    --arm-speed 0.3 \
     --settle-s 0.01 >/dev/null
 
   python3 - <<PY

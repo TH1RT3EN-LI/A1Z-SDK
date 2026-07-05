@@ -57,6 +57,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extrinsic-correction-label", default=ANYGRASP_ACTIVE_EXTRINSIC_CORRECTION_LABEL, help="Additional correction applied inside extrinsic_camera_to_base before projecting grasps into base frame.")
     parser.add_argument("--task-id", default="anygrasp-best-pick")
     parser.add_argument("--object-id", default="target-object")
+    parser.add_argument("--target-prim-path", default="", help="Optional Isaac stage prim path for the intended grasp target.")
+    parser.add_argument("--grasp-mode", default="sim_contact_attach", help="Execution grasp mode. Use sim_contact_attach for Isaac attach flow.")
+    parser.add_argument(
+        "--require-bilateral-contact",
+        action="store_true",
+        default=True,
+        help="Require both fingers to contact the chosen target before attach.",
+    )
+    parser.add_argument(
+        "--allow-single-sided-contact",
+        dest="require_bilateral_contact",
+        action="store_false",
+        help="Allow attach when only one finger contact is available.",
+    )
     parser.add_argument("--backend", default="anygrasp_best_direct")
     parser.add_argument("--output-dir", default=str(REPO_ROOT / "runtime" / "anygrasp_best_direct"))
     parser.add_argument("--frame-id", default="robot_base_frame")
@@ -189,14 +203,24 @@ def _load_anygrasp_top_grasp(
     )
 
 
-def _build_poses(grasp_base: np.ndarray, config: ContactGraspNetA1ZAdapterConfig) -> dict[str, np.ndarray]:
+def _build_poses(grasp_base: np.ndarray, config: ContactGraspNetA1ZAdapterConfig, *, grasp_depth_m: float) -> dict[str, np.ndarray]:
     grasp_to_ee = _invert_transform(config.ee_to_grasp_transform())
-    tool_grasp = _rigidize_transform(grasp_base @ grasp_to_ee)
+    tool_reference = _rigidize_transform(grasp_base @ grasp_to_ee)
     approach = _normalize(grasp_base[:3, 2])
     retreat = -approach
     table_normal = _normalize(np.asarray(config.table_normal_base, dtype=np.float64))
+    front_to_target_m = max(
+        0.0,
+        float(config.tool_front_extent_m) - max(0.0, float(grasp_depth_m)),
+    )
+    approach_travel_m = max(
+        float(config.min_approach_travel_m),
+        min(float(config.pregrasp_offset_m), front_to_target_m),
+    )
+    tool_grasp = tool_reference.copy()
+    tool_grasp[:3, 3] += retreat * front_to_target_m
     tool_pregrasp = tool_grasp.copy()
-    tool_pregrasp[:3, 3] += retreat * float(config.pregrasp_offset_m)
+    tool_pregrasp[:3, 3] += retreat * approach_travel_m
     tool_lift = tool_grasp.copy()
     tool_lift[:3, 3] += table_normal * float(config.lift_offset_m)
     tool_retreat = tool_lift.copy()
@@ -259,7 +283,7 @@ def main() -> int:
     assert contact_adapter._kinematics is not None
 
     grasp_base = _rigidize_transform(extrinsic_camera_to_base @ grasp_cam)
-    poses = _build_poses(grasp_base, config)
+    poses = _build_poses(grasp_base, config, grasp_depth_m=float(top_grasp["depth_m"]))
     lower = np.asarray(contact_adapter._kinematics._model.lowerPositionLimit, dtype=np.float64).reshape(-1)
     upper = np.asarray(contact_adapter._kinematics._model.upperPositionLimit, dtype=np.float64).reshape(-1)
     solutions = contact_adapter._solve_waypoint_sequence(
@@ -354,6 +378,8 @@ def main() -> int:
             "active_binding_label": str(args.binding_label),
             "active_camera_correction_label": str(args.camera_correction_label),
             "active_extrinsic_correction_label": str(args.extrinsic_correction_label),
+            "tool_front_extent_m": float(config.tool_front_extent_m),
+            "front_to_target_m": max(0.0, float(config.tool_front_extent_m) - max(0.0, float(top_grasp["depth_m"]))),
         },
     }
 
@@ -419,6 +445,11 @@ def main() -> int:
         ik_summary=dict(ik_summary),
         safety_summary=dict(safety_summary),
         candidate_rank=int(args.grasp_rank),
+        execution_policy={
+            "grasp_mode": str(args.grasp_mode),
+            "target_prim_path": str(args.target_prim_path or ""),
+            "require_bilateral_contact": bool(args.require_bilateral_contact),
+        },
         source_model="anygrasp_best_direct",
     )
 
