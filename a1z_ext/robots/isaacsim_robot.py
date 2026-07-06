@@ -21,7 +21,7 @@ from omni.physx import get_physx_simulation_interface
 from omni.physx.bindings._physx import ContactEventType
 from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 from a1z_ext.config import get_control_defaults
-from a1z_ext.robots.grasp_attach_policy import summarize_attach_contacts
+from a1z_ext.robots.grasp_attach_policy import select_contact_candidate, summarize_attach_contacts
 from a1z_ext.robots.trajectory import RecordingSession, Trajectory, play_trajectory_blocking
 
 
@@ -102,6 +102,7 @@ class IsaacSimArmRobot:
     _GRASP_ATTACH_VERIFY_REOPEN_TOL = 0.02
     _GRASP_ATTACH_MAX_OPEN_VALUE_FOR_ATTACH = 0.95
     _GRASP_ATTACH_MIN_CLOSURE_DELTA = 0.04
+    _GRASP_ATTACH_UNILATERAL_HOLD_TIMEOUT_S = 0.75
     _GRASP_CLOSE_MAX_VELOCITY_M_S = 0.06
     _GRASP_CONTACT_HOLD_MAX_VELOCITY_M_S = 0.015
     _GRASP_ATTACH_COMPLIANT_LINEAR_DAMPING = 8.0
@@ -1700,6 +1701,28 @@ class IsaacSimArmRobot:
             require_bilateral_contact=require_bilateral_contact,
         )
 
+    @staticmethod
+    def _preferred_unilateral_contact_candidate(summary: dict[str, object]) -> str:
+        target_body_path = str(summary.get("target_body_path", "") or "")
+        if target_body_path and (
+            bool(summary.get("left_has_target_contact")) or bool(summary.get("right_has_target_contact"))
+        ):
+            return target_body_path
+        left_candidates = list(summary.get("left_contacts", []) or [])
+        right_candidates = list(summary.get("right_contacts", []) or [])
+        left_contact_details = list(summary.get("left_contact_details", []) or [])
+        right_contact_details = list(summary.get("right_contact_details", []) or [])
+        return str(
+            select_contact_candidate(
+                left_candidates=left_candidates,
+                right_candidates=right_candidates,
+                left_contact_details=left_contact_details,
+                right_contact_details=right_contact_details,
+                require_bilateral_contact=False,
+            )
+            or ""
+        )
+
     def _get_sim_grasp_contacts_impl(
         self,
         *,
@@ -2206,7 +2229,9 @@ class IsaacSimArmRobot:
         close_phase = "soft_close"
         failure_reason = "grasp_contact_not_found"
         chosen_rigid_body_restore: dict[str, object] = {}
-        bilateral_hold_active = False
+        candidate_hold_active = False
+        candidate_hold_body_path = ""
+        candidate_hold_started_at: Optional[float] = None
         initial_open_value = float(self._gripper_open_value)
         attach_open_upper_bound = min(
             float(self._GRASP_ATTACH_MAX_OPEN_VALUE_FOR_ATTACH),
@@ -2240,28 +2265,45 @@ class IsaacSimArmRobot:
                 summary.get("right_has_selected_body_contact")
             )
             attach_summary["bilateral_effective_ready"] = bilateral_effective_ready
-            if ok:
-                if bilateral_effective_ready and not ground_contact_present and not bilateral_hold_active:
-                    held_open_value = current_open_value
-                    self._set_gripper_target(held_open_value)
-                    self._set_gripper_hold_gains()
-                    bilateral_hold_active = True
-                    attach_summary["bilateral_hold_triggered"] = True
-                    attach_summary["bilateral_hold_open_value"] = held_open_value
-                if body_path == last_body:
+            candidate_body_path = body_path or self._preferred_unilateral_contact_candidate(summary)
+            candidate_contact_ready = bool(candidate_body_path) and not ground_contact_present
+            attach_summary["candidate_body_path"] = candidate_body_path or None
+            attach_summary["candidate_contact_ready"] = candidate_contact_ready
+            if candidate_contact_ready:
+                if candidate_body_path == last_body:
                     stable_count += 1
                 else:
                     stable_count = 1
-                    last_body = body_path
+                    last_body = candidate_body_path
                 self._sim_grasp_state.grasp_state = "contact_candidate"
                 self._sim_grasp_state.last_contact_time = time.time()
-                if stable_count >= required_count and not ground_contact_present:
+                if not candidate_hold_active or candidate_body_path != candidate_hold_body_path:
                     held_open_value = current_open_value
                     self._set_gripper_target(held_open_value)
                     self._set_gripper_hold_gains()
-                    candidate_rigid_body_restore = self._apply_attach_compliance_profile(body_path)
+                    candidate_hold_active = True
+                    candidate_hold_body_path = candidate_body_path
+                    candidate_hold_started_at = time.monotonic()
+                    attach_summary["candidate_hold_triggered"] = True
+                    attach_summary["candidate_hold_open_value"] = held_open_value
+                    attach_summary["candidate_hold_body_path"] = candidate_body_path
+                elif (
+                    candidate_hold_started_at is not None
+                    and not bilateral_effective_ready
+                    and time.monotonic() - candidate_hold_started_at >= self._GRASP_ATTACH_UNILATERAL_HOLD_TIMEOUT_S
+                ):
+                    failure_reason = "single_finger_contact_only"
+                    attach_summary["candidate_hold_timeout_s"] = float(
+                        time.monotonic() - candidate_hold_started_at
+                    )
+                    break
+                if bilateral_effective_ready and stable_count >= required_count:
+                    held_open_value = current_open_value
+                    self._set_gripper_target(held_open_value)
+                    self._set_gripper_hold_gains()
+                    candidate_rigid_body_restore = self._apply_attach_compliance_profile(candidate_body_path)
                     verified, verification = self._verify_attach_candidate(
-                        chosen_body_path=body_path,
+                        chosen_body_path=candidate_body_path,
                         contact_window_s=contact_window_s,
                         require_bilateral_contact=require_bilateral_contact,
                         attach_open_upper_bound=attach_open_upper_bound,
@@ -2269,25 +2311,29 @@ class IsaacSimArmRobot:
                     )
                     attach_summary["candidate_verification"] = verification
                     if verified:
-                        chosen_body_path = body_path
+                        chosen_body_path = candidate_body_path
                         chosen_rigid_body_restore = candidate_rigid_body_restore
                         break
-                    self._restore_attach_compliance_profile(body_path, candidate_rigid_body_restore)
+                    self._restore_attach_compliance_profile(candidate_body_path, candidate_rigid_body_restore)
                     stable_count = 0
                     last_body = ""
-                    bilateral_hold_active = False
+                    candidate_hold_active = False
+                    candidate_hold_body_path = ""
+                    candidate_hold_started_at = None
                     self._restore_grasp_phase_gains(close_phase)
                     continue
             else:
                 stable_count = 0
                 last_body = ""
-                if bilateral_hold_active:
-                    bilateral_hold_active = False
+                if candidate_hold_active:
+                    candidate_hold_active = False
+                    candidate_hold_body_path = ""
+                    candidate_hold_started_at = None
                     self._restore_grasp_phase_gains(close_phase)
             if self._is_gripper_near_closed(current_open_value):
                 failure_reason = "fully_closed_without_contact"
                 break
-            if close_phase == "soft_close" and time.monotonic() >= soft_close_deadline:
+            if close_phase == "soft_close" and not candidate_hold_active and time.monotonic() >= soft_close_deadline:
                 self._set_gripper_default_gains()
                 close_phase = "default_close"
                 self._sim_grasp_state.grasp_state = "closing_for_grasp_default"
