@@ -241,6 +241,8 @@ class IsaacSimArmRobot:
         self._right_finger_body_path = ""
         self._sim_grasp_state = _SimGraspState()
         self._contact_view_cache: dict[tuple[tuple[str, ...], tuple[str, ...], int], _ContactViewCacheEntry] = {}
+        self._nested_rigid_body_reset_repaired: set[str] = set()
+        self._nested_rigid_body_reset_flip_logged: set[str] = set()
 
         initial_kp = self._active_arm_kp()
         initial_kd = self._active_arm_kd()
@@ -552,6 +554,19 @@ class IsaacSimArmRobot:
             lambda: self._get_sim_contact_report_impl(
                 prim_path=str(prim_path or ""),
                 limit=int(limit),
+            )
+        )
+
+    def get_sim_prim_debug(
+        self,
+        *,
+        prim_path: str,
+    ) -> Dict[str, Any]:
+        if not self._running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        return self._run_on_main_thread(
+            lambda: self._get_sim_prim_debug_impl(
+                prim_path=str(prim_path or ""),
             )
         )
 
@@ -1031,9 +1046,26 @@ class IsaacSimArmRobot:
         root_prim = stage.GetPrimAtPath(root_path)
         if not root_prim.IsValid():
             return ""
+        candidates: list[Usd.Prim] = []
         for prim in Usd.PrimRange(root_prim):
             if prim.GetName() == prim_name:
-                return str(prim.GetPath())
+                candidates.append(prim)
+        if not candidates:
+            return ""
+
+        def _candidate_key(prim: Usd.Prim) -> tuple[int, int, int]:
+            # Imported links such as gripper fingers contain an outer rigid-body
+            # link prim plus inner same-name visual instances. Prefer the actual
+            # rigid/collision-bearing link prim and fall back to the shallowest
+            # match if no physics-bearing candidate exists.
+            physics_score = 0
+            if self._stage_prim_is_rigid_body(prim):
+                physics_score += 2
+            if self._stage_prim_has_collision(prim):
+                physics_score += 1
+            return (-physics_score, prim.GetPath().pathElementCount, len(str(prim.GetPath())))
+
+        return str(min(candidates, key=_candidate_key).GetPath())
         return ""
 
     def _find_rigid_body_ancestor_path(self, prim_path: str) -> str:
@@ -1097,6 +1129,68 @@ class IsaacSimArmRobot:
         self._left_finger_body_path = self._find_rigid_body_ancestor_path(left_link_path)
         self._right_finger_body_path = self._find_rigid_body_ancestor_path(right_link_path)
         self._gripper_carrier_body_path = self._find_rigid_body_ancestor_path(carrier_link_path)
+
+    def _nested_rigid_body_paths(self) -> list[str]:
+        self._ensure_gripper_structure_paths()
+        paths = [
+            self._gripper_carrier_body_path,
+            self._left_finger_body_path,
+            self._right_finger_body_path,
+        ]
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return [path for path in paths if path]
+        d405_link_path = self._resolve_named_descendant_path(self._articulation_root_prim, "d405_link")
+        d405_body_path = self._find_rigid_body_ancestor_path(d405_link_path)
+        if d405_body_path:
+            paths.append(d405_body_path)
+        unique: list[str] = []
+        seen: set[str] = set()
+        for path in paths:
+            path = str(path or "")
+            if not path or path in seen:
+                continue
+            if not stage.GetPrimAtPath(path).IsValid():
+                continue
+            seen.add(path)
+            unique.append(path)
+        return unique
+
+    def _preserve_world_transform_with_reset(self, prim: Usd.Prim, world_transform: Gf.Matrix4d) -> None:
+        xformable = UsdGeom.Xformable(prim)
+        if not xformable:
+            return
+        for op in list(xformable.GetOrderedXformOps()):
+            prim.RemoveProperty(op.GetOpName())
+        xformable.ClearXformOpOrder()
+        xformable.AddTransformOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Matrix4d(world_transform))
+        xformable.SetResetXformStack(True)
+
+    def _repair_nested_rigid_body_reset_xforms(self, *, reason: str) -> list[str]:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return []
+        repaired: list[str] = []
+        for prim_path in self._nested_rigid_body_paths():
+            prim = stage.GetPrimAtPath(prim_path)
+            if not prim.IsValid() or not self._stage_prim_is_rigid_body(prim):
+                continue
+            xformable = UsdGeom.Xformable(prim)
+            if not xformable:
+                continue
+            if xformable.GetResetXformStack():
+                continue
+            world_transform = Gf.Matrix4d(xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default()))
+            self._preserve_world_transform_with_reset(prim, world_transform)
+            repaired.append(prim_path)
+            if prim_path not in self._nested_rigid_body_reset_flip_logged:
+                carb.log_warn(
+                    "A1Z Isaac repaired nested rigid-body resetXformStack at runtime: "
+                    f"path={prim_path} reason={reason}"
+                )
+                self._nested_rigid_body_reset_flip_logged.add(prim_path)
+        self._nested_rigid_body_reset_repaired.update(repaired)
+        return repaired
 
     def _prepare_contact_tracking_prim(self, prim_path: str) -> None:
         stage = omni.usd.get_context().get_stage()
@@ -1321,6 +1415,7 @@ class IsaacSimArmRobot:
         key = (tuple(valid_sensors), tuple(valid_filters), int(max_contact_count))
         entry = self._contact_view_cache.get(key)
         if entry is None:
+            self._repair_nested_rigid_body_reset_xforms(reason="before_contact_view_create")
             for path in [*valid_sensors, *valid_filters]:
                 self._prepare_contact_tracking_prim(path)
             contact_filter_expr: Any
@@ -1331,6 +1426,7 @@ class IsaacSimArmRobot:
             view = RigidPrim(
                 prim_paths_expr=valid_sensors,
                 name=f"a1z_contact_view_{len(self._contact_view_cache)}",
+                reset_xform_properties=False,
                 contact_filter_prim_paths_expr=contact_filter_expr,
                 prepare_contact_sensors=True,
                 disable_stablization=False,
@@ -1351,6 +1447,12 @@ class IsaacSimArmRobot:
                 },
             )
             self._contact_view_cache[key] = entry
+            repaired = self._repair_nested_rigid_body_reset_xforms(reason="after_contact_view_create")
+            if repaired:
+                carb.log_warn(
+                    "A1Z Isaac preserved nested rigid-body resetXformStack after contact view creation: "
+                    + ", ".join(repaired)
+                )
         try:
             if not entry.view.is_physics_handle_valid():
                 entry.view.initialize(SimulationManager.get_physics_sim_view())
@@ -1358,6 +1460,7 @@ class IsaacSimArmRobot:
             carb.log_warn(f"A1Z Isaac failed to initialize contact-force view: {exc}")
             self._contact_view_cache.pop(key, None)
             return None
+        self._repair_nested_rigid_body_reset_xforms(reason="after_contact_view_init")
         return entry
 
     def _read_contact_records_from_view(
@@ -1717,6 +1820,61 @@ class IsaacSimArmRobot:
             "right_finger_body_path": self._right_finger_body_path or None,
             "grasp_state": str(self._sim_grasp_state.grasp_state or ""),
         }
+
+    def _get_sim_prim_debug_impl(
+        self,
+        *,
+        prim_path: str,
+    ) -> Dict[str, Any]:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            raise RuntimeError("Isaac stage is unavailable.")
+        query_path = str(prim_path or "")
+        prim = stage.GetPrimAtPath(query_path)
+        if not prim.IsValid():
+            raise RuntimeError(f"Invalid prim path: {query_path}")
+
+        parent = prim.GetParent()
+        world = self._get_world_transform(query_path)
+        xformable = UsdGeom.Xformable(prim)
+        local_result = xformable.GetLocalTransformation(Usd.TimeCode.Default())
+        if isinstance(local_result, tuple):
+            local_matrix = local_result[0]
+        else:
+            local_matrix = local_result
+        resets_stack = bool(xformable.GetResetXformStack())
+
+        result: Dict[str, Any] = {
+            "prim_path": query_path,
+            "prim_type": prim.GetTypeName(),
+            "parent_path": str(parent.GetPath()) if parent and parent.IsValid() else None,
+            "is_rigid_body": self._stage_prim_is_rigid_body(prim),
+            "has_collision": self._stage_prim_has_collision(prim),
+            "world_translation": self._vec3_to_tuple(world.ExtractTranslation()),
+            "local_translation": self._vec3_to_tuple(local_matrix.ExtractTranslation()),
+            "resets_xform_stack": bool(resets_stack),
+            "resolved_rigid_body_path": self._resolve_target_rigid_body_path(query_path) or None,
+            "first_collision_descendant_path": self._resolve_first_collision_descendant_path(query_path) or None,
+        }
+
+        if prim.IsA(UsdPhysics.Joint):
+            joint = UsdPhysics.Joint(prim)
+            body0 = [str(path) for path in (joint.GetBody0Rel().GetTargets() or [])]
+            body1 = [str(path) for path in (joint.GetBody1Rel().GetTargets() or [])]
+            result["joint"] = {
+                "body0": body0,
+                "body1": body1,
+                "local_pos0": self._vec3_to_tuple(joint.GetLocalPos0Attr().Get()),
+                "local_pos1": self._vec3_to_tuple(joint.GetLocalPos1Attr().Get()),
+            }
+            if prim.IsA(UsdPhysics.PrismaticJoint):
+                prismatic = UsdPhysics.PrismaticJoint(prim)
+                result["joint"]["axis"] = str(prismatic.GetAxisAttr().Get() or "")
+                lower = prim.GetAttribute("physics:lowerLimit")
+                upper = prim.GetAttribute("physics:upperLimit")
+                result["joint"]["lower_limit"] = float(lower.Get()) if lower.IsValid() and lower.Get() is not None else None
+                result["joint"]["upper_limit"] = float(upper.Get()) if upper.IsValid() and upper.Get() is not None else None
+        return result
 
     def _set_filtered_pair(self, source_path: str, target_path: str) -> None:
         stage = omni.usd.get_context().get_stage()

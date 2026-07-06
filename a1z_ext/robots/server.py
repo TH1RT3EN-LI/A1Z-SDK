@@ -203,6 +203,14 @@ class RobotServer:
         )
         return {"ok": True, "data": dict(data)}
 
+    def _cmd_prim_debug(self, args: dict) -> dict:
+        if not hasattr(self._robot, "get_sim_prim_debug"):
+            return {"ok": True, "data": {"unsupported": True}}
+        data = self._robot.get_sim_prim_debug(
+            prim_path=str(args.get("prim_path", "") or ""),
+        )
+        return {"ok": True, "data": dict(data)}
+
     def _cmd_dance(self, args: dict) -> dict:
         moves_list = args.get("moves", DEFAULT_DANCE_ORDER)
         speed = float(args.get("speed", 0.6))
@@ -349,6 +357,7 @@ class RobotServer:
         "grasp_status": _cmd_grasp_status,
         "grasp_contacts": _cmd_grasp_contacts,
         "contact_report": _cmd_contact_report,
+        "prim_debug": _cmd_prim_debug,
         "dance":   _cmd_dance,
         "stop":    _cmd_stop,
         "info":    _cmd_info,

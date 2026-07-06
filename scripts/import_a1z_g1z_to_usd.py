@@ -136,6 +136,16 @@ GRIPPER_LINK_NAMES = (
     "gripper_finger_left_link",
     "gripper_finger_rIght_link",
 )
+GRIPPER_INNER_INSTANCE_PRIM_PATHS = (
+    "/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/"
+    "gripper_finger_left_link/gripper_finger_left_link",
+    "/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/"
+    "gripper_finger_left_link/gripper_finger_left_link_1",
+    "/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/"
+    "gripper_finger_rIght_link/gripper_finger_rIght_link",
+    "/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/"
+    "gripper_finger_rIght_link/gripper_finger_rIght_link_1",
+)
 WITH_GRIPPER = _env_bool("A1Z_WITH_GRIPPER", True)
 
 ROBOT_MATERIAL_PRESETS = {
@@ -543,14 +553,34 @@ def _reset_nested_rigid_body_xforms(stage, root_prim_path: str) -> None:
     if not root_prim.IsValid():
         raise RuntimeError(f"Invalid imported robot root prim: {root_prim_path}")
 
+    def _preserve_world_transform_with_reset(prim: Usd.Prim, world_transform: Gf.Matrix4d) -> None:
+        xformable = UsdGeom.Xformable(prim)
+        if not xformable:
+            return
+        for op in list(xformable.GetOrderedXformOps()):
+            prim.RemoveProperty(op.GetOpName())
+        xformable.ClearXformOpOrder()
+        xformable.AddTransformOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Matrix4d(world_transform))
+        xformable.SetResetXformStack(True)
+
+    def _is_rigid_body(prim: Usd.Prim) -> bool:
+        if not prim.IsValid():
+            return False
+        enabled_attr = prim.GetAttribute("physics:rigidBodyEnabled")
+        if enabled_attr.IsValid():
+            return bool(enabled_attr.Get())
+        return bool(prim.HasAPI(UsdPhysics.RigidBodyAPI))
+
+    targets: list[tuple[Usd.Prim, Gf.Matrix4d]] = []
+    patched_prims: list[str] = []
     for prim in Usd.PrimRange(root_prim):
-        if not prim.HasAPI(UsdPhysics.RigidBodyAPI):
+        if not _is_rigid_body(prim):
             continue
 
         ancestor = prim.GetParent()
         has_rigid_body_ancestor = False
         while ancestor and ancestor.IsValid() and ancestor != root_prim.GetParent():
-            if ancestor.HasAPI(UsdPhysics.RigidBodyAPI):
+            if _is_rigid_body(ancestor):
                 has_rigid_body_ancestor = True
                 break
             ancestor = ancestor.GetParent()
@@ -562,7 +592,17 @@ def _reset_nested_rigid_body_xforms(stage, root_prim_path: str) -> None:
         if not xformable:
             continue
         if not xformable.GetResetXformStack():
-            xformable.SetResetXformStack(True)
+            targets.append((prim, Gf.Matrix4d(xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default()))))
+
+    for prim, world_transform in targets:
+        _preserve_world_transform_with_reset(prim, world_transform)
+        patched_prims.append(str(prim.GetPath()))
+
+    if patched_prims:
+        print(
+            "Patched nested rigid-body resetXformStack with preserved world poses: "
+            + ", ".join(patched_prims)
+        )
 
 
 def _srgb_channel_to_linear(value: float) -> float:
@@ -721,6 +761,32 @@ def patch_imported_gripper_collision_meshes(stage, root_prim_path: str) -> None:
     print(f"Patched gripper collision meshes: {', '.join(patched_prims)}")
 
 
+def patch_imported_gripper_visual_instanceability(base_usd_path: str) -> bool:
+    if not WITH_GRIPPER:
+        print("Skipping gripper instanceability patch because A1Z_WITH_GRIPPER=0.")
+        return False
+    stage = Usd.Stage.Open(str(base_usd_path))
+    if stage is None:
+        raise RuntimeError(f"Failed to reopen generated base payload USD: {base_usd_path}")
+
+    patched_paths: list[str] = []
+    for prim_path in GRIPPER_INNER_INSTANCE_PRIM_PATHS:
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim.IsValid():
+            continue
+        if prim.IsInstanceable():
+            prim.SetInstanceable(False)
+            patched_paths.append(prim_path)
+
+    if not patched_paths:
+        print("Warning: no gripper inner instance prims were found to de-instance in base.usda.")
+        return False
+
+    stage.GetRootLayer().Save()
+    print(f"Disabled gripper inner instanceability: {', '.join(patched_paths)}")
+    return True
+
+
 def filter_gripper_finger_pair(stage, root_prim_path: str) -> None:
     if not WITH_GRIPPER:
         print("Skipping gripper collision filtering because A1Z_WITH_GRIPPER=0.")
@@ -833,9 +899,12 @@ def patch_imported_robot_usd(
     robot_usd_path: str,
     root_prim_path: str,
     materials_usd_path: str | None,
+    base_usd_path: str | None,
 ):
     if materials_usd_path:
         patch_imported_robot_materials(materials_usd_path)
+    if base_usd_path:
+        patch_imported_gripper_visual_instanceability(base_usd_path)
 
     physics_layer_patched = patch_imported_gripper_collision_meshes_in_physics_layer(robot_usd_path)
 
@@ -966,8 +1035,14 @@ def import_robot_asset(urdf_path, robot_usd_path):
         "materials.usda",
         required=False,
     )
+    base_usd_path = resolve_imported_payload_usd_path(
+        payload_locator_path,
+        robot_usd_path,
+        "base.usda",
+        required=False,
+    )
     update_app(10)
-    patch_imported_robot_usd(robot_usd_path, robot_prim_path, materials_usd_path)
+    patch_imported_robot_usd(robot_usd_path, robot_prim_path, materials_usd_path, base_usd_path)
 
     return robot_prim_path
 

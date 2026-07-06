@@ -4,13 +4,13 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "A1Z_G1Z"
-    doc = """Generated from Composed Stage of root layer /tmp/tmprt32piey/A1Z_G1Z.usdc
+    doc = """Generated from Composed Stage of root layer /tmp/tmpvz366sml/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_0moergj5/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
 
 
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_4qeqh5bm/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
+Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_0moergj5/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
 
 
 Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
@@ -52,6 +52,125 @@ def Xform "A1Z_G1Z" (
         </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_left_link>,
         </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link>,
     ]
+
+    over "Geometry"
+    {
+        over "base_link"
+        {
+            over "arm_link1"
+            {
+                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0.075, 1) )
+                uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:transform"]
+
+                over "arm_link2"
+                {
+                    matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0.02, 0, 0.118, 1) )
+                    uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:transform"]
+
+                    over "arm_link3"
+                    {
+                        matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (-0.24400000000000002, 0, 0.118, 1) )
+                        uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:transform"]
+
+                        over "arm_link4"
+                        {
+                            matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0.0009999999999999731, 0, 0.178, 1) )
+                            uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:transform"]
+
+                            over "arm_link5"
+                            {
+                                matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0.07499999999999997, 0, 0.22, 1) )
+                                uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:transform"]
+
+                                over "arm_link6"
+                                {
+                                    matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0.09849999999999998, 0, 0.178, 1) )
+                                    uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:transform"]
+
+                                    over "gripper_finger_left_link" (
+                                        prepend apiSchemas = ["PhysicsFilteredPairsAPI"]
+                                    )
+                                    {
+                                        prepend rel physics:filteredPairs = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link>
+                                        matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0.17119999999999996, -0.025, 0.19599999999999998, 1) )
+                                        uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:transform"]
+
+                                        over "gripper_finger_left_link"
+                                        {
+                                            over "gripper_finger_left_link"
+                                            {
+                                                custom rel material:binding = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_left_link/gripper_finger_left_link/VisualMaterials/material_9>
+                                            }
+
+                                            over "VisualMaterials"
+                                            {
+                                                over "material_9"
+                                                {
+                                                    token outputs:displacement.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_left_link/gripper_finger_left_link/VisualMaterials/material_9/PreviewSurface.outputs:displacement>
+                                                    token outputs:mdl:displacement.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_left_link/gripper_finger_left_link/VisualMaterials/material_9/OmniPBR.outputs:out>
+                                                    token outputs:mdl:surface.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_left_link/gripper_finger_left_link/VisualMaterials/material_9/OmniPBR.outputs:out>
+                                                    token outputs:mdl:volume.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_left_link/gripper_finger_left_link/VisualMaterials/material_9/OmniPBR.outputs:out>
+                                                    token outputs:surface.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_left_link/gripper_finger_left_link/VisualMaterials/material_9/PreviewSurface.outputs:surface>
+                                                }
+                                            }
+                                        }
+
+                                        over "gripper_finger_left_link_1"
+                                        {
+                                            over "gripper_finger_left_link"
+                                            {
+                                                uniform token physics:approximation = "convexDecomposition"
+                                            }
+                                        }
+                                    }
+
+                                    over "gripper_finger_rIght_link"
+                                    {
+                                        matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0.17119999999999996, 0.025, 0.16, 1) )
+                                        uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:transform"]
+
+                                        over "gripper_finger_rIght_link"
+                                        {
+                                            over "gripper_finger_rIght_link"
+                                            {
+                                                custom rel material:binding = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link/gripper_finger_rIght_link/VisualMaterials/material_10>
+                                            }
+
+                                            over "VisualMaterials"
+                                            {
+                                                over "material_10"
+                                                {
+                                                    token outputs:displacement.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link/gripper_finger_rIght_link/VisualMaterials/material_10/PreviewSurface.outputs:displacement>
+                                                    token outputs:mdl:displacement.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link/gripper_finger_rIght_link/VisualMaterials/material_10/OmniPBR.outputs:out>
+                                                    token outputs:mdl:surface.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link/gripper_finger_rIght_link/VisualMaterials/material_10/OmniPBR.outputs:out>
+                                                    token outputs:mdl:volume.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link/gripper_finger_rIght_link/VisualMaterials/material_10/OmniPBR.outputs:out>
+                                                    token outputs:surface.connect = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link/gripper_finger_rIght_link/VisualMaterials/material_10/PreviewSurface.outputs:surface>
+                                                }
+                                            }
+                                        }
+
+                                        over "gripper_finger_rIght_link_1"
+                                        {
+                                            over "gripper_finger_rIght_link"
+                                            {
+                                                uniform token physics:approximation = "convexDecomposition"
+                                            }
+                                        }
+                                    }
+
+                                    over "d405_link"
+                                    {
+                                        matrix4d xformOp:transform = ( (1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0.1785, 0, 0.264237, 1) )
+                                        uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:transform"]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     over "Physics"
     {
@@ -185,60 +304,6 @@ def Xform "A1Z_G1Z" (
             float physics:lowerLimit = -0.048
             float physics:upperLimit = 0
             float physxJoint:maxJointVelocity = 0.35
-        }
-    }
-
-    over "Geometry"
-    {
-        over "base_link"
-        {
-            over "arm_link1"
-            {
-                uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-                over "arm_link2"
-                {
-                    uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-                    over "arm_link3"
-                    {
-                        uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-                        over "arm_link4"
-                        {
-                            uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-                            over "arm_link5"
-                            {
-                                uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-                                over "arm_link6"
-                                {
-                                    uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-                                    over "d405_link"
-                                    {
-                                        uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
-                                    }
-
-                                    over "gripper_finger_left_link" (
-                                        prepend apiSchemas = ["PhysicsFilteredPairsAPI"]
-                                    )
-                                    {
-                                        prepend rel physics:filteredPairs = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/gripper_finger_rIght_link>
-                                        uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
-                                    }
-
-                                    over "gripper_finger_rIght_link"
-                                    {
-                                        uniform token[] xformOpOrder = ["!resetXformStack!", "xformOp:translate", "xformOp:orient", "xformOp:scale"]
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
     variantSet "Physics" = {

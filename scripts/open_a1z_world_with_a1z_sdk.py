@@ -205,11 +205,7 @@ def _apply_wrist_payload_collision_filters(stage) -> None:
     if stage is None:
         return
     base = Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6")
-    wrist_paths = [
-        base.AppendChild("d405_link"),
-        base.AppendChild("gripper_finger_left_link"),
-        base.AppendChild("gripper_finger_rIght_link"),
-    ]
+    wrist_paths = [base.AppendChild("d405_link")]
     for source_path in wrist_paths:
         source_prim = stage.GetPrimAtPath(source_path)
         if not source_prim.IsValid():
@@ -285,11 +281,7 @@ def _disable_wrist_payload_collisions(stage) -> None:
     if stage is None:
         return
     base = Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6")
-    target_paths = [
-        base.AppendChild("d405_link"),
-        base.AppendChild("gripper_finger_left_link"),
-        base.AppendChild("gripper_finger_rIght_link"),
-    ]
+    target_paths = [base.AppendChild("d405_link")]
     for prim_path in target_paths:
         prim = stage.GetPrimAtPath(prim_path)
         if not prim.IsValid():
@@ -308,11 +300,7 @@ def _lighten_wrist_payload_dynamics(stage) -> None:
     if stage is None:
         return
     base = Sdf.Path("/World/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6")
-    target_paths = [
-        base.AppendChild("d405_link"),
-        base.AppendChild("gripper_finger_left_link"),
-        base.AppendChild("gripper_finger_rIght_link"),
-    ]
+    target_paths = [base.AppendChild("d405_link")]
     for prim_path in target_paths:
         prim = stage.GetPrimAtPath(prim_path)
         if not prim.IsValid():
@@ -502,6 +490,64 @@ def _enable_trashset_contact_reports(stage) -> None:
         report_api = PhysxSchema.PhysxContactReportAPI.Apply(prim)
         if report_api:
             report_api.CreateThresholdAttr().Set(0.0)
+
+
+def _enforce_nested_rigid_body_reset_xforms(stage, root_prim_path: str) -> list[str]:
+    if stage is None or not root_prim_path:
+        return []
+    root_prim = stage.GetPrimAtPath(root_prim_path)
+    if not root_prim.IsValid():
+        return []
+
+    def _preserve_world_transform_with_reset(prim: Usd.Prim, world_transform: Gf.Matrix4d) -> None:
+        xformable = UsdGeom.Xformable(prim)
+        if not xformable:
+            return
+        for op in list(xformable.GetOrderedXformOps()):
+            prim.RemoveProperty(op.GetOpName())
+        xformable.ClearXformOpOrder()
+        xformable.AddTransformOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Matrix4d(world_transform))
+        xformable.SetResetXformStack(True)
+
+    def _is_rigid_body(prim: Usd.Prim) -> bool:
+        if not prim.IsValid():
+            return False
+        enabled_attr = prim.GetAttribute("physics:rigidBodyEnabled")
+        if enabled_attr.IsValid():
+            return bool(enabled_attr.Get())
+        return bool(prim.HasAPI(UsdPhysics.RigidBodyAPI))
+
+    stop_prim = root_prim.GetParent()
+    targets: list[tuple[Usd.Prim, Gf.Matrix4d]] = []
+    patched_prims: list[str] = []
+    for prim in Usd.PrimRange(root_prim):
+        if not _is_rigid_body(prim):
+            continue
+
+        ancestor = prim.GetParent()
+        has_rigid_body_ancestor = False
+        while ancestor and ancestor.IsValid() and ancestor != stop_prim:
+            if _is_rigid_body(ancestor):
+                has_rigid_body_ancestor = True
+                break
+            ancestor = ancestor.GetParent()
+
+        if not has_rigid_body_ancestor:
+            continue
+
+        xformable = UsdGeom.Xformable(prim)
+        if not xformable:
+            continue
+        if xformable.GetResetXformStack():
+            continue
+
+        targets.append((prim, Gf.Matrix4d(xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default()))))
+
+    for prim, world_transform in targets:
+        _preserve_world_transform_with_reset(prim, world_transform)
+        patched_prims.append(str(prim.GetPath()))
+
+    return patched_prims
 
 
 async def _capture_d405_diagnostics(stage, viewport) -> None:
@@ -1279,9 +1325,13 @@ async def startup():
     viewport = None
     d405_diagnostics_written = False
     ee_drag_target = None
+    repaired_reset_paths: set[str] = set()
 
     try:
         d405_attachment, viewport = await open_world(args.stage_path)
+        stage = omni.usd.get_context().get_stage()
+        initial_patched = _enforce_nested_rigid_body_reset_xforms(stage, args.articulation_root)
+        repaired_reset_paths.update(initial_patched)
         for _ in range(10):
             await app.next_update_async()
 
@@ -1305,6 +1355,17 @@ async def startup():
             resolved_articulation_root = None
         if not resolved_articulation_root:
             resolved_articulation_root = args.articulation_root
+        for _ in range(2):
+            await app.next_update_async()
+        stage = omni.usd.get_context().get_stage()
+        patched_prims = _enforce_nested_rigid_body_reset_xforms(stage, resolved_articulation_root)
+        new_patched = [path for path in patched_prims if path not in repaired_reset_paths]
+        if new_patched:
+            repaired_reset_paths.update(new_patched)
+            carb.log_warn(
+                "A1Z repaired nested rigid-body resetXformStack after articulation start: "
+                + ", ".join(new_patched)
+            )
 
         if not d405_diagnostics_written:
             stage = omni.usd.get_context().get_stage()

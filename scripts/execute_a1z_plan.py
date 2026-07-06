@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", default="", help="Optional execution result JSON path")
     parser.add_argument("--arm-speed", type=float, default=0.2)
     parser.add_argument("--pre-open", action="store_true")
-    parser.add_argument("--settle-s", type=float, default=0.5)
+    parser.add_argument("--settle-s", type=float, default=0.05)
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
