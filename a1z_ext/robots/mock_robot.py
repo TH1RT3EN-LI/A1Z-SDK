@@ -47,6 +47,16 @@ class MockArmRobot:
         self._eff = np.zeros(num_joints, dtype=np.float64)
         self._gripper_pos: Optional[float] = 1.0 if with_gripper else None
         self._recording = RecordingSession()
+        self._sim_grasp_state: Dict[str, Any] = {
+            "has_attached_object": False,
+            "attached_object_path": None,
+            "attachment_joint_path": None,
+            "target_prim_path": None,
+            "target_body_path": None,
+            "grasp_state": "idle",
+            "last_contact_time": None,
+            "last_failure_reason": None,
+        }
 
     def num_dofs(self) -> int:
         return self._num_joints + (1 if self._with_gripper else 0)
@@ -164,12 +174,32 @@ class MockArmRobot:
         del timeout_s, contact_window_s, require_bilateral_contact
         self.command_gripper(0.0)
         attached_object_path = str(target_prim_path or "")
+        now = time.time()
+        with self._lock:
+            self._sim_grasp_state = {
+                "has_attached_object": bool(attached_object_path),
+                "attached_object_path": attached_object_path or None,
+                "attachment_joint_path": None,
+                "target_prim_path": attached_object_path or None,
+                "target_body_path": attached_object_path or None,
+                "grasp_state": "attached" if attached_object_path else "failed",
+                "last_contact_time": now if attached_object_path else None,
+                "last_failure_reason": None if attached_object_path else "mock_attach_missing_target",
+            }
         return {
             "success": True,
             "target_prim_path": str(target_prim_path or ""),
+            "target_body_path": str(target_prim_path or "") or None,
             "attached_object_path": attached_object_path or None,
             "attachment_joint_path": None,
-            "contact_summary": {"mode": "mock", "simulated": True},
+            "contact_summary": {
+                "mode": "mock",
+                "simulated": True,
+                "target_body_path": str(target_prim_path or "") or None,
+                "chosen_body_path": str(target_prim_path or "") or None,
+                "selected_body_contact_ready": bool(attached_object_path),
+                "ground_contact_present": False,
+            },
             "failure_reason": None,
             "timing": {},
         }
@@ -183,6 +213,17 @@ class MockArmRobot:
         del timeout_s
         if open_gripper:
             self.command_gripper(1.0)
+        with self._lock:
+            self._sim_grasp_state = {
+                "has_attached_object": False,
+                "attached_object_path": None,
+                "attachment_joint_path": None,
+                "target_prim_path": self._sim_grasp_state.get("target_prim_path"),
+                "target_body_path": self._sim_grasp_state.get("target_body_path"),
+                "grasp_state": "idle",
+                "last_contact_time": self._sim_grasp_state.get("last_contact_time"),
+                "last_failure_reason": None,
+            }
         return {
             "success": True,
             "released": True,
@@ -192,14 +233,66 @@ class MockArmRobot:
         }
 
     def get_sim_grasp_status(self) -> Dict[str, Any]:
-        return {
-            "has_attached_object": False,
-            "attached_object_path": None,
-            "attachment_joint_path": None,
-            "grasp_state": "idle",
-            "last_contact_time": None,
-            "last_failure_reason": None,
-        }
+        with self._lock:
+            return dict(self._sim_grasp_state)
+
+    def get_sim_grasp_contacts(
+        self,
+        *,
+        target_prim_path: str = "",
+        require_bilateral_contact: bool = True,
+    ) -> Dict[str, Any]:
+        del require_bilateral_contact
+        with self._lock:
+            return {
+                "left_raw_contacts": [],
+                "right_raw_contacts": [],
+                "left_contacts": [],
+                "right_contacts": [],
+                "left_contact_details": [],
+                "right_contact_details": [],
+                "target_body_path": str(target_prim_path or "") or None,
+                "chosen_body_path": None,
+                "require_bilateral_contact": True,
+                "left_has_ground_contact": False,
+                "right_has_ground_contact": False,
+                "left_has_target_contact": False,
+                "right_has_target_contact": False,
+                "selected_body_contact_ready": False,
+                "shared_contact_candidates": [],
+                "ground_contact_present": False,
+                "left_has_chosen_contact": False,
+                "right_has_chosen_contact": False,
+                "left_has_selected_body_contact": False,
+                "right_has_selected_body_contact": False,
+                "snapshot_ok": False,
+                "snapshot_body_path": None,
+                "target_prim_path": str(target_prim_path or "") or None,
+                "gripper_open_value": self._gripper_pos,
+                "grasp_state": str(self._sim_grasp_state.get("grasp_state", "")),
+                "attached_object_path": self._sim_grasp_state.get("attached_object_path"),
+                "attachment_joint_path": self._sim_grasp_state.get("attachment_joint_path"),
+                "mode": "mock",
+            }
+
+    def get_sim_contact_report(
+        self,
+        *,
+        prim_path: str = "",
+        limit: int = 200,
+    ) -> Dict[str, Any]:
+        del limit
+        with self._lock:
+            return {
+                "prim_path": str(prim_path or "") or None,
+                "resolved_body_path": str(prim_path or "") or None,
+                "match_count": 0,
+                "returned_count": 0,
+                "counterpart_body_paths": [],
+                "records": [],
+                "grasp_state": str(self._sim_grasp_state.get("grasp_state", "")),
+                "mode": "mock",
+            }
 
     def command_joint_pos(self, pos: np.ndarray) -> None:
         if not self._running:

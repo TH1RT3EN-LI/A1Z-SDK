@@ -185,6 +185,24 @@ class RobotServer:
         data = self._robot.get_sim_grasp_status()
         return {"ok": True, "data": dict(data)}
 
+    def _cmd_grasp_contacts(self, args: dict) -> dict:
+        if not hasattr(self._robot, "get_sim_grasp_contacts"):
+            return {"ok": True, "data": {"unsupported": True}}
+        data = self._robot.get_sim_grasp_contacts(
+            target_prim_path=str(args.get("target_prim_path", "") or ""),
+            require_bilateral_contact=bool(args.get("require_bilateral_contact", True)),
+        )
+        return {"ok": True, "data": dict(data)}
+
+    def _cmd_contact_report(self, args: dict) -> dict:
+        if not hasattr(self._robot, "get_sim_contact_report"):
+            return {"ok": True, "data": {"unsupported": True}}
+        data = self._robot.get_sim_contact_report(
+            prim_path=str(args.get("prim_path", "") or ""),
+            limit=int(args.get("limit", 200)),
+        )
+        return {"ok": True, "data": dict(data)}
+
     def _cmd_dance(self, args: dict) -> dict:
         moves_list = args.get("moves", DEFAULT_DANCE_ORDER)
         speed = float(args.get("speed", 0.6))
@@ -329,6 +347,8 @@ class RobotServer:
         "grasp_attach": _cmd_grasp_attach,
         "grasp_release": _cmd_grasp_release,
         "grasp_status": _cmd_grasp_status,
+        "grasp_contacts": _cmd_grasp_contacts,
+        "contact_report": _cmd_contact_report,
         "dance":   _cmd_dance,
         "stop":    _cmd_stop,
         "info":    _cmd_info,

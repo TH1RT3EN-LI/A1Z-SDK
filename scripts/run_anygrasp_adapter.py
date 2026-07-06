@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extrinsic-correction-label", default=ANYGRASP_ACTIVE_EXTRINSIC_CORRECTION_LABEL, help="Additional correction applied inside extrinsic_camera_to_base before projecting grasps into base frame.")
     parser.add_argument("--task-id", default="anygrasp-pick")
     parser.add_argument("--object-id", default="target-object")
+    parser.add_argument("--target-prim-path", default="", help="Optional Isaac stage prim path for the intended grasp target.")
     parser.add_argument("--backend", default="unknown")
     parser.add_argument("--output-dir", default=str(REPO_ROOT / "runtime" / "anygrasp_adapter"))
     parser.add_argument("--frame-id", default="robot_base_frame")
@@ -265,6 +266,11 @@ def main() -> int:
     result.summary["active_extrinsic_correction_label"] = str(args.extrinsic_correction_label)
     result.summary["anygrasp_grasp_frame_convention"] = dict(ANYGRASP_RAW_FRAME_CONVENTION)
     result.summary["planner_grasp_frame_convention"] = dict(ANYGRASP_PLANNER_FRAME_CONVENTION)
+    result.summary["target_prim_path"] = str(args.target_prim_path or "")
+    for candidate in result.candidates:
+        candidate.metadata["target_prim_path"] = str(args.target_prim_path or "")
+    if result.selected_plan is not None:
+        result.selected_plan.execution_policy["target_prim_path"] = str(args.target_prim_path or "")
 
     result_path = output_dir / "anygrasp_adapter_result.json"
     write_json(result_path, result)

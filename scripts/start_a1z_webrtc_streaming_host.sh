@@ -9,6 +9,8 @@ SERVER_IP="${A1Z_SERVER_IP:-10.66.0.11}"
 SOCKET_PATH="${A1Z_SOCKET_PATH:-/tmp/a1z.sock}"
 TCP_HOST="${A1Z_TCP_HOST:-0.0.0.0}"
 TCP_PORT="${A1Z_TCP_PORT:-18080}"
+WEBRTC_SIGNAL_PORT="${A1Z_WEBRTC_SIGNAL_PORT:-49100}"
+WEBRTC_STREAM_PORT="${A1Z_WEBRTC_STREAM_PORT:-47998}"
 RESTART=0
 
 usage() {
@@ -100,6 +102,8 @@ DOCKER_ENV_ARGS=(
   -e "A1Z_SOCKET_PATH=${A1Z_SOCKET_PATH:-}"
   -e "A1Z_TCP_HOST=${A1Z_TCP_HOST:-}"
   -e "A1Z_TCP_PORT=${A1Z_TCP_PORT:-}"
+  -e "A1Z_WEBRTC_SIGNAL_PORT=${A1Z_WEBRTC_SIGNAL_PORT:-}"
+  -e "A1Z_WEBRTC_STREAM_PORT=${A1Z_WEBRTC_STREAM_PORT:-}"
 )
 
 docker exec -u ubuntu "${DOCKER_ENV_ARGS[@]}" "$CONTAINER_NAME" \
@@ -152,5 +156,5 @@ if [[ "$TCP_PORT" =~ ^[0-9]+$ ]] && [[ "$TCP_PORT" -gt 0 ]]; then
 fi
 
 echo "Shared WebRTC session is ready."
-echo "Remote client target: $SERVER_IP:49100"
-echo "Media UDP port: $SERVER_IP:47998"
+echo "Remote client target: $SERVER_IP:$WEBRTC_SIGNAL_PORT"
+echo "Media UDP port: $SERVER_IP:$WEBRTC_STREAM_PORT"

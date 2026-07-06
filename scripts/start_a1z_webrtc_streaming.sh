@@ -17,13 +17,15 @@ WORLD_USD="${A1Z_WORLD_USD:-$ROOT_DIR/build/scenes/A1Z_G1Z_world.usd}"
 SERVER_IP="${1:-${A1Z_SERVER_IP:-10.66.0.11}}"
 PORTABLE_ROOT="${A1Z_STREAMING_PORTABLE_ROOT:-${A1Z_PORTABLE_ROOT:-$ROOT_DIR/runtime/isaac-sim-portable/streaming}}"
 STARTUP_SCRIPT="${A1Z_ISAAC_STARTUP_SCRIPT:-$ROOT_DIR/scripts/open_a1z_world_with_a1z_sdk.py}"
+SIGNAL_PORT="${A1Z_WEBRTC_SIGNAL_PORT:-49100}"
+STREAM_PORT="${A1Z_WEBRTC_STREAM_PORT:-47998}"
 GRAVITY_MODE="${A1Z_ISAAC_GRAVITY_MODE:-0}"
 WITH_GRIPPER="${A1Z_WITH_GRIPPER:-1}"
 CONTROL_FREQ_HZ="${A1Z_ISAAC_CONTROL_FREQ_HZ:-60}"
 ARTICULATION_ROOT="${A1Z_ISAAC_ARTICULATION_ROOT:-}"
 TCP_HOST="${A1Z_TCP_HOST:-}"
 TCP_PORT="${A1Z_TCP_PORT:-}"
-RUN_SIGNATURE="gravity=${GRAVITY_MODE};gripper=${WITH_GRIPPER};freq=${CONTROL_FREQ_HZ};root=${ARTICULATION_ROOT};world=${WORLD_USD}"
+RUN_SIGNATURE="gravity=${GRAVITY_MODE};gripper=${WITH_GRIPPER};freq=${CONTROL_FREQ_HZ};root=${ARTICULATION_ROOT};world=${WORLD_USD};signal=${SIGNAL_PORT};stream=${STREAM_PORT}"
 SIGNATURE_INPUTS=(
   "$ROOT_DIR/scripts/open_a1z_world_with_a1z_sdk.py"
   "$ROOT_DIR/a1z_ext/robots/server.py"
@@ -120,6 +122,9 @@ nohup env \
   "${RUNHEADLESS_ARGS[@]}" \
   --ext-folder "$ROOT_DIR/exts" \
   --/app/livestream/publicEndpointAddress="$SERVER_IP" \
+  --/exts/omni.kit.livestream.app/primaryStream/publicIp="$SERVER_IP" \
+  --/exts/omni.kit.livestream.app/primaryStream/signalPort="$SIGNAL_PORT" \
+  --/exts/omni.kit.livestream.app/primaryStream/streamPort="$STREAM_PORT" \
   --exec "$STARTUP_SCRIPT" \
   >"$LOG_FILE" 2>&1 &
 
@@ -154,6 +159,8 @@ if [[ -n "$KIT_PID" ]]; then
   echo "Kit PID: $KIT_PID"
 fi
 echo "Server IP: $SERVER_IP"
+echo "Signal port: $SIGNAL_PORT"
+echo "Stream port: $STREAM_PORT"
 echo "World USD: $WORLD_USD"
 echo "Startup script: $STARTUP_SCRIPT"
 if [[ -n "$PORTABLE_ROOT" ]]; then

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import queue
 import threading
 import time
@@ -15,13 +14,14 @@ import numpy as np
 import omni.physx
 import omni.usd
 from isaacsim.core.api import World
-from isaacsim.core.prims import SingleArticulation
+from isaacsim.core.prims import RigidPrim, SingleArticulation
 from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.core.utils.types import ArticulationAction
 from omni.physx import get_physx_simulation_interface
 from omni.physx.bindings._physx import ContactEventType
 from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
 from a1z_ext.config import get_control_defaults
+from a1z_ext.robots.grasp_attach_policy import summarize_attach_contacts
 from a1z_ext.robots.trajectory import RecordingSession, Trajectory, play_trajectory_blocking
 
 
@@ -66,6 +66,18 @@ class _SimGraspState:
     target_body_path: Optional[str] = None
     last_contact_time: Optional[float] = None
     last_failure_reason: Optional[str] = None
+    filtered_pairs: list[tuple[str, str]] = field(default_factory=list)
+    rigid_body_restore: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass
+class _ContactViewCacheEntry:
+    sensors: tuple[str, ...]
+    filters: tuple[str, ...]
+    max_contact_count: int
+    view: Any
+    sensor_collider_paths: dict[str, str] = field(default_factory=dict)
+    filter_collider_paths: dict[str, str] = field(default_factory=dict)
 
 
 class IsaacSimArmRobot:
@@ -84,9 +96,20 @@ class IsaacSimArmRobot:
     _GRASP_ATTACH_CLOSED_TOL = 0.05
     _GRASP_ATTACH_FULL_CLOSE_EXTRA_TIMEOUT_S = 4.0
     _GRASP_ATTACH_FULL_CLOSE_MIN_TIMEOUT_S = 6.0
-    _DEFAULT_LEFT_CONTACT_SENSOR_LOCAL_OFFSET_M = np.array((0.100, 0.048, 0.000), dtype=np.float64)
-    _DEFAULT_RIGHT_CONTACT_SENSOR_LOCAL_OFFSET_M = np.array((0.100, -0.048, 0.000), dtype=np.float64)
-
+    _GRASP_ATTACH_SETTLE_STEPS = 4
+    _GRASP_ATTACH_VERIFY_STEPS = 5
+    _GRASP_ATTACH_VERIFY_OPEN_TOL = 0.035
+    _GRASP_ATTACH_VERIFY_REOPEN_TOL = 0.02
+    _GRASP_ATTACH_MAX_OPEN_VALUE_FOR_ATTACH = 0.95
+    _GRASP_ATTACH_MIN_CLOSURE_DELTA = 0.04
+    _GRASP_CLOSE_MAX_VELOCITY_M_S = 0.06
+    _GRASP_CONTACT_HOLD_MAX_VELOCITY_M_S = 0.015
+    _GRASP_ATTACH_COMPLIANT_LINEAR_DAMPING = 8.0
+    _GRASP_ATTACH_COMPLIANT_ANGULAR_DAMPING = 3.0
+    _GRASP_ATTACH_COMPLIANT_MAX_DEPENETRATION_VELOCITY = 0.05
+    _GRASP_ATTACH_COMPLIANT_MAX_CONTACT_IMPULSE = 2.5
+    _GRASP_ATTACH_COMPLIANT_SOLVER_POSITION_ITERS = 32
+    _GRASP_ATTACH_COMPLIANT_SOLVER_VELOCITY_ITERS = 8
     @staticmethod
     def _flatten_gain_array(values: Any) -> np.ndarray:
         arr = np.asarray(values, dtype=np.float64)
@@ -95,29 +118,6 @@ class IsaacSimArmRobot:
         if arr.ndim > 1:
             arr = arr.reshape(-1)
         return arr
-
-    @classmethod
-    def _load_contact_sensor_offset(
-        cls,
-        env_name: str,
-        default: np.ndarray,
-    ) -> np.ndarray:
-        raw = os.environ.get(env_name)
-        if raw is None or raw.strip() == "":
-            return default.copy()
-        parts = [part.strip() for part in raw.split(",")]
-        if len(parts) != 3:
-            carb.log_warn(
-                f"A1Z Isaac ignored invalid {env_name}={raw!r}; expected three comma-separated floats."
-            )
-            return default.copy()
-        try:
-            return np.asarray([float(part) for part in parts], dtype=np.float64).reshape(3)
-        except ValueError:
-            carb.log_warn(
-                f"A1Z Isaac ignored invalid {env_name}={raw!r}; expected three comma-separated floats."
-            )
-            return default.copy()
 
     def __init__(
         self,
@@ -161,12 +161,12 @@ class IsaacSimArmRobot:
         self._gripper_kd = np.asarray(isaac_cfg["gripper_kd"], dtype=np.float64).reshape(-1)
         self._gripper_max_effort = np.asarray(isaac_cfg["gripper_max_effort"], dtype=np.float64).reshape(-1)
         self._gripper_max_velocity = np.asarray(isaac_cfg["gripper_max_velocity"], dtype=np.float64).reshape(-1)
-        self._gripper_soft_kp = self._gripper_kp.copy() * 0.15
-        self._gripper_soft_kd = self._gripper_kd.copy() * 0.35
-        self._gripper_soft_max_effort = np.maximum(self._gripper_max_effort.copy() * 0.20, np.array([8.0, 8.0], dtype=np.float64))
-        self._gripper_hold_kp = self._gripper_kp.copy() * 0.08
-        self._gripper_hold_kd = self._gripper_kd.copy() * 0.25
-        self._gripper_hold_max_effort = np.maximum(self._gripper_max_effort.copy() * 0.10, np.array([4.0, 4.0], dtype=np.float64))
+        self._gripper_soft_kp = self._gripper_kp.copy() * 0.05
+        self._gripper_soft_kd = self._gripper_kd.copy() * 0.20
+        self._gripper_soft_max_effort = np.maximum(self._gripper_max_effort.copy() * 0.08, np.array([6.0, 6.0], dtype=np.float64))
+        self._gripper_hold_kp = self._gripper_kp.copy() * 0.04
+        self._gripper_hold_kd = self._gripper_kd.copy() * 0.16
+        self._gripper_hold_max_effort = np.maximum(self._gripper_max_effort.copy() * 0.05, np.array([4.0, 4.0], dtype=np.float64))
 
         self._default_kp = (
             np.asarray(default_kp, dtype=np.float64).reshape(-1).copy()
@@ -239,17 +239,8 @@ class IsaacSimArmRobot:
         self._gripper_carrier_body_path = ""
         self._left_finger_body_path = ""
         self._right_finger_body_path = ""
-        self._left_contact_sensor_local_offset = self._load_contact_sensor_offset(
-            "A1Z_LEFT_CONTACT_SENSOR_OFFSET_XYZ_M",
-            self._DEFAULT_LEFT_CONTACT_SENSOR_LOCAL_OFFSET_M,
-        )
-        self._right_contact_sensor_local_offset = self._load_contact_sensor_offset(
-            "A1Z_RIGHT_CONTACT_SENSOR_OFFSET_XYZ_M",
-            self._DEFAULT_RIGHT_CONTACT_SENSOR_LOCAL_OFFSET_M,
-        )
-        self._contact_sensor_handles: dict[str, Any] = {}
-        self._contact_sensor_backend: Optional[str] = None
         self._sim_grasp_state = _SimGraspState()
+        self._contact_view_cache: dict[tuple[tuple[str, ...], tuple[str, ...], int], _ContactViewCacheEntry] = {}
 
         initial_kp = self._active_arm_kp()
         initial_kd = self._active_arm_kd()
@@ -311,6 +302,7 @@ class IsaacSimArmRobot:
         initial_kp: Optional[np.ndarray] = None,
         initial_kd: Optional[np.ndarray] = None,
     ) -> None:
+        self._contact_view_cache.clear()
         self._world = World(stage_units_in_meters=1.0)
         self._world.reset()
         resolved_root, articulation = self._resolve_articulation()
@@ -346,7 +338,6 @@ class IsaacSimArmRobot:
         self._gripper_target_value = float(self._gripper_open_value)
         self._trajectory = None
         self._configure_actuators()
-        self._ensure_gripper_contact_sensors()
         self._apply_control_action()
 
     def stop(self) -> None:
@@ -361,6 +352,7 @@ class IsaacSimArmRobot:
     def _stop_impl(self) -> None:
         self._trajectory = None
         self._running = False
+        self._contact_view_cache.clear()
 
     @property
     def is_running(self) -> bool:
@@ -488,8 +480,6 @@ class IsaacSimArmRobot:
             "gripper_carrier_body_path": self._gripper_carrier_body_path,
             "left_finger_body_path": self._left_finger_body_path,
             "right_finger_body_path": self._right_finger_body_path,
-            "left_contact_sensor_offset_m": self._left_contact_sensor_local_offset.copy(),
-            "right_contact_sensor_offset_m": self._right_contact_sensor_local_offset.copy(),
             "sim_grasp_state": self.get_sim_grasp_status(),
             "control_mode": "gravity_comp_effort" if self.zero_gravity_mode else "position_hold",
         }
@@ -534,6 +524,36 @@ class IsaacSimArmRobot:
             "last_contact_time": self._sim_grasp_state.last_contact_time,
             "last_failure_reason": self._sim_grasp_state.last_failure_reason,
         }
+
+    def get_sim_grasp_contacts(
+        self,
+        *,
+        target_prim_path: str = "",
+        require_bilateral_contact: bool = True,
+    ) -> Dict[str, Any]:
+        if not self._running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        return self._run_on_main_thread(
+            lambda: self._get_sim_grasp_contacts_impl(
+                target_prim_path=str(target_prim_path or ""),
+                require_bilateral_contact=bool(require_bilateral_contact),
+            )
+        )
+
+    def get_sim_contact_report(
+        self,
+        *,
+        prim_path: str = "",
+        limit: int = 200,
+    ) -> Dict[str, Any]:
+        if not self._running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        return self._run_on_main_thread(
+            lambda: self._get_sim_contact_report_impl(
+                prim_path=str(prim_path or ""),
+                limit=int(limit),
+            )
+        )
 
     def grasp_close_and_attach(
         self,
@@ -1033,6 +1053,41 @@ class IsaacSimArmRobot:
             current = current.GetParentPath()
         return ""
 
+    @staticmethod
+    def _stage_prim_is_rigid_body(prim: Usd.Prim) -> bool:
+        if not prim.IsValid():
+            return False
+        enabled_attr = prim.GetAttribute("physics:rigidBodyEnabled")
+        if enabled_attr.IsValid():
+            return bool(enabled_attr.Get())
+        return bool(prim.HasAPI(UsdPhysics.RigidBodyAPI))
+
+    @staticmethod
+    def _stage_prim_has_collision(prim: Usd.Prim) -> bool:
+        if not prim.IsValid():
+            return False
+        if prim.HasAPI(UsdPhysics.CollisionAPI):
+            return True
+        enabled_attr = prim.GetAttribute("physics:collisionEnabled")
+        if enabled_attr.IsValid():
+            value = enabled_attr.Get()
+            return True if value is None else bool(value)
+        return False
+
+    def _resolve_first_collision_descendant_path(self, prim_path: str) -> str:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None or not prim_path:
+            return ""
+        root = stage.GetPrimAtPath(prim_path)
+        if not root.IsValid():
+            return ""
+        if self._stage_prim_has_collision(root):
+            return str(root.GetPath())
+        for prim in Usd.PrimRange(root):
+            if self._stage_prim_has_collision(prim):
+                return str(prim.GetPath())
+        return ""
+
     def _ensure_gripper_structure_paths(self) -> None:
         if self._left_finger_body_path and self._right_finger_body_path and self._gripper_carrier_body_path:
             return
@@ -1043,125 +1098,68 @@ class IsaacSimArmRobot:
         self._right_finger_body_path = self._find_rigid_body_ancestor_path(right_link_path)
         self._gripper_carrier_body_path = self._find_rigid_body_ancestor_path(carrier_link_path)
 
-    def _contact_sensor_local_offset(self, sensor_name: str) -> np.ndarray:
-        if sensor_name == "a1z_left_contact_sensor":
-            return self._left_contact_sensor_local_offset.copy()
-        if sensor_name == "a1z_right_contact_sensor":
-            return self._right_contact_sensor_local_offset.copy()
-        return np.zeros(3, dtype=np.float64)
-
-    def _set_sensor_local_translation(self, sensor_path: str, translation: np.ndarray) -> None:
+    def _prepare_contact_tracking_prim(self, prim_path: str) -> None:
         stage = omni.usd.get_context().get_stage()
-        if stage is None:
+        if stage is None or not prim_path:
             return
-        prim = stage.GetPrimAtPath(sensor_path)
-        if not prim.IsValid() or not prim.IsA(UsdGeom.Xformable):
-            return
-        xformable = UsdGeom.Xformable(prim)
-        translate_op = None
-        for op in xformable.GetOrderedXformOps():
-            if op.GetOpType() == UsdGeom.XformOp.TypeTranslate:
-                translate_op = op
-                break
-        if translate_op is None:
-            translate_op = xformable.AddTranslateOp()
-        translate_op.Set(Gf.Vec3d(*np.asarray(translation, dtype=np.float64).reshape(3).tolist()))
-
-    def _ensure_contact_sensor_for_body(
-        self,
-        body_path: str,
-        sensor_name: str,
-        *,
-        local_translation: Optional[np.ndarray] = None,
-    ) -> str:
-        if not body_path:
-            return ""
-        sensor_path = f"{body_path}/{sensor_name}"
-        stage = omni.usd.get_context().get_stage()
-        if stage is None:
-            return ""
-        translation = (
-            np.asarray(local_translation, dtype=np.float64).reshape(3)
-            if local_translation is not None
-            else self._contact_sensor_local_offset(sensor_name)
-        )
-        prim = stage.GetPrimAtPath(sensor_path)
+        prim = stage.GetPrimAtPath(prim_path)
         if not prim.IsValid():
-            try:
-                backend = self._detect_contact_sensor_backend()
-                if backend == "experimental":
-                    from isaacsim.sensors.experimental.physics import Contact
+            return
+        if self._stage_prim_has_collision(prim) or self._stage_prim_is_rigid_body(prim):
+            report_api = PhysxSchema.PhysxContactReportAPI.Apply(prim)
+            if report_api:
+                report_api.CreateThresholdAttr().Set(0.0)
+        if self._stage_prim_is_rigid_body(prim):
+            rigid_api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+            if rigid_api:
+                rigid_api.CreateSleepThresholdAttr().Set(0.0)
 
-                    Contact.create(sensor_path, min_threshold=0.0, max_threshold=1.0e9)
-                elif backend == "physics":
-                    from isaacsim.sensors.physics import ContactSensor
-
-                    sensor = ContactSensor(
-                        sensor_path,
-                        name=sensor_name,
-                        translation=translation,
-                        min_threshold=0.0,
-                        max_threshold=1.0e9,
-                        radius=-1,
-                    )
-                    sensor.add_raw_contact_data_to_frame()
-                    self._contact_sensor_handles[sensor_path] = sensor
-                else:
-                    raise RuntimeError("No supported Isaac contact sensor backend is available.")
-            except Exception as exc:
-                carb.log_warn(f"A1Z Isaac could not create contact sensor at {sensor_path}: {exc}")
-                return ""
-        self._set_sensor_local_translation(sensor_path, translation)
-        if sensor_path not in self._contact_sensor_handles and self._detect_contact_sensor_backend() == "physics":
-            try:
-                from isaacsim.sensors.physics import ContactSensor
-
-                sensor = ContactSensor(
-                    sensor_path,
-                    name=sensor_name,
-                    translation=translation,
-                )
-                sensor.add_raw_contact_data_to_frame()
-                self._contact_sensor_handles[sensor_path] = sensor
-            except Exception as exc:
-                carb.log_warn(f"A1Z Isaac could not initialize contact sensor handle at {sensor_path}: {exc}")
-                return ""
-        return sensor_path
-
-    def _ensure_gripper_contact_sensors(self) -> None:
-        self._ensure_gripper_structure_paths()
-        self._ensure_contact_sensor_for_body(
-            self._left_finger_body_path,
-            "a1z_left_contact_sensor",
-            local_translation=self._left_contact_sensor_local_offset,
-        )
-        self._ensure_contact_sensor_for_body(
-            self._right_finger_body_path,
-            "a1z_right_contact_sensor",
-            local_translation=self._right_contact_sensor_local_offset,
-        )
-
-    def _detect_contact_sensor_backend(self) -> str:
-        if self._contact_sensor_backend is not None:
-            return self._contact_sensor_backend
-        try:
-            from isaacsim.sensors.experimental.physics import ContactSensor as _ExperimentalContactSensor
-
-            del _ExperimentalContactSensor
-            self._contact_sensor_backend = "experimental"
-            return self._contact_sensor_backend
-        except Exception:
-            pass
-        try:
-            from isaacsim.sensors.physics import ContactSensor as _PhysicsContactSensor
-
-            del _PhysicsContactSensor
-            self._contact_sensor_backend = "physics"
-            return self._contact_sensor_backend
-        except Exception:
-            pass
-        self._contact_sensor_backend = "unavailable"
-        return self._contact_sensor_backend
+    def _candidate_contact_body_paths(
+        self,
+        *,
+        include_robot_bodies: bool,
+        extra_paths: Optional[list[str]] = None,
+    ) -> list[str]:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return []
+        candidates: list[str] = []
+        if stage.GetPrimAtPath("/World/GroundPlane").IsValid():
+            candidates.append("/World/GroundPlane")
+        trash_root = stage.GetPrimAtPath("/World/TrashSet")
+        if trash_root.IsValid():
+            for prim in trash_root.GetChildren():
+                resolved = self._resolve_target_rigid_body_path(str(prim.GetPath()))
+                if resolved:
+                    candidates.append(resolved)
+                elif self._stage_prim_has_collision(prim):
+                    candidates.append(str(prim.GetPath()))
+        if include_robot_bodies:
+            self._ensure_gripper_structure_paths()
+            candidates.extend(
+                [
+                    self._left_finger_body_path,
+                    self._right_finger_body_path,
+                    self._gripper_carrier_body_path,
+                ]
+            )
+        for path in extra_paths or []:
+            resolved = self._resolve_contact_body_path(path)
+            if resolved:
+                candidates.append(resolved)
+            elif path:
+                candidates.append(str(path))
+        seen: set[str] = set()
+        unique: list[str] = []
+        for path in candidates:
+            path = str(path or "")
+            if not path or path in seen:
+                continue
+            if not stage.GetPrimAtPath(path).IsValid():
+                continue
+            seen.add(path)
+            unique.append(path)
+        return unique
 
     def _get_world_transform(self, prim_path: str) -> Gf.Matrix4d:
         stage = omni.usd.get_context().get_stage()
@@ -1270,48 +1268,161 @@ class IsaacSimArmRobot:
             max_effort=self._gripper_max_effort,
         )
 
-    def _read_contact_sensor_records(self, sensor_path: str) -> list[dict[str, object]]:
-        if not sensor_path:
+    @staticmethod
+    def _vec3_to_tuple(value: object) -> Optional[tuple[float, float, float]]:
+        if value is None:
+            return None
+        try:
+            arr = np.asarray(value, dtype=np.float64).reshape(-1)
+        except Exception:
+            return None
+        if arr.size < 3:
+            return None
+        return (float(arr[0]), float(arr[1]), float(arr[2]))
+
+    @staticmethod
+    def _to_numpy_array(value: object) -> np.ndarray:
+        if isinstance(value, np.ndarray):
+            return value
+        cpu_value = getattr(value, "cpu", None)
+        if callable(cpu_value):
+            try:
+                value = cpu_value()
+            except Exception:
+                pass
+        numpy_value = getattr(value, "numpy", None)
+        if callable(numpy_value):
+            try:
+                return np.asarray(numpy_value())
+            except Exception:
+                pass
+        to_numpy_value = getattr(value, "to_numpy", None)
+        if callable(to_numpy_value):
+            try:
+                return np.asarray(to_numpy_value())
+            except Exception:
+                pass
+        return np.asarray(value)
+
+    def _get_contact_view(
+        self,
+        *,
+        sensor_paths: list[str],
+        filter_paths: list[str],
+        max_contact_count: int,
+    ) -> Optional[_ContactViewCacheEntry]:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return None
+        valid_sensors = [path for path in sensor_paths if path and stage.GetPrimAtPath(path).IsValid()]
+        valid_filters = [path for path in filter_paths if path and stage.GetPrimAtPath(path).IsValid()]
+        if not valid_sensors or not valid_filters:
+            return None
+        key = (tuple(valid_sensors), tuple(valid_filters), int(max_contact_count))
+        entry = self._contact_view_cache.get(key)
+        if entry is None:
+            for path in [*valid_sensors, *valid_filters]:
+                self._prepare_contact_tracking_prim(path)
+            contact_filter_expr: Any
+            if len(valid_sensors) > 1:
+                contact_filter_expr = [list(valid_filters) for _ in valid_sensors]
+            else:
+                contact_filter_expr = list(valid_filters)
+            view = RigidPrim(
+                prim_paths_expr=valid_sensors,
+                name=f"a1z_contact_view_{len(self._contact_view_cache)}",
+                contact_filter_prim_paths_expr=contact_filter_expr,
+                prepare_contact_sensors=True,
+                disable_stablization=False,
+                max_contact_count=max_contact_count,
+            )
+            entry = _ContactViewCacheEntry(
+                sensors=tuple(valid_sensors),
+                filters=tuple(valid_filters),
+                max_contact_count=int(max_contact_count),
+                view=view,
+                sensor_collider_paths={
+                    path: self._resolve_first_collision_descendant_path(path) or path
+                    for path in valid_sensors
+                },
+                filter_collider_paths={
+                    path: self._resolve_first_collision_descendant_path(path) or path
+                    for path in valid_filters
+                },
+            )
+            self._contact_view_cache[key] = entry
+        try:
+            if not entry.view.is_physics_handle_valid():
+                entry.view.initialize(SimulationManager.get_physics_sim_view())
+        except Exception as exc:
+            carb.log_warn(f"A1Z Isaac failed to initialize contact-force view: {exc}")
+            self._contact_view_cache.pop(key, None)
+            return None
+        return entry
+
+    def _read_contact_records_from_view(
+        self,
+        *,
+        sensor_paths: list[str],
+        filter_paths: list[str],
+        max_contact_count: int,
+    ) -> list[dict[str, object]]:
+        entry = self._get_contact_view(
+            sensor_paths=sensor_paths,
+            filter_paths=filter_paths,
+            max_contact_count=max_contact_count,
+        )
+        if entry is None:
             return []
         try:
-            backend = self._detect_contact_sensor_backend()
-            if backend == "experimental":
-                from isaacsim.sensors.experimental.physics import ContactSensor
-
-                sensor = ContactSensor(sensor_path)
-                return list(sensor.get_raw_data())
-            if backend == "physics":
-                sensor = self._contact_sensor_handles.get(sensor_path)
-                if sensor is None:
-                    from isaacsim.sensors.physics import ContactSensor
-
-                    sensor = ContactSensor(sensor_path)
-                    sensor.add_raw_contact_data_to_frame()
-                    self._contact_sensor_handles[sensor_path] = sensor
-                frame = sensor.get_current_frame() or {}
-                contacts = frame.get("contacts", []) or []
-                return list(contacts)
-            raise RuntimeError("No supported Isaac contact sensor backend is available.")
+            contact_data = entry.view.get_contact_force_data(dt=1.0)
         except Exception as exc:
-            carb.log_warn(f"A1Z Isaac failed reading contact sensor {sensor_path}: {exc}")
+            carb.log_warn(f"A1Z Isaac failed reading contact-force data: {exc}")
+            return []
+        if not contact_data or len(contact_data) != 6:
+            return []
+        try:
+            normal_forces = self._to_numpy_array(contact_data[0]).reshape(-1, 1)
+            points = self._to_numpy_array(contact_data[1]).reshape(-1, 3)
+            normals = self._to_numpy_array(contact_data[2]).reshape(-1, 3)
+            distances = self._to_numpy_array(contact_data[3]).reshape(-1, 1)
+            pair_contacts_count = self._to_numpy_array(contact_data[4]).reshape(len(entry.sensors), len(entry.filters))
+            pair_contacts_start_indices = self._to_numpy_array(contact_data[5]).reshape(
+                len(entry.sensors), len(entry.filters)
+            )
+        except Exception as exc:
+            carb.log_warn(f"A1Z Isaac failed unpacking contact-force data: {exc}")
             return []
 
-    def _normalize_contact_records(self, raw_records: list[dict[str, object]]) -> list[dict[str, object]]:
-        normalized: list[dict[str, object]] = []
-        for record in raw_records:
-            body0 = str(record.get("body0", "") or "")
-            body1 = str(record.get("body1", "") or "")
-            normalized.append(
-                {
-                    "body0": body0,
-                    "body1": body1,
-                    "position": record.get("position"),
-                    "normal": record.get("normal"),
-                    "impulse": record.get("impulse"),
-                    "dt": float(record.get("dt", 0.0) or 0.0),
-                }
-            )
-        return normalized
+        records: list[dict[str, object]] = []
+        for sensor_index, sensor_path in enumerate(entry.sensors):
+            for filter_index, filter_path in enumerate(entry.filters):
+                count = int(pair_contacts_count[sensor_index, filter_index])
+                start = int(pair_contacts_start_indices[sensor_index, filter_index])
+                if count <= 0:
+                    continue
+                for data_index in range(start, start + count):
+                    normal_vec = normals[data_index][:3].astype(np.float64, copy=False)
+                    scalar_force = float(normal_forces[data_index].reshape(-1)[0])
+                    impulse_vec = tuple((scalar_force * normal_vec).tolist())
+                    point_vec = tuple(points[data_index][:3].astype(np.float64, copy=False).tolist())
+                    normal_tuple = tuple(normal_vec.tolist())
+                    separation = float(distances[data_index].reshape(-1)[0])
+                    records.append(
+                        {
+                            "body0": sensor_path,
+                            "body1": filter_path,
+                            "collider0": entry.sensor_collider_paths.get(sensor_path, sensor_path),
+                            "collider1": entry.filter_collider_paths.get(filter_path, filter_path),
+                            "position": point_vec,
+                            "normal": normal_tuple,
+                            "impulse": impulse_vec,
+                            "separation": separation,
+                            "face_index0": -1,
+                            "face_index1": -1,
+                        }
+                    )
+        return records
 
     def _read_body_contact_report_records(self) -> list[dict[str, object]]:
         try:
@@ -1357,7 +1468,20 @@ class IsaacSimArmRobot:
 
     def _poll_grasp_body_contacts(self) -> dict[str, list[dict[str, object]]]:
         self._ensure_gripper_structure_paths()
-        raw_records = self._read_body_contact_report_records()
+        filter_paths = self._candidate_contact_body_paths(
+            include_robot_bodies=False,
+            extra_paths=[self._sim_grasp_state.target_body_path or ""],
+        )
+        filter_paths = [
+            path
+            for path in filter_paths
+            if path not in {self._left_finger_body_path, self._right_finger_body_path, self._gripper_carrier_body_path}
+        ]
+        raw_records = self._read_contact_records_from_view(
+            sensor_paths=[self._left_finger_body_path, self._right_finger_body_path],
+            filter_paths=filter_paths,
+            max_contact_count=max(128, max(1, len(filter_paths)) * 16),
+        )
         left_records: list[dict[str, object]] = []
         right_records: list[dict[str, object]] = []
         for record in raw_records:
@@ -1372,22 +1496,29 @@ class IsaacSimArmRobot:
             "right": right_records,
         }
 
-    def _poll_grasp_contacts(self) -> dict[str, list[dict[str, object]]]:
-        self._ensure_gripper_structure_paths()
-        left_sensor = self._ensure_contact_sensor_for_body(
-            self._left_finger_body_path,
-            "a1z_left_contact_sensor",
-            local_translation=self._left_contact_sensor_local_offset,
-        )
-        right_sensor = self._ensure_contact_sensor_for_body(
-            self._right_finger_body_path,
-            "a1z_right_contact_sensor",
-            local_translation=self._right_contact_sensor_local_offset,
-        )
-        return {
-            "left": self._normalize_contact_records(self._read_contact_sensor_records(left_sensor)),
-            "right": self._normalize_contact_records(self._read_contact_sensor_records(right_sensor)),
-        }
+    def _record_matches_prim_path(self, record: dict[str, object], prim_path: str) -> bool:
+        query = str(prim_path or "")
+        if not query:
+            return True
+        for key in ("body0", "body1", "collider0", "collider1"):
+            value = str(record.get(key, "") or "")
+            if value == query or value.startswith(query + "/"):
+                return True
+        return False
+
+    def _record_counterpart_path(self, record: dict[str, object], prim_path: str) -> str:
+        query = str(prim_path or "")
+        body0 = str(record.get("body0", "") or "")
+        body1 = str(record.get("body1", "") or "")
+        collider0 = str(record.get("collider0", "") or "")
+        collider1 = str(record.get("collider1", "") or "")
+        left_hit = any(value == query or value.startswith(query + "/") for value in (body0, collider0))
+        right_hit = any(value == query or value.startswith(query + "/") for value in (body1, collider1))
+        if left_hit and not right_hit:
+            return body1 or collider1
+        if right_hit and not left_hit:
+            return body0 or collider0
+        return ""
 
     def _contact_body_counterpart(self, record: dict[str, object], sensor_body_path: str) -> str:
         body0 = str(record.get("body0", "") or "")
@@ -1429,6 +1560,10 @@ class IsaacSimArmRobot:
                     "body1": str(record.get("body1", "") or ""),
                     "collider0": str(record.get("collider0", "") or ""),
                     "collider1": str(record.get("collider1", "") or ""),
+                    "position": self._vec3_to_tuple(record.get("position")),
+                    "normal": self._vec3_to_tuple(record.get("normal")),
+                    "impulse": self._vec3_to_tuple(record.get("impulse")),
+                    "separation": float(record.get("separation", 0.0) or 0.0),
                 }
             )
         return raw_candidates, rigid_body_candidates, raw_details
@@ -1451,41 +1586,405 @@ class IsaacSimArmRobot:
             other_finger_body_path=self._left_finger_body_path,
         )
 
-        chosen = ""
-        if target_body_path:
-            left_has_target = target_body_path in left_candidates
-            right_has_target = target_body_path in right_candidates
-            if require_bilateral_contact:
-                if left_has_target and right_has_target:
-                    chosen = target_body_path
-            else:
-                if left_has_target or right_has_target:
-                    chosen = target_body_path
+        return summarize_attach_contacts(
+            left_raw_candidates=left_raw_candidates,
+            left_candidates=left_candidates,
+            left_contact_details=left_contact_details,
+            right_raw_candidates=right_raw_candidates,
+            right_candidates=right_candidates,
+            right_contact_details=right_contact_details,
+            target_body_path=target_body_path,
+            require_bilateral_contact=require_bilateral_contact,
+        )
+
+    def _get_sim_grasp_contacts_impl(
+        self,
+        *,
+        target_prim_path: str,
+        require_bilateral_contact: bool,
+    ) -> Dict[str, Any]:
+        self._ensure_gripper_structure_paths()
+        self._update_state_cache()
+        target_body_path = self._resolve_target_rigid_body_path(target_prim_path) or str(
+            self._sim_grasp_state.target_body_path or ""
+        )
+        contacts = self._poll_grasp_body_contacts()
+        ok, body_path, summary = self._contact_satisfies_attach(
+            contacts,
+            target_body_path=target_body_path,
+            require_bilateral_contact=require_bilateral_contact,
+        )
+        summary["snapshot_ok"] = bool(ok)
+        summary["snapshot_body_path"] = body_path or None
+        summary["target_prim_path"] = target_prim_path or None
+        summary["gripper_open_value"] = float(self._gripper_open_value)
+        summary["grasp_state"] = str(self._sim_grasp_state.grasp_state or "")
+        summary["attached_object_path"] = self._sim_grasp_state.attached_object_path
+        summary["attachment_joint_path"] = self._sim_grasp_state.attachment_joint_path
+        return summary
+
+    def _get_sim_contact_report_impl(
+        self,
+        *,
+        prim_path: str,
+        limit: int,
+    ) -> Dict[str, Any]:
+        self._ensure_gripper_structure_paths()
+        self._update_state_cache()
+        query_path = str(prim_path or "")
+        resolved_body_path = self._resolve_target_rigid_body_path(query_path) or query_path
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return {
+                "prim_path": query_path or None,
+                "resolved_body_path": resolved_body_path or None,
+                "match_count": 0,
+                "returned_count": 0,
+                "counterpart_body_paths": [],
+                "records": [],
+                "left_finger_body_path": self._left_finger_body_path or None,
+                "right_finger_body_path": self._right_finger_body_path or None,
+                "grasp_state": str(self._sim_grasp_state.grasp_state or ""),
+            }
+        query_prim = stage.GetPrimAtPath(query_path) if query_path else Usd.Prim()
+        sensor_paths: list[str]
+        filter_paths: list[str]
+        if resolved_body_path and stage.GetPrimAtPath(resolved_body_path).IsValid() and self._stage_prim_is_rigid_body(
+            stage.GetPrimAtPath(resolved_body_path)
+        ):
+            sensor_paths = [resolved_body_path]
+            filter_paths = [
+                path
+                for path in self._candidate_contact_body_paths(
+                    include_robot_bodies=True,
+                    extra_paths=[query_path, resolved_body_path],
+                )
+                if path != resolved_body_path
+            ]
         else:
-            for candidate in left_candidates:
-                if require_bilateral_contact:
-                    if candidate in right_candidates:
-                        chosen = candidate
-                        break
-                else:
-                    chosen = candidate
-                    break
-            if not chosen and not require_bilateral_contact and right_candidates:
-                    chosen = right_candidates[0]
-
-        summary = {
-            "left_raw_contacts": left_raw_candidates,
-            "right_raw_contacts": right_raw_candidates,
-            "left_contacts": left_candidates,
-            "right_contacts": right_candidates,
-            "left_contact_details": left_contact_details,
-            "right_contact_details": right_contact_details,
-            "target_body_path": target_body_path or None,
-            "require_bilateral_contact": bool(require_bilateral_contact),
+            sensor_paths = [
+                path
+                for path in self._candidate_contact_body_paths(
+                    include_robot_bodies=True,
+                    extra_paths=[],
+                )
+                if path != query_path
+            ]
+            filter_paths = [query_path] if query_prim.IsValid() else []
+        raw_records = self._read_contact_records_from_view(
+            sensor_paths=sensor_paths,
+            filter_paths=filter_paths,
+            max_contact_count=max(128, max(1, len(sensor_paths) * max(1, len(filter_paths))) * 12),
+        )
+        matched_records = [
+            record for record in raw_records
+            if self._record_matches_prim_path(record, query_path)
+            or (resolved_body_path != query_path and self._record_matches_prim_path(record, resolved_body_path))
+        ]
+        max_items = max(1, min(int(limit), 1000))
+        items: list[dict[str, object]] = []
+        counterpart_bodies: list[str] = []
+        for record in matched_records[:max_items]:
+            counterpart = (
+                self._record_counterpart_path(record, query_path)
+                or self._record_counterpart_path(record, resolved_body_path)
+            )
+            counterpart_body = self._resolve_contact_body_path(counterpart)
+            if counterpart_body:
+                counterpart_bodies.append(counterpart_body)
+            items.append(
+                {
+                    "body0": str(record.get("body0", "") or ""),
+                    "body1": str(record.get("body1", "") or ""),
+                    "collider0": str(record.get("collider0", "") or ""),
+                    "collider1": str(record.get("collider1", "") or ""),
+                    "position": self._vec3_to_tuple(record.get("position")),
+                    "normal": self._vec3_to_tuple(record.get("normal")),
+                    "impulse": self._vec3_to_tuple(record.get("impulse")),
+                    "separation": float(record.get("separation", 0.0) or 0.0),
+                    "counterpart_path": counterpart or None,
+                    "counterpart_body_path": counterpart_body or None,
+                }
+            )
+        return {
+            "prim_path": query_path or None,
+            "resolved_body_path": resolved_body_path or None,
+            "match_count": len(matched_records),
+            "returned_count": len(items),
+            "counterpart_body_paths": sorted(set(path for path in counterpart_bodies if path)),
+            "records": items,
+            "left_finger_body_path": self._left_finger_body_path or None,
+            "right_finger_body_path": self._right_finger_body_path or None,
+            "grasp_state": str(self._sim_grasp_state.grasp_state or ""),
         }
-        return bool(chosen), chosen, summary
 
-    def _create_attachment_joint(self, *, joint_path: str, body0_path: str, body1_path: str) -> str:
+    def _set_filtered_pair(self, source_path: str, target_path: str) -> None:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None or not source_path or not target_path:
+            return
+        source_prim = stage.GetPrimAtPath(source_path)
+        target_prim = stage.GetPrimAtPath(target_path)
+        if not source_prim.IsValid() or not target_prim.IsValid():
+            return
+        api = UsdPhysics.FilteredPairsAPI.Apply(source_prim)
+        existing = list(api.GetFilteredPairsRel().GetTargets() or [])
+        target = Sdf.Path(target_path)
+        if target not in existing:
+            existing.append(target)
+            api.GetFilteredPairsRel().SetTargets(sorted(existing, key=str))
+
+    def _clear_filtered_pair(self, source_path: str, target_path: str) -> None:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None or not source_path or not target_path:
+            return
+        source_prim = stage.GetPrimAtPath(source_path)
+        if not source_prim.IsValid() or not source_prim.HasAPI(UsdPhysics.FilteredPairsAPI):
+            return
+        api = UsdPhysics.FilteredPairsAPI(source_prim)
+        existing = list(api.GetFilteredPairsRel().GetTargets() or [])
+        target = Sdf.Path(target_path)
+        if target not in existing:
+            return
+        remaining = [path for path in existing if path != target]
+        api.GetFilteredPairsRel().SetTargets(sorted(remaining, key=str))
+
+    def _clear_filtered_pairs(self, filtered_pairs: list[tuple[str, str]]) -> None:
+        for source_path, target_path in filtered_pairs:
+            self._clear_filtered_pair(source_path, target_path)
+
+    def _filter_attached_collisions(self, attached_body_path: str) -> list[tuple[str, str]]:
+        applied_pairs: list[tuple[str, str]] = []
+        for source_path in (
+            self._left_finger_body_path,
+            self._right_finger_body_path,
+            self._gripper_carrier_body_path,
+        ):
+            if not source_path:
+                continue
+            self._set_filtered_pair(source_path, attached_body_path)
+            self._set_filtered_pair(attached_body_path, source_path)
+            applied_pairs.append((source_path, attached_body_path))
+            applied_pairs.append((attached_body_path, source_path))
+        return applied_pairs
+
+    def _apply_attach_compliance_profile(self, body_path: str) -> dict[str, object]:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None or not body_path:
+            return {}
+        prim = stage.GetPrimAtPath(body_path)
+        if not prim.IsValid():
+            return {}
+        rigid_body_api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+        restore = {
+            "linear_damping": rigid_body_api.GetLinearDampingAttr().Get(),
+            "angular_damping": rigid_body_api.GetAngularDampingAttr().Get(),
+            "max_depenetration_velocity": rigid_body_api.GetMaxDepenetrationVelocityAttr().Get(),
+            "max_contact_impulse": rigid_body_api.GetMaxContactImpulseAttr().Get(),
+            "solver_position_iteration_count": rigid_body_api.GetSolverPositionIterationCountAttr().Get(),
+            "solver_velocity_iteration_count": rigid_body_api.GetSolverVelocityIterationCountAttr().Get(),
+        }
+        rigid_body_api.CreateLinearDampingAttr().Set(float(self._GRASP_ATTACH_COMPLIANT_LINEAR_DAMPING))
+        rigid_body_api.CreateAngularDampingAttr().Set(float(self._GRASP_ATTACH_COMPLIANT_ANGULAR_DAMPING))
+        rigid_body_api.CreateMaxDepenetrationVelocityAttr().Set(
+            float(self._GRASP_ATTACH_COMPLIANT_MAX_DEPENETRATION_VELOCITY)
+        )
+        rigid_body_api.CreateMaxContactImpulseAttr().Set(float(self._GRASP_ATTACH_COMPLIANT_MAX_CONTACT_IMPULSE))
+        rigid_body_api.CreateSolverPositionIterationCountAttr().Set(
+            int(self._GRASP_ATTACH_COMPLIANT_SOLVER_POSITION_ITERS)
+        )
+        rigid_body_api.CreateSolverVelocityIterationCountAttr().Set(
+            int(self._GRASP_ATTACH_COMPLIANT_SOLVER_VELOCITY_ITERS)
+        )
+        return restore
+
+    def _restore_attach_compliance_profile(self, body_path: str, restore: dict[str, object]) -> None:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None or not body_path or not restore:
+            return
+        prim = stage.GetPrimAtPath(body_path)
+        if not prim.IsValid():
+            return
+        rigid_body_api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+        if "linear_damping" in restore and restore["linear_damping"] is not None:
+            rigid_body_api.CreateLinearDampingAttr().Set(float(restore["linear_damping"]))
+        if "angular_damping" in restore and restore["angular_damping"] is not None:
+            rigid_body_api.CreateAngularDampingAttr().Set(float(restore["angular_damping"]))
+        if "max_depenetration_velocity" in restore and restore["max_depenetration_velocity"] is not None:
+            rigid_body_api.CreateMaxDepenetrationVelocityAttr().Set(float(restore["max_depenetration_velocity"]))
+        if "max_contact_impulse" in restore and restore["max_contact_impulse"] is not None:
+            rigid_body_api.CreateMaxContactImpulseAttr().Set(float(restore["max_contact_impulse"]))
+        if "solver_position_iteration_count" in restore and restore["solver_position_iteration_count"] is not None:
+            rigid_body_api.CreateSolverPositionIterationCountAttr().Set(int(restore["solver_position_iteration_count"]))
+        if "solver_velocity_iteration_count" in restore and restore["solver_velocity_iteration_count"] is not None:
+            rigid_body_api.CreateSolverVelocityIterationCountAttr().Set(int(restore["solver_velocity_iteration_count"]))
+
+    def _restore_grasp_phase_gains(self, close_phase: str) -> None:
+        self._set_gripper_target(0.0)
+        if close_phase == "soft_close":
+            self._set_gripper_soft_grasp_gains()
+        else:
+            self._set_gripper_default_gains()
+
+    def _verify_attach_candidate(
+        self,
+        *,
+        chosen_body_path: str,
+        contact_window_s: float,
+        require_bilateral_contact: bool,
+        attach_open_upper_bound: float,
+        min_required_closure_delta: float,
+    ) -> tuple[bool, dict[str, object]]:
+        open_values = [float(self._gripper_open_value)]
+        final_summary: dict[str, object] = {}
+        for _ in range(self._GRASP_ATTACH_VERIFY_STEPS):
+            self._apply_control_action()
+            self._step_simulation_once(contact_window_s=contact_window_s, required_count=self._GRASP_ATTACH_REQUIRED_CONTACT_COUNT)
+            self._update_state_cache()
+            open_values.append(float(self._gripper_open_value))
+            body_contacts = self._poll_grasp_body_contacts()
+            ok, body_path, summary = self._contact_satisfies_attach(
+                body_contacts,
+                target_body_path=chosen_body_path,
+                require_bilateral_contact=require_bilateral_contact,
+            )
+            final_summary = summary
+            if not ok or body_path != chosen_body_path:
+                return False, {
+                    "reason": "contact_lost_during_verify",
+                    "open_values": open_values,
+                    "contact_summary": summary,
+                }
+
+        initial_open = open_values[0]
+        min_open = min(open_values)
+        reopen_delta = max(open_values) - initial_open
+        open_span = max(open_values) - min(open_values)
+        closure_delta = initial_open - min_open
+        if initial_open > float(attach_open_upper_bound) + 1e-6:
+            return False, {
+                "reason": "gripper_too_open_for_attach",
+                "open_values": open_values,
+                "contact_summary": final_summary,
+                "attach_open_upper_bound": float(attach_open_upper_bound),
+                "min_required_closure_delta": float(min_required_closure_delta),
+                "closure_delta": closure_delta,
+            }
+        if closure_delta < float(min_required_closure_delta) - 1e-6:
+            return False, {
+                "reason": "insufficient_gripper_closure_before_attach",
+                "open_values": open_values,
+                "contact_summary": final_summary,
+                "attach_open_upper_bound": float(attach_open_upper_bound),
+                "min_required_closure_delta": float(min_required_closure_delta),
+                "closure_delta": closure_delta,
+            }
+        if reopen_delta > float(self._GRASP_ATTACH_VERIFY_REOPEN_TOL):
+            return False, {
+                "reason": "gripper_reopened_during_verify",
+                "open_values": open_values,
+                "contact_summary": final_summary,
+                "reopen_delta": reopen_delta,
+                "open_span": open_span,
+                "closure_delta": closure_delta,
+            }
+        if open_span > float(self._GRASP_ATTACH_VERIFY_OPEN_TOL):
+            return False, {
+                "reason": "gripper_not_settled_during_verify",
+                "open_values": open_values,
+                "contact_summary": final_summary,
+                "reopen_delta": reopen_delta,
+                "open_span": open_span,
+                "closure_delta": closure_delta,
+            }
+        return True, {
+            "reason": "verified",
+            "open_values": open_values,
+            "contact_summary": final_summary,
+            "reopen_delta": reopen_delta,
+            "open_span": open_span,
+            "closure_delta": closure_delta,
+        }
+
+    @staticmethod
+    def _average_contact_point(
+        contact_details: list[dict[str, object]],
+        *,
+        chosen_body_path: str,
+    ) -> Optional[np.ndarray]:
+        points: list[np.ndarray] = []
+        for detail in contact_details:
+            if str(detail.get("rigid_body_candidate", "") or "") != chosen_body_path:
+                continue
+            position = detail.get("position")
+            if position is None:
+                continue
+            try:
+                point = np.asarray(position, dtype=np.float64).reshape(-1)
+            except Exception:
+                continue
+            if point.size < 3:
+                continue
+            points.append(point[:3].copy())
+        if not points:
+            return None
+        return np.mean(np.stack(points, axis=0), axis=0)
+
+    def _compute_attach_world(
+        self,
+        *,
+        chosen_body_path: str,
+        attach_summary: dict[str, object],
+    ) -> tuple[Gf.Matrix4d, dict[str, object]]:
+        target_world = self._get_world_transform(chosen_body_path)
+        source_summary = attach_summary
+        verification = attach_summary.get("candidate_verification")
+        if isinstance(verification, dict):
+            verification_summary = verification.get("contact_summary")
+            if isinstance(verification_summary, dict):
+                source_summary = verification_summary
+
+        left_point = self._average_contact_point(
+            list(source_summary.get("left_contact_details", []) or []),
+            chosen_body_path=chosen_body_path,
+        )
+        right_point = self._average_contact_point(
+            list(source_summary.get("right_contact_details", []) or []),
+            chosen_body_path=chosen_body_path,
+        )
+        attach_point = None
+        source = "body_origin"
+        if left_point is not None and right_point is not None:
+            attach_point = 0.5 * (left_point + right_point)
+            source = "bilateral_contact_midpoint"
+        elif left_point is not None:
+            attach_point = left_point
+            source = "left_contact_point"
+        elif right_point is not None:
+            attach_point = right_point
+            source = "right_contact_point"
+
+        attach_world = Gf.Matrix4d(target_world)
+        meta: dict[str, object] = {
+            "attach_anchor_source": source,
+            "left_contact_point_world_m": left_point.tolist() if left_point is not None else None,
+            "right_contact_point_world_m": right_point.tolist() if right_point is not None else None,
+        }
+        if attach_point is not None:
+            attach_world.SetTranslateOnly(Gf.Vec3d(*attach_point.tolist()))
+            meta["attach_anchor_world_m"] = attach_point.tolist()
+        else:
+            origin = target_world.ExtractTranslation()
+            meta["attach_anchor_world_m"] = [float(origin[0]), float(origin[1]), float(origin[2])]
+        return attach_world, meta
+
+    def _create_attachment_joint(
+        self,
+        *,
+        joint_path: str,
+        body0_path: str,
+        body1_path: str,
+        attach_world: Gf.Matrix4d,
+    ) -> str:
         stage = omni.usd.get_context().get_stage()
         if stage is None:
             raise RuntimeError("Isaac stage is unavailable.")
@@ -1494,8 +1993,10 @@ class IsaacSimArmRobot:
             stage.DefinePrim("/World/SimulationGraspAttachments", "Xform")
         carrier_world = self._get_world_transform(body0_path)
         target_world = self._get_world_transform(body1_path)
-        carrier_translation, carrier_rotation = self._matrix_to_pose_components(carrier_world)
-        target_translation, target_rotation = self._matrix_to_pose_components(target_world)
+        local0 = carrier_world.GetInverse() * attach_world
+        local1 = target_world.GetInverse() * attach_world
+        carrier_translation, carrier_rotation = self._matrix_to_pose_components(local0)
+        target_translation, target_rotation = self._matrix_to_pose_components(local1)
         joint = UsdPhysics.FixedJoint.Define(stage, joint_path)
         joint.CreateBody0Rel().SetTargets([Sdf.Path(body0_path)])
         joint.CreateBody1Rel().SetTargets([Sdf.Path(body1_path)])
@@ -1546,6 +2047,17 @@ class IsaacSimArmRobot:
         last_body = ""
         close_phase = "soft_close"
         failure_reason = "grasp_contact_not_found"
+        chosen_rigid_body_restore: dict[str, object] = {}
+        bilateral_hold_active = False
+        initial_open_value = float(self._gripper_open_value)
+        attach_open_upper_bound = min(
+            float(self._GRASP_ATTACH_MAX_OPEN_VALUE_FOR_ATTACH),
+            max(0.0, initial_open_value - float(self._GRASP_ATTACH_MIN_CLOSURE_DELTA)),
+        )
+        min_required_closure_delta = min(
+            float(self._GRASP_ATTACH_MIN_CLOSURE_DELTA),
+            max(0.0, initial_open_value),
+        )
         while time.monotonic() < full_close_deadline:
             self._apply_control_action()
             self._step_simulation_once(contact_window_s=contact_window_s, required_count=required_count)
@@ -1558,18 +2070,26 @@ class IsaacSimArmRobot:
                 require_bilateral_contact=require_bilateral_contact,
             )
             attach_summary = summary
-            sensor_contacts = self._poll_grasp_contacts()
-            sensor_ok, sensor_body_path, sensor_summary = self._contact_satisfies_attach(
-                sensor_contacts,
-                target_body_path=str(self._sim_grasp_state.target_body_path or ""),
-                require_bilateral_contact=require_bilateral_contact,
-            )
-            attach_summary["sensor_contact_summary"] = sensor_summary
-            attach_summary["sensor_contact_match"] = bool(sensor_ok)
-            attach_summary["sensor_contact_body_path"] = sensor_body_path or None
             attach_summary["gripper_open_value"] = current_open_value
             attach_summary["close_phase"] = close_phase
+            attach_summary["initial_gripper_open_value"] = initial_open_value
+            attach_summary["attach_open_upper_bound"] = attach_open_upper_bound
+            attach_summary["min_required_closure_delta"] = min_required_closure_delta
+            attach_summary["gripper_closure_delta"] = max(0.0, initial_open_value - current_open_value)
+            ground_contact_present = bool(summary.get("left_has_ground_contact")) or bool(summary.get("right_has_ground_contact"))
+            attach_summary["ground_contact_present"] = ground_contact_present
+            bilateral_effective_ready = bool(summary.get("left_has_selected_body_contact")) and bool(
+                summary.get("right_has_selected_body_contact")
+            )
+            attach_summary["bilateral_effective_ready"] = bilateral_effective_ready
             if ok:
+                if bilateral_effective_ready and not ground_contact_present and not bilateral_hold_active:
+                    held_open_value = current_open_value
+                    self._set_gripper_target(held_open_value)
+                    self._set_gripper_hold_gains()
+                    bilateral_hold_active = True
+                    attach_summary["bilateral_hold_triggered"] = True
+                    attach_summary["bilateral_hold_open_value"] = held_open_value
                 if body_path == last_body:
                     stable_count += 1
                 else:
@@ -1577,12 +2097,35 @@ class IsaacSimArmRobot:
                     last_body = body_path
                 self._sim_grasp_state.grasp_state = "contact_candidate"
                 self._sim_grasp_state.last_contact_time = time.time()
-                if stable_count >= required_count:
-                    chosen_body_path = body_path
-                    break
+                if stable_count >= required_count and not ground_contact_present:
+                    held_open_value = current_open_value
+                    self._set_gripper_target(held_open_value)
+                    self._set_gripper_hold_gains()
+                    candidate_rigid_body_restore = self._apply_attach_compliance_profile(body_path)
+                    verified, verification = self._verify_attach_candidate(
+                        chosen_body_path=body_path,
+                        contact_window_s=contact_window_s,
+                        require_bilateral_contact=require_bilateral_contact,
+                        attach_open_upper_bound=attach_open_upper_bound,
+                        min_required_closure_delta=min_required_closure_delta,
+                    )
+                    attach_summary["candidate_verification"] = verification
+                    if verified:
+                        chosen_body_path = body_path
+                        chosen_rigid_body_restore = candidate_rigid_body_restore
+                        break
+                    self._restore_attach_compliance_profile(body_path, candidate_rigid_body_restore)
+                    stable_count = 0
+                    last_body = ""
+                    bilateral_hold_active = False
+                    self._restore_grasp_phase_gains(close_phase)
+                    continue
             else:
                 stable_count = 0
                 last_body = ""
+                if bilateral_hold_active:
+                    bilateral_hold_active = False
+                    self._restore_grasp_phase_gains(close_phase)
             if self._is_gripper_near_closed(current_open_value):
                 failure_reason = "fully_closed_without_contact"
                 break
@@ -1604,6 +2147,7 @@ class IsaacSimArmRobot:
             return {
                 "success": False,
                 "target_prim_path": target_prim_path or "",
+                "target_body_path": str(self._sim_grasp_state.target_body_path or "") or None,
                 "attached_object_path": None,
                 "attachment_joint_path": None,
                 "contact_summary": attach_summary,
@@ -1616,19 +2160,37 @@ class IsaacSimArmRobot:
 
         joint_path = f"/World/SimulationGraspAttachments/{self._sim_grasp_state.target_prim_path or self._sim_grasp_state.target_body_path or 'auto'}".replace("//", "/")
         joint_path = joint_path.replace(":", "_").replace(".", "_")
+        current_gripper = float(self._gripper_open_value)
+        self._set_gripper_target(current_gripper)
+        self._set_gripper_hold_gains()
+        filtered_pairs = self._filter_attached_collisions(chosen_body_path)
+        rigid_body_restore = chosen_rigid_body_restore or self._apply_attach_compliance_profile(chosen_body_path)
+        for _ in range(self._GRASP_ATTACH_SETTLE_STEPS):
+            self._apply_control_action()
+            self._step_simulation_once(contact_window_s=contact_window_s, required_count=required_count)
+            self._update_state_cache()
+        attach_world, attach_anchor_meta = self._compute_attach_world(
+            chosen_body_path=chosen_body_path,
+            attach_summary=attach_summary,
+        )
+        attach_summary.update(attach_anchor_meta)
         try:
             attachment_joint_path = self._create_attachment_joint(
                 joint_path=joint_path,
                 body0_path=self._gripper_carrier_body_path,
                 body1_path=chosen_body_path,
+                attach_world=attach_world,
             )
         except Exception as exc:
+            self._clear_filtered_pairs(filtered_pairs)
+            self._restore_attach_compliance_profile(chosen_body_path, rigid_body_restore)
             self._sim_grasp_state.grasp_state = "failed"
             self._sim_grasp_state.last_failure_reason = "attach_creation_failed"
             self._set_gripper_default_gains()
             return {
                 "success": False,
                 "target_prim_path": target_prim_path or "",
+                "target_body_path": str(self._sim_grasp_state.target_body_path or "") or None,
                 "attached_object_path": chosen_body_path,
                 "attachment_joint_path": None,
                 "contact_summary": attach_summary,
@@ -1636,17 +2198,17 @@ class IsaacSimArmRobot:
                 "timing": {},
             }
 
-        current_gripper = float(self._gripper_open_value)
-        self._set_gripper_target(current_gripper)
-        self._set_gripper_hold_gains()
         self._step_simulation_once(contact_window_s=contact_window_s, required_count=required_count)
         self._update_state_cache()
         self._sim_grasp_state.grasp_state = "attached"
         self._sim_grasp_state.attached_object_path = chosen_body_path
         self._sim_grasp_state.attachment_joint_path = attachment_joint_path
+        self._sim_grasp_state.filtered_pairs = filtered_pairs
+        self._sim_grasp_state.rigid_body_restore = rigid_body_restore
         return {
             "success": True,
             "target_prim_path": target_prim_path or "",
+            "target_body_path": str(self._sim_grasp_state.target_body_path or "") or None,
             "attached_object_path": chosen_body_path,
             "attachment_joint_path": attachment_joint_path,
             "contact_summary": attach_summary,
@@ -1666,8 +2228,14 @@ class IsaacSimArmRobot:
         del timeout_s
         joint_path = str(self._sim_grasp_state.attachment_joint_path or "")
         attached_object_path = self._sim_grasp_state.attached_object_path
+        filtered_pairs = list(self._sim_grasp_state.filtered_pairs)
+        rigid_body_restore = dict(self._sim_grasp_state.rigid_body_restore)
         if joint_path:
             self._remove_attachment_joint(joint_path)
+        for source_path, target_path in filtered_pairs:
+            self._clear_filtered_pair(source_path, target_path)
+        if attached_object_path:
+            self._restore_attach_compliance_profile(attached_object_path, rigid_body_restore)
         self._sim_grasp_state = _SimGraspState(grasp_state="releasing")
         self._set_gripper_default_gains()
         if open_gripper and self._with_gripper:
@@ -1700,6 +2268,17 @@ class IsaacSimArmRobot:
         if open_value is None:
             open_value = float(self._gripper_open_value)
         return float(open_value) <= max(self._GRIPPER_SETTLE_TOL, self._GRASP_ATTACH_CLOSED_TOL)
+
+    def _active_gripper_velocity_limits(self) -> np.ndarray:
+        limits = self._gripper_max_velocity[:2].copy()
+        if self._sim_grasp_state.grasp_state == "contact_candidate":
+            limits[:] = np.minimum(limits, self._GRASP_CONTACT_HOLD_MAX_VELOCITY_M_S)
+        elif self._sim_grasp_state.grasp_state in {
+            "closing_for_grasp",
+            "closing_for_grasp_default",
+        }:
+            limits[:] = np.minimum(limits, self._GRASP_CLOSE_MAX_VELOCITY_M_S)
+        return limits
 
     def _configure_gripper_drive_targets(self) -> None:
         if not self._with_gripper or len(self._gripper_joint_paths) != 2:
@@ -2079,7 +2658,7 @@ class IsaacSimArmRobot:
 
         dt = min(max(dt, self._control_period_s), 0.25)
         current_pos = self._full_pos[self._gripper_joint_indices].copy()
-        max_step = self._gripper_max_velocity[:2] * dt
+        max_step = self._active_gripper_velocity_limits() * dt
         return self._clip_gripper_dofs(current_pos + np.clip(target_pos - current_pos, -max_step, max_step))
 
     def _refresh_joint_limits(self) -> None:

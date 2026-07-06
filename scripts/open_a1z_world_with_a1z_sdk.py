@@ -478,6 +478,32 @@ def _configure_wrist_joint_physics(stage) -> None:
             drive.CreateMaxForceAttr().Set(drive_targets[joint_path]["max_force"])
 
 
+def _enable_trashset_contact_reports(stage) -> None:
+    if stage is None:
+        return
+    target_paths = [
+        Sdf.Path("/World/GroundPlane"),
+        Sdf.Path("/World/TrashSet"),
+    ]
+    trash_root = stage.GetPrimAtPath(Sdf.Path("/World/TrashSet"))
+    if trash_root.IsValid():
+        for prim in trash_root.GetChildren():
+            target_paths.append(prim.GetPath())
+    for prim_path in target_paths:
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim.IsValid():
+            continue
+        if not (
+            prim.HasAPI(UsdPhysics.RigidBodyAPI)
+            or prim.GetAttribute("physics:rigidBodyEnabled").IsValid()
+            or prim.HasAPI(UsdPhysics.CollisionAPI)
+        ):
+            continue
+        report_api = PhysxSchema.PhysxContactReportAPI.Apply(prim)
+        if report_api:
+            report_api.CreateThresholdAttr().Set(0.0)
+
+
 async def _capture_d405_diagnostics(stage, viewport) -> None:
     dump_path = os.environ.get("A1Z_D405_STAGE_DUMP_PATH", os.path.join(RUNTIME_LOG_DIR, "d405-stage-dump.txt"))
     _dump_d405_stage_state(stage, dump_path)
@@ -1201,6 +1227,7 @@ async def open_world(stage_path: str):
     _configure_arm_articulation_physics(stage)
     _configure_wrist_link_physics(stage)
     _configure_wrist_joint_physics(stage)
+    _enable_trashset_contact_reports(stage)
     d405_attachment = None
     if _env_flag("A1Z_D405_ENABLED", _viewport_enabled()):
         d405_attachment = attach_d405_wrist_camera(stage)

@@ -93,6 +93,22 @@ def _grasp_attach(
     )
 
 
+def _grasp_contacts(
+    socket_path: str,
+    *,
+    target_prim_path: str,
+    require_bilateral_contact: bool,
+) -> dict[str, Any]:
+    return _send_socket_request(
+        socket_path,
+        "grasp_contacts",
+        {
+            "target_prim_path": str(target_prim_path or ""),
+            "require_bilateral_contact": bool(require_bilateral_contact),
+        },
+    )
+
+
 def _grasp_release(socket_path: str, *, open_gripper: bool = True, timeout_s: float = 2.0) -> dict[str, Any]:
     return _send_socket_request(
         socket_path,
@@ -145,8 +161,51 @@ def main() -> int:
             result["steps"].append(step)
 
             if step["type"] == "approach":
+                contact_snapshot_step = {"type": "approach_contact_snapshot"}
                 close_value = float(plan.get("gripper_commands", {}).get("close_after_approach", 0.0))
                 close_step = {"type": "gripper_close", "value": close_value}
+                if not args.dry_run:
+                    contact_snapshot_step["response"] = _grasp_contacts(
+                        args.socket_path,
+                        target_prim_path=str(execution_policy.get("target_prim_path", "") or ""),
+                        require_bilateral_contact=bool(execution_policy.get("require_bilateral_contact", True)),
+                    )
+                    snapshot = dict(contact_snapshot_step["response"])
+                    left_details = list(snapshot.get("left_contact_details", []) or [])
+                    right_details = list(snapshot.get("right_contact_details", []) or [])
+                    snapshot_summary = {
+                        "target_prim_path": snapshot.get("target_prim_path"),
+                        "target_body_path": snapshot.get("target_body_path"),
+                        "snapshot_body_path": snapshot.get("snapshot_body_path"),
+                        "snapshot_ok": snapshot.get("snapshot_ok"),
+                        "ground_contact_present": snapshot.get("ground_contact_present"),
+                        "left_contacts": [
+                            {
+                                "body1": detail.get("body1"),
+                                "collider1": detail.get("collider1"),
+                                "separation": detail.get("separation"),
+                            }
+                            for detail in left_details
+                        ],
+                        "right_contacts": [
+                            {
+                                "body1": detail.get("body1"),
+                                "collider1": detail.get("collider1"),
+                                "separation": detail.get("separation"),
+                            }
+                            for detail in right_details
+                        ],
+                    }
+                    contact_snapshot_step["summary"] = snapshot_summary
+                    print(
+                        json.dumps(
+                            {
+                                "approach_contact_snapshot": snapshot_summary,
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                result["steps"].append(contact_snapshot_step)
                 if not args.dry_run:
                     if str(execution_policy.get("grasp_mode", "")) == "sim_contact_attach":
                         close_step["type"] = "grasp_attach"

@@ -113,6 +113,12 @@ info = call("info")
 if info.get("backend") != "isaacsim":
     raise RuntimeError(f"unexpected backend: {info}")
 
+grasp_status_before = call("grasp_status")
+if grasp_status_before.get("has_attached_object") is not False:
+    raise RuntimeError(f"unexpected initial grasp status: {grasp_status_before}")
+if grasp_status_before.get("grasp_state") != "idle":
+    raise RuntimeError(f"unexpected initial grasp state: {grasp_status_before}")
+
 call("move", {"preset": "ready", "speed": 0.7})
 call("gripper", {"value": 0.25})
 status = call("status")
@@ -125,6 +131,50 @@ for idx, (actual, target) in enumerate(zip(pos_deg, READY), start=1):
 gripper = status.get("gripper")
 if gripper is None or abs(gripper - 0.25) > 0.15:
     raise RuntimeError(f"gripper out of tolerance: {gripper}")
+
+attach = call("grasp_attach", {
+    "target_prim_path": "",
+    "timeout_s": 0.2,
+    "contact_window_s": 0.05,
+    "require_bilateral_contact": True,
+})
+required_top_keys = {
+    "success",
+    "target_prim_path",
+    "target_body_path",
+    "attached_object_path",
+    "attachment_joint_path",
+    "contact_summary",
+    "failure_reason",
+    "timing",
+}
+missing_top = required_top_keys.difference(attach.keys())
+if missing_top:
+    raise RuntimeError(f"attach response missing keys: {sorted(missing_top)} -> {attach}")
+summary = attach["contact_summary"]
+required_summary_keys = {
+    "target_body_path",
+    "chosen_body_path",
+    "selected_body_contact_ready",
+    "ground_contact_present",
+    "left_has_selected_body_contact",
+    "right_has_selected_body_contact",
+}
+missing_summary = required_summary_keys.difference(summary.keys())
+if missing_summary:
+    raise RuntimeError(f"attach summary missing keys: {sorted(missing_summary)} -> {summary}")
+legacy_keys = [
+    "proximity_summary",
+    "used_proximity_shell",
+    "sensor_contact_summary",
+    "sensor_contact_match",
+    "left_has_target_proximity",
+    "right_has_target_proximity",
+    "bilateral_shell_ready",
+]
+present_legacy = [key for key in legacy_keys if key in summary]
+if present_legacy:
+    raise RuntimeError(f"attach summary still contains legacy keys: {present_legacy} -> {summary}")
 
 call("stop")
 print("isaacsim control verification passed")

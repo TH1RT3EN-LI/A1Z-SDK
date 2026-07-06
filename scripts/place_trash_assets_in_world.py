@@ -16,6 +16,7 @@ simulation_app = SimulationApp({"headless": True})
 
 import numpy as np  # noqa: E402
 import trimesh  # noqa: E402
+from omni.physx.scripts import physicsUtils  # noqa: E402
 from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade  # noqa: E402
 
 
@@ -77,6 +78,19 @@ DEFAULT_CONTACT_OFFSET_M = 0.002
 DEFAULT_REST_OFFSET_M = 0.001
 DEFAULT_GROUND_SURFACE_PAD_M = 0.0
 DEFAULT_TRASH_COLLISION_MODE = "mesh"
+DEFAULT_TRASH_STATIC_FRICTION = 1.25
+DEFAULT_TRASH_DYNAMIC_FRICTION = 0.95
+DEFAULT_TRASH_RESTITUTION = 0.0
+DEFAULT_TRASH_COMPLIANT_STIFFNESS = 220.0
+DEFAULT_TRASH_COMPLIANT_DAMPING = 28.0
+DEFAULT_TRASH_ENABLE_ACCEL_SPRING = False
+DEFAULT_TRASH_SOLVER_POSITION_ITERS = 24
+DEFAULT_TRASH_SOLVER_VELOCITY_ITERS = 6
+DEFAULT_TRASH_MAX_DEPENETRATION_VELOCITY = 0.5
+DEFAULT_TRASH_MAX_CONTACT_IMPULSE = 8.0
+DEFAULT_TRASH_LINEAR_DAMPING = 0.8
+DEFAULT_TRASH_ANGULAR_DAMPING = 0.4
+DEFAULT_TRASH_CONTACT_SLOP_COEFFICIENT = 0.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -190,6 +204,13 @@ def _resolve_usd_asset_path(raw_path: str) -> Path:
     if expanded.is_absolute():
         return expanded
     return (ROOT_DIR / expanded).resolve()
+
+
+def _authored_asset_reference(raw_path: str, *, anchor_dir: Path) -> str:
+    if _is_remote_asset_path(raw_path):
+        return raw_path
+    resolved_path = _resolve_usd_asset_path(raw_path)
+    return _make_relative_asset_path(resolved_path, anchor_dir=anchor_dir)
 
 
 def _is_remote_asset_path(raw_path: str) -> bool:
@@ -328,6 +349,80 @@ def _set_collision_offsets(prim: Usd.Prim, *, contact_offset_m: float, rest_offs
     physx_collision.CreateRestOffsetAttr(float(rest_offset_m))
 
 
+def _physics_material_scope_path(materials_root: Sdf.Path) -> Sdf.Path:
+    return materials_root.AppendChild("Physics")
+
+
+def _define_trash_physics_materials(stage: Usd.Stage, materials_root: Sdf.Path) -> dict[str, Sdf.Path]:
+    physics_root = _physics_material_scope_path(materials_root)
+    UsdGeom.Scope.Define(stage, physics_root)
+    material_paths: dict[str, Sdf.Path] = {}
+    for category in sorted(CATEGORY_SURFACE.keys()) + ["default"]:
+        material_name = _sanitize_name(f"{category}_physics")
+        material_path = physics_root.AppendChild(material_name)
+        UsdShade.Material.Define(stage, material_path)
+        physics_material = UsdPhysics.MaterialAPI.Apply(stage.GetPrimAtPath(material_path))
+        physics_material.CreateStaticFrictionAttr().Set(
+            float(_env_float("A1Z_TRASH_STATIC_FRICTION", DEFAULT_TRASH_STATIC_FRICTION))
+        )
+        physics_material.CreateDynamicFrictionAttr().Set(
+            float(_env_float("A1Z_TRASH_DYNAMIC_FRICTION", DEFAULT_TRASH_DYNAMIC_FRICTION))
+        )
+        physics_material.CreateRestitutionAttr().Set(
+            float(_env_float("A1Z_TRASH_RESTITUTION", DEFAULT_TRASH_RESTITUTION))
+        )
+        physx_material = PhysxSchema.PhysxMaterialAPI.Apply(stage.GetPrimAtPath(material_path))
+        physx_material.CreateFrictionCombineModeAttr().Set("min")
+        physx_material.CreateRestitutionCombineModeAttr().Set("min")
+        physx_material.CreateDampingCombineModeAttr().Set("average")
+        physx_material.CreateCompliantContactAccelerationSpringAttr().Set(
+            bool(
+                _env_str(
+                    "A1Z_TRASH_COMPLIANT_ACCEL_SPRING",
+                    "1" if DEFAULT_TRASH_ENABLE_ACCEL_SPRING else "0",
+                ).strip().lower()
+                in {"1", "true", "yes", "on"}
+            )
+        )
+        physx_material.CreateCompliantContactStiffnessAttr().Set(
+            float(_env_float("A1Z_TRASH_COMPLIANT_STIFFNESS", DEFAULT_TRASH_COMPLIANT_STIFFNESS))
+        )
+        physx_material.CreateCompliantContactDampingAttr().Set(
+            float(_env_float("A1Z_TRASH_COMPLIANT_DAMPING", DEFAULT_TRASH_COMPLIANT_DAMPING))
+        )
+        material_paths[category] = material_path
+    return material_paths
+
+
+def _apply_rigid_body_contact_profile(prim: Usd.Prim) -> None:
+    rigid_body_api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+    rigid_body_api.CreateSolverPositionIterationCountAttr().Set(
+        int(_env_float("A1Z_TRASH_SOLVER_POSITION_ITERS", DEFAULT_TRASH_SOLVER_POSITION_ITERS))
+    )
+    rigid_body_api.CreateSolverVelocityIterationCountAttr().Set(
+        int(_env_float("A1Z_TRASH_SOLVER_VELOCITY_ITERS", DEFAULT_TRASH_SOLVER_VELOCITY_ITERS))
+    )
+    rigid_body_api.CreateMaxDepenetrationVelocityAttr().Set(
+        float(_env_float("A1Z_TRASH_MAX_DEPENETRATION_VELOCITY", DEFAULT_TRASH_MAX_DEPENETRATION_VELOCITY))
+    )
+    rigid_body_api.CreateMaxContactImpulseAttr().Set(
+        float(_env_float("A1Z_TRASH_MAX_CONTACT_IMPULSE", DEFAULT_TRASH_MAX_CONTACT_IMPULSE))
+    )
+    rigid_body_api.CreateLinearDampingAttr().Set(
+        float(_env_float("A1Z_TRASH_LINEAR_DAMPING", DEFAULT_TRASH_LINEAR_DAMPING))
+    )
+    rigid_body_api.CreateAngularDampingAttr().Set(
+        float(_env_float("A1Z_TRASH_ANGULAR_DAMPING", DEFAULT_TRASH_ANGULAR_DAMPING))
+    )
+    rigid_body_api.CreateContactSlopCoefficientAttr().Set(
+        float(_env_float("A1Z_TRASH_CONTACT_SLOP_COEFFICIENT", DEFAULT_TRASH_CONTACT_SLOP_COEFFICIENT))
+    )
+
+
+def _bind_physics_material(stage: Usd.Stage, prim: Usd.Prim, material_path: Sdf.Path) -> None:
+    physicsUtils.add_physics_material_to_prim(stage, prim, material_path)
+
+
 def _apply_mesh_collision(
     prim: Usd.Prim,
     *,
@@ -366,6 +461,7 @@ def _enable_descendant_mesh_collisions(
     approximation: str,
     contact_offset_m: float,
     rest_offset_m: float,
+    physics_material_path: Sdf.Path | None = None,
 ) -> int:
     enabled = 0
     for mesh_prim in _iter_mesh_descendants(root_prim):
@@ -377,6 +473,8 @@ def _enable_descendant_mesh_collisions(
         )
         collision_api = UsdPhysics.CollisionAPI.Apply(mesh_prim)
         collision_api.CreateCollisionEnabledAttr(True)
+        if physics_material_path is not None:
+            _bind_physics_material(root_prim.GetStage(), mesh_prim, physics_material_path)
         enabled += 1
     return enabled
 
@@ -444,6 +542,8 @@ def _create_reference_collision_proxy(
 def _create_reference_mesh_colliders(
     stage: Usd.Stage,
     object_path: Sdf.Path,
+    *,
+    physics_material_path: Sdf.Path | None = None,
 ) -> int:
     root_prim = stage.GetPrimAtPath(object_path)
     if not root_prim or not root_prim.IsValid():
@@ -459,6 +559,7 @@ def _create_reference_mesh_colliders(
         approximation=approximation,
         contact_offset_m=contact_offset_m,
         rest_offset_m=rest_offset_m,
+        physics_material_path=physics_material_path,
     )
 
 
@@ -505,6 +606,9 @@ def _reference_usd_asset(
     stage: Usd.Stage,
     asset: dict,
     trash_root: Sdf.Path,
+    physics_material_paths: dict[str, Sdf.Path],
+    *,
+    reference_anchor_dir: Path,
 ) -> dict:
     asset_id = str(asset["id"])
     layout = OBJECT_LAYOUT.get(asset_id)
@@ -515,6 +619,7 @@ def _reference_usd_asset(
     if not usd_path_value:
         raise RuntimeError(f"USD asset entry '{asset_id}' is missing 'usd_path'")
     usd_path_str = str(usd_path_value)
+    authored_reference = _authored_asset_reference(usd_path_str, anchor_dir=reference_anchor_dir)
     if _is_remote_asset_path(usd_path_str):
         resolved_reference = usd_path_str
     else:
@@ -547,12 +652,13 @@ def _reference_usd_asset(
         object_xform.AddScaleOp().Set(Gf.Vec3f(*scale_xyz.tolist()))
 
     references = object_xform.GetPrim().GetReferences()
-    references.AddReference(resolved_reference)
+    references.AddReference(authored_reference)
 
     if asset.get("rigid_body", True):
         UsdPhysics.RigidBodyAPI.Apply(object_xform.GetPrim()).CreateRigidBodyEnabledAttr(True)
     if "suggested_mass_kg" in asset:
         UsdPhysics.MassAPI.Apply(object_xform.GetPrim()).CreateMassAttr(float(asset["suggested_mass_kg"]))
+    _apply_rigid_body_contact_profile(object_xform.GetPrim())
 
     visual_bbox_min, visual_bbox_max = _compute_reference_asset_local_bbox(resolved_reference)
     object_translate[2] += float(-visual_bbox_min[2] * scale_xyz[2])
@@ -568,10 +674,12 @@ def _reference_usd_asset(
     target_bbox_m = tuple(float(v) for v in asset.get("target_bbox_m", []))
     if len(target_bbox_m) != 3:
         raise RuntimeError(f"USD asset entry '{asset_id}' is missing a valid target_bbox_m")
+    physics_material_path = physics_material_paths.get(str(asset.get("category", "")), physics_material_paths["default"])
     if _trash_collision_mode() == "mesh":
         mesh_collider_count = _create_reference_mesh_colliders(
             stage=stage,
             object_path=object_path,
+            physics_material_path=physics_material_path,
         )
     else:
         mesh_collider_count = _create_reference_collision_proxy(
@@ -580,10 +688,14 @@ def _reference_usd_asset(
             bbox_min_m=visual_bbox_min,
             bbox_max_m=visual_bbox_max,
         )
+        collision_box_prim = stage.GetPrimAtPath(str(object_path.AppendChild("CollisionBox")))
+        if collision_box_prim and collision_box_prim.IsValid():
+            _bind_physics_material(stage, collision_box_prim, physics_material_path)
 
     return {
         "id": asset_id,
-        "usd": resolved_reference,
+        "usd": authored_reference,
+        "usd_resolved": resolved_reference,
         "position": tuple(float(v) for v in object_translate.tolist()),
         "yaw_deg": float(layout["yaw_deg"]),
         "scale": scale,
@@ -690,12 +802,21 @@ def _place_asset(
     asset: dict,
     trash_root: Sdf.Path,
     materials_root: Sdf.Path,
+    physics_material_paths: dict[str, Sdf.Path],
+    *,
+    reference_anchor_dir: Path,
 ) -> dict:
     source_type = str(asset.get("source_type", "glb_bake"))
     if source_type == "glb_bake":
         return _build_asset(stage=stage, asset=asset, trash_root=trash_root, materials_root=materials_root)
     if source_type == "usd_reference":
-        return _reference_usd_asset(stage=stage, asset=asset, trash_root=trash_root)
+        return _reference_usd_asset(
+            stage=stage,
+            asset=asset,
+            trash_root=trash_root,
+            physics_material_paths=physics_material_paths,
+            reference_anchor_dir=reference_anchor_dir,
+        )
     raise RuntimeError(f"Unsupported asset source_type '{source_type}' for asset '{asset.get('id')}'")
 
 
@@ -735,6 +856,7 @@ def main() -> int:
 
     UsdGeom.Xform.Define(stage, trash_root)
     UsdGeom.Scope.Define(stage, materials_root)
+    physics_material_paths = _define_trash_physics_materials(stage, materials_root)
 
     placed_assets = []
     for asset in assets:
@@ -744,6 +866,8 @@ def main() -> int:
                 asset=asset,
                 trash_root=trash_root,
                 materials_root=materials_root,
+                physics_material_paths=physics_material_paths,
+                reference_anchor_dir=overlay_usda.parent,
             )
         )
 

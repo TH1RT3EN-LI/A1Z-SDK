@@ -6,6 +6,83 @@ over "World"
     {
         def Scope "TrashSetMaterials"
         {
+            def Scope "Physics"
+            {
+                def Material "can_physics" (
+                    prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+                )
+                {
+                    float physics:dynamicFriction = 0.95
+                    float physics:restitution = 0
+                    float physics:staticFriction = 1.25
+                    bool physxMaterial:compliantContactAccelerationSpring = 0
+                    float physxMaterial:compliantContactDamping = 28
+                    float physxMaterial:compliantContactStiffness = 220
+                    uniform token physxMaterial:dampingCombineMode = "average"
+                    uniform token physxMaterial:frictionCombineMode = "min"
+                    uniform token physxMaterial:restitutionCombineMode = "min"
+                }
+
+                def Material "paper_physics" (
+                    prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+                )
+                {
+                    float physics:dynamicFriction = 0.95
+                    float physics:restitution = 0
+                    float physics:staticFriction = 1.25
+                    bool physxMaterial:compliantContactAccelerationSpring = 0
+                    float physxMaterial:compliantContactDamping = 28
+                    float physxMaterial:compliantContactStiffness = 220
+                    uniform token physxMaterial:dampingCombineMode = "average"
+                    uniform token physxMaterial:frictionCombineMode = "min"
+                    uniform token physxMaterial:restitutionCombineMode = "min"
+                }
+
+                def Material "plastic_bottle_physics" (
+                    prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+                )
+                {
+                    float physics:dynamicFriction = 0.95
+                    float physics:restitution = 0
+                    float physics:staticFriction = 1.25
+                    bool physxMaterial:compliantContactAccelerationSpring = 0
+                    float physxMaterial:compliantContactDamping = 28
+                    float physxMaterial:compliantContactStiffness = 220
+                    uniform token physxMaterial:dampingCombineMode = "average"
+                    uniform token physxMaterial:frictionCombineMode = "min"
+                    uniform token physxMaterial:restitutionCombineMode = "min"
+                }
+
+                def Material "tool_physics" (
+                    prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+                )
+                {
+                    float physics:dynamicFriction = 0.95
+                    float physics:restitution = 0
+                    float physics:staticFriction = 1.25
+                    bool physxMaterial:compliantContactAccelerationSpring = 0
+                    float physxMaterial:compliantContactDamping = 28
+                    float physxMaterial:compliantContactStiffness = 220
+                    uniform token physxMaterial:dampingCombineMode = "average"
+                    uniform token physxMaterial:frictionCombineMode = "min"
+                    uniform token physxMaterial:restitutionCombineMode = "min"
+                }
+
+                def Material "default_physics" (
+                    prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+                )
+                {
+                    float physics:dynamicFriction = 0.95
+                    float physics:restitution = 0
+                    float physics:staticFriction = 1.25
+                    bool physxMaterial:compliantContactAccelerationSpring = 0
+                    float physxMaterial:compliantContactDamping = 28
+                    float physxMaterial:compliantContactStiffness = 220
+                    uniform token physxMaterial:dampingCombineMode = "average"
+                    uniform token physxMaterial:frictionCombineMode = "min"
+                    uniform token physxMaterial:restitutionCombineMode = "min"
+                }
+            }
         }
     }
 
@@ -20,21 +97,31 @@ over "World"
     def Xform "TrashSet"
     {
         def Xform "can_crushed" (
-            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
-            prepend references = @/workspace/A1Z/assets/trash_grasp_set/isaac_ycb/Axis_Aligned/008_pudding_box.usd@
+            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysxRigidBodyAPI"]
+            prepend references = @../../assets/trash_grasp_set/isaac_ycb/Axis_Aligned/008_pudding_box.usd@
         )
         {
             float physics:mass = 0.009
             bool physics:rigidBodyEnabled = 1
+            float physxRigidBody:angularDamping = 0.4
+            float physxRigidBody:contactSlopCoefficient = 0
+            float physxRigidBody:linearDamping = 0.8
+            float physxRigidBody:maxContactImpulse = 8
+            float physxRigidBody:maxDepenetrationVelocity = 0.5
+            int physxRigidBody:solverPositionIterationCount = 24
+            int physxRigidBody:solverVelocityIterationCount = 6
             float xformOp:rotateZ = 28
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (0.3, 0, 0.019235260056661208)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateZ", "xformOp:scale"]
 
             over "_08_pudding_box" (
-                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI", "MaterialBindingAPI"]
             )
             {
+                rel material:binding:physics = </World/Looks/TrashSetMaterials/Physics/paper_physics> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
                 uniform token physics:approximation = "convexHull"
                 bool physics:collisionEnabled = 1
                 float physxCollision:contactOffset = 0.002
@@ -43,21 +130,31 @@ over "World"
         }
 
         def Xform "marker_upright" (
-            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
-            prepend references = @/workspace/A1Z/assets/trash_grasp_set/isaac_ycb/Axis_Aligned/040_large_marker.usd@
+            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysxRigidBodyAPI"]
+            prepend references = @../../assets/trash_grasp_set/isaac_ycb/Axis_Aligned/040_large_marker.usd@
         )
         {
             float physics:mass = 0.012
             bool physics:rigidBodyEnabled = 1
+            float physxRigidBody:angularDamping = 0.4
+            float physxRigidBody:contactSlopCoefficient = 0
+            float physxRigidBody:linearDamping = 0.8
+            float physxRigidBody:maxContactImpulse = 8
+            float physxRigidBody:maxDepenetrationVelocity = 0.5
+            int physxRigidBody:solverPositionIterationCount = 24
+            int physxRigidBody:solverVelocityIterationCount = 6
             float xformOp:rotateZ = 0
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (0.3, -0.12, 0.009737559935356077)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateZ", "xformOp:scale"]
 
             over "_40_large_marker" (
-                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI", "MaterialBindingAPI"]
             )
             {
+                rel material:binding:physics = </World/Looks/TrashSetMaterials/Physics/tool_physics> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
                 uniform token physics:approximation = "convexHull"
                 bool physics:collisionEnabled = 1
                 float physxCollision:contactOffset = 0.002
@@ -66,21 +163,31 @@ over "World"
         }
 
         def Xform "bottle_plastic" (
-            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
-            prepend references = @/workspace/A1Z/assets/trash_grasp_set/isaac_ycb/Axis_Aligned/003_cracker_box.usd@
+            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysxRigidBodyAPI"]
+            prepend references = @../../assets/trash_grasp_set/isaac_ycb/Axis_Aligned/003_cracker_box.usd@
         )
         {
             float physics:mass = 0.018
             bool physics:rigidBodyEnabled = 1
+            float physxRigidBody:angularDamping = 0.4
+            float physxRigidBody:contactSlopCoefficient = 0
+            float physxRigidBody:linearDamping = 0.8
+            float physxRigidBody:maxContactImpulse = 8
+            float physxRigidBody:maxDepenetrationVelocity = 0.5
+            int physxRigidBody:solverPositionIterationCount = 24
+            int physxRigidBody:solverVelocityIterationCount = 6
             float xformOp:rotateZ = 18
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (0.42, -0.06, 0.035899998339265604)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateZ", "xformOp:scale"]
 
             over "_03_cracker_box" (
-                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI", "MaterialBindingAPI"]
             )
             {
+                rel material:binding:physics = </World/Looks/TrashSetMaterials/Physics/paper_physics> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
                 uniform token physics:approximation = "convexHull"
                 bool physics:collisionEnabled = 1
                 float physxCollision:contactOffset = 0.002
@@ -89,21 +196,31 @@ over "World"
         }
 
         def Xform "bottle_water" (
-            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
-            prepend references = @/workspace/A1Z/assets/trash_grasp_set/isaac_ycb/Axis_Aligned/004_sugar_box.usd@
+            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysxRigidBodyAPI"]
+            prepend references = @../../assets/trash_grasp_set/isaac_ycb/Axis_Aligned/004_sugar_box.usd@
         )
         {
             float physics:mass = 0.016
             bool physics:rigidBodyEnabled = 1
+            float physxRigidBody:angularDamping = 0.4
+            float physxRigidBody:contactSlopCoefficient = 0
+            float physxRigidBody:linearDamping = 0.8
+            float physxRigidBody:maxContactImpulse = 8
+            float physxRigidBody:maxDepenetrationVelocity = 0.5
+            int physxRigidBody:solverPositionIterationCount = 24
+            int physxRigidBody:solverVelocityIterationCount = 6
             float xformOp:rotateZ = -10
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (0.3, 0.12, 0.022567469569277687)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateZ", "xformOp:scale"]
 
             over "_04_sugar_box" (
-                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI", "MaterialBindingAPI"]
             )
             {
+                rel material:binding:physics = </World/Looks/TrashSetMaterials/Physics/paper_physics> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
                 uniform token physics:approximation = "convexHull"
                 bool physics:collisionEnabled = 1
                 float physxCollision:contactOffset = 0.002
@@ -112,21 +229,31 @@ over "World"
         }
 
         def Xform "paper_debris" (
-            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
-            prepend references = @/workspace/A1Z/assets/trash_grasp_set/isaac_ycb/Axis_Aligned/009_gelatin_box.usd@
+            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "PhysxRigidBodyAPI"]
+            prepend references = @../../assets/trash_grasp_set/isaac_ycb/Axis_Aligned/009_gelatin_box.usd@
         )
         {
             float physics:mass = 0.01
             bool physics:rigidBodyEnabled = 1
+            float physxRigidBody:angularDamping = 0.4
+            float physxRigidBody:contactSlopCoefficient = 0
+            float physxRigidBody:linearDamping = 0.8
+            float physxRigidBody:maxContactImpulse = 8
+            float physxRigidBody:maxDepenetrationVelocity = 0.5
+            int physxRigidBody:solverPositionIterationCount = 24
+            int physxRigidBody:solverVelocityIterationCount = 6
             float xformOp:rotateZ = -32
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (0.42, 0.08, 0.01499183978903651)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateZ", "xformOp:scale"]
 
             over "_09_gelatin_box" (
-                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI"]
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "PhysxCollisionAPI", "MaterialBindingAPI"]
             )
             {
+                rel material:binding:physics = </World/Looks/TrashSetMaterials/Physics/paper_physics> (
+                    bindMaterialAs = "weakerThanDescendants"
+                )
                 uniform token physics:approximation = "convexHull"
                 bool physics:collisionEnabled = 1
                 float physxCollision:contactOffset = 0.002

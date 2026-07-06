@@ -29,7 +29,8 @@ A1Z_SOCKET_PATH="$VERIFY_SOCKET_PATH" \
   /workspace/A1Z/tools/a1zctl \
   serve \
   --backend mock \
-  --with-gripper >"$SERVER_LOG" 2>&1 &
+  --with-gripper \
+  --tcp-port 0 >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 40); do
@@ -97,6 +98,78 @@ assert len(sdata["pos_deg"]) == 6, sdata
 assert len(sdata["vel_rad_s"]) == 6, sdata
 assert len(sdata["torque_nm"]) == 6, sdata
 assert abs(sdata["gripper"] - 0.6) <= 1e-6, sdata
+
+grasp_status_before = call("grasp_status")
+assert grasp_status_before["ok"], grasp_status_before
+gs_before = grasp_status_before["data"]
+assert gs_before["has_attached_object"] is False, gs_before
+assert gs_before["grasp_state"] == "idle", gs_before
+assert gs_before["attached_object_path"] is None, gs_before
+
+grasp_contacts_before = call("grasp_contacts", {
+    "target_prim_path": "/World/TrashSet/mock_target",
+    "require_bilateral_contact": True,
+})
+assert grasp_contacts_before["ok"], grasp_contacts_before
+gc_before = grasp_contacts_before["data"]
+assert gc_before["target_body_path"] == "/World/TrashSet/mock_target", gc_before
+assert gc_before["target_prim_path"] == "/World/TrashSet/mock_target", gc_before
+assert gc_before["selected_body_contact_ready"] is False, gc_before
+assert gc_before["snapshot_ok"] is False, gc_before
+assert gc_before["left_contact_details"] == [], gc_before
+assert gc_before["right_contact_details"] == [], gc_before
+
+grasp_attach = call("grasp_attach", {
+    "target_prim_path": "/World/TrashSet/mock_target",
+    "timeout_s": 2.0,
+    "contact_window_s": 0.15,
+    "require_bilateral_contact": True,
+})
+assert grasp_attach["ok"], grasp_attach
+gattach = grasp_attach["data"]
+assert gattach["success"] is True, gattach
+assert gattach["target_prim_path"] == "/World/TrashSet/mock_target", gattach
+assert gattach["target_body_path"] == "/World/TrashSet/mock_target", gattach
+assert gattach["attached_object_path"] == "/World/TrashSet/mock_target", gattach
+assert gattach["attachment_joint_path"] is None, gattach
+cs = gattach["contact_summary"]
+assert cs["target_body_path"] == "/World/TrashSet/mock_target", cs
+assert cs["chosen_body_path"] == "/World/TrashSet/mock_target", cs
+assert cs["selected_body_contact_ready"] is True, cs
+assert cs["ground_contact_present"] is False, cs
+for legacy_key in [
+    "proximity_summary",
+    "used_proximity_shell",
+    "sensor_contact_summary",
+    "sensor_contact_match",
+    "left_has_target_proximity",
+    "right_has_target_proximity",
+    "bilateral_shell_ready",
+]:
+    assert legacy_key not in cs, (legacy_key, cs)
+
+grasp_status_after = call("grasp_status")
+assert grasp_status_after["ok"], grasp_status_after
+gs_after = grasp_status_after["data"]
+assert gs_after["has_attached_object"] is True, gs_after
+assert gs_after["attached_object_path"] == "/World/TrashSet/mock_target", gs_after
+assert gs_after["target_prim_path"] == "/World/TrashSet/mock_target", gs_after
+assert gs_after["target_body_path"] == "/World/TrashSet/mock_target", gs_after
+assert gs_after["grasp_state"] == "attached", gs_after
+
+grasp_release = call("grasp_release", {"open_gripper": True, "timeout_s": 2.0})
+assert grasp_release["ok"], grasp_release
+grelease = grasp_release["data"]
+assert grelease["success"] is True, grelease
+assert grelease["released"] is True, grelease
+assert grelease["attached_object_path"] is None, grelease
+
+grasp_status_final = call("grasp_status")
+assert grasp_status_final["ok"], grasp_status_final
+gs_final = grasp_status_final["data"]
+assert gs_final["has_attached_object"] is False, gs_final
+assert gs_final["attached_object_path"] is None, gs_final
+assert gs_final["grasp_state"] == "idle", gs_final
 
 unknown = call("does_not_exist")
 assert (not unknown["ok"]) and "Unknown command" in unknown["error"], unknown

@@ -169,6 +169,7 @@ class ContactGraspNetA1ZAdapterConfig:
     max_approach_deviation_deg: float = 55.0
     table_normal_base: tuple[float, float, float] = (0.0, 0.0, 1.0)
     max_gripper_opening_m: float = 0.096
+    max_gripper_opening_tolerance_m: float = 0.002
     pregrasp_opening_margin_m: float = 0.008
     close_gripper_command: float = 0.0
     tool_front_extent_m: float = 0.1032
@@ -480,7 +481,11 @@ class ContactGraspNetA1ZAdapter:
                 "retreat": _rigidize_transform(tool_retreat),
             }
 
-            opening_m = float(np.clip(prediction.gripper_opening_m, 0.0, self.config.max_gripper_opening_m))
+            raw_opening_m = max(0.0, float(prediction.gripper_opening_m))
+            max_opening_m = float(self.config.max_gripper_opening_m)
+            opening_limit_tol_m = max(0.0, float(self.config.max_gripper_opening_tolerance_m))
+            opening_within_limits = raw_opening_m <= (max_opening_m + opening_limit_tol_m)
+            opening_m = float(np.clip(raw_opening_m, 0.0, max_opening_m))
             open_command = float(
                 np.clip(
                     (opening_m + self.config.pregrasp_opening_margin_m) / self.config.max_gripper_opening_m,
@@ -541,6 +546,7 @@ class ContactGraspNetA1ZAdapter:
             failure_reasons = self._failure_reasons(
                 ik_summary=ik_summary,
                 safety_summary=safety_summary,
+                opening_within_limits=opening_within_limits,
             )
             overall_score = float(prediction.score * (0.75 + 0.25 * max(0.0, approach_alignment)) * (0.5 + 0.5 * min_margin_score))
             contact_point_xyz = (
@@ -567,7 +573,7 @@ class ContactGraspNetA1ZAdapter:
                     retreat_pose=_matrix_to_pose(poses["retreat"]),
                     approach_vector_xyz=approach.astype(float).tolist(),
                     retreat_vector_xyz=retreat.astype(float).tolist(),
-                    gripper_opening_m=opening_m,
+                    gripper_opening_m=raw_opening_m,
                     gripper_command_open=open_command,
                     gripper_command_close=close_command,
                     grasp_depth_m=float(prediction.grasp_depth_m),
@@ -585,6 +591,11 @@ class ContactGraspNetA1ZAdapter:
                         "transform_source": self.config.transform_source,
                         "approach_down_alignment": approach_alignment,
                         "min_joint_margin_score": min_margin_score,
+                        "raw_gripper_opening_m": raw_opening_m,
+                        "commanded_gripper_opening_m": opening_m,
+                        "opening_within_limits": bool(opening_within_limits),
+                        "max_gripper_opening_m": max_opening_m,
+                        "max_gripper_opening_tolerance_m": opening_limit_tol_m,
                         "grasp_depth_m": float(prediction.grasp_depth_m),
                         "tool_front_extent_m": float(self.config.tool_front_extent_m),
                         "front_to_target_m": float(front_to_target_m),
@@ -658,8 +669,11 @@ class ContactGraspNetA1ZAdapter:
         *,
         ik_summary: Mapping[str, bool],
         safety_summary: Mapping[str, bool],
+        opening_within_limits: bool = True,
     ) -> list[str]:
         reasons: list[str] = []
+        if not opening_within_limits:
+            reasons.append("gripper_opening_exceeds_limit")
         if not safety_summary.get("topdown_ok", True):
             reasons.append("approach_not_downward_enough")
         if not safety_summary.get("table_clearance_ok", True):
