@@ -322,10 +322,7 @@ def main() -> int:
     downward_alignment_threshold = np.cos(config.max_approach_deviation_rad)
     approach_alignment = float(np.clip(-np.dot(approach, table_normal), -1.0, 1.0))
     topdown_ok = (not config.require_approach_downward) or (approach_alignment >= downward_alignment_threshold)
-    table_clearance_ok = all(
-        float(pose[2, 3]) >= (config.table_height_m + config.min_tool_height_above_table_m)
-        for pose in poses.values()
-    )
+    table_clearance_ok = contact_adapter._table_clearance_ok(poses)
     camera_keepout_ok = contact_adapter._camera_keepout_ok(poses)
     safety_summary = {
         "topdown_ok": bool(topdown_ok),

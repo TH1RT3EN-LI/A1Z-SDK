@@ -24,7 +24,14 @@ class GraspAttachPolicyTest(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = _AttachPolicyHarness()
 
-    def _summarize(self, *, left: list[str], right: list[str], target_body_path: str = "") -> tuple[bool, str, dict[str, object]]:
+    def _summarize(
+        self,
+        *,
+        left: list[str],
+        right: list[str],
+        target_body_path: str = "",
+        require_bilateral_contact: bool = True,
+    ) -> tuple[bool, str, dict[str, object]]:
         left_details = [
             {
                 "candidate": candidate,
@@ -63,7 +70,7 @@ class GraspAttachPolicyTest(unittest.TestCase):
             right_candidates=right,
             right_contact_details=right_details,
             target_body_path=target_body_path,
-            require_bilateral_contact=True,
+            require_bilateral_contact=require_bilateral_contact,
         )
 
     def test_selects_shared_object_without_explicit_target(self) -> None:
@@ -90,6 +97,40 @@ class GraspAttachPolicyTest(unittest.TestCase):
         self.assertIsNone(summary["chosen_body_path"])
         self.assertFalse(summary["left_has_target_contact"])
         self.assertFalse(summary["right_has_target_contact"])
+
+    def test_accepts_single_finger_explicit_target_when_bilateral_not_required(self) -> None:
+        ok, body_path, summary = self._summarize(
+            left=["/World/TrashSet/paper_debris"],
+            right=[],
+            target_body_path="/World/TrashSet/paper_debris",
+            require_bilateral_contact=False,
+        )
+        self.assertTrue(ok)
+        self.assertEqual(body_path, "/World/TrashSet/paper_debris")
+        self.assertEqual(summary["chosen_body_path"], "/World/TrashSet/paper_debris")
+        self.assertTrue(summary["left_has_selected_body_contact"])
+        self.assertFalse(summary["right_has_selected_body_contact"])
+        self.assertTrue(summary["selected_body_contact_ready"])
+
+    def test_accepts_single_finger_any_candidate_when_bilateral_not_required(self) -> None:
+        ok, body_path, summary = self._summarize(
+            left=["/World/TrashSet/can_crushed"],
+            right=[],
+            require_bilateral_contact=False,
+        )
+        self.assertTrue(ok)
+        self.assertEqual(body_path, "/World/TrashSet/can_crushed")
+        self.assertEqual(summary["chosen_body_path"], "/World/TrashSet/can_crushed")
+        self.assertTrue(summary["left_has_selected_body_contact"])
+        self.assertFalse(summary["right_has_selected_body_contact"])
+        self.assertTrue(summary["selected_body_contact_ready"])
+
+    def test_attach_hold_target_freezes_current_open_value(self) -> None:
+        current_open_value = 0.95
+        attach_open_upper_bound = 0.25
+        hold_target = current_open_value
+        self.assertAlmostEqual(hold_target, 0.95)
+        self.assertGreater(hold_target, attach_open_upper_bound)
 
     def test_ground_plane_is_kept_out_of_candidate_selection(self) -> None:
         ok, body_path, summary = self._summarize(

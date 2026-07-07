@@ -172,6 +172,32 @@ class MockArmRobot:
         require_bilateral_contact: bool = True,
     ) -> Dict[str, Any]:
         del timeout_s, contact_window_s, require_bilateral_contact
+        with self._lock:
+            attached_object_path = str(self._sim_grasp_state.get("attached_object_path") or "")
+            current_target_path = str(self._sim_grasp_state.get("target_body_path") or "")
+        requested_target_path = str(target_prim_path or "")
+        if attached_object_path:
+            if not requested_target_path or requested_target_path == attached_object_path or requested_target_path == current_target_path:
+                return {
+                    "success": True,
+                    "target_prim_path": requested_target_path,
+                    "target_body_path": current_target_path or attached_object_path or None,
+                    "attached_object_path": attached_object_path,
+                    "attachment_joint_path": None,
+                    "contact_summary": {
+                        "mode": "mock_already_attached",
+                        "simulated": True,
+                        "target_body_path": current_target_path or attached_object_path or None,
+                        "chosen_body_path": attached_object_path,
+                        "selected_body_contact_ready": True,
+                        "ground_contact_present": False,
+                    },
+                    "failure_reason": None,
+                    "timing": {},
+                }
+            raise RuntimeError(
+                f"Already attached to {attached_object_path}; release before attaching a different target."
+            )
         self.command_gripper(0.0)
         attached_object_path = str(target_prim_path or "")
         now = time.time()
@@ -214,6 +240,9 @@ class MockArmRobot:
         if open_gripper:
             self.command_gripper(1.0)
         with self._lock:
+            previous_attached_object_path = self._sim_grasp_state.get("attached_object_path")
+            previous_attachment_joint_path = self._sim_grasp_state.get("attachment_joint_path")
+        with self._lock:
             self._sim_grasp_state = {
                 "has_attached_object": False,
                 "attached_object_path": None,
@@ -227,9 +256,76 @@ class MockArmRobot:
         return {
             "success": True,
             "released": True,
-            "attached_object_path": None,
-            "attachment_joint_path": None,
+            "attached_object_path": previous_attached_object_path,
+            "attachment_joint_path": previous_attachment_joint_path,
             "failure_reason": None,
+        }
+
+    def grasp_link_current_contact(
+        self,
+        target_prim_path: str = "",
+        *,
+        require_bilateral_contact: bool = True,
+    ) -> Dict[str, Any]:
+        del require_bilateral_contact
+        attached_object_path = str(target_prim_path or "")
+        with self._lock:
+            existing_attached_object_path = str(self._sim_grasp_state.get("attached_object_path") or "")
+            current_target_path = str(self._sim_grasp_state.get("target_body_path") or "")
+        if existing_attached_object_path:
+            if (
+                not attached_object_path
+                or attached_object_path == existing_attached_object_path
+                or attached_object_path == current_target_path
+            ):
+                return {
+                    "success": True,
+                    "target_prim_path": attached_object_path,
+                    "target_body_path": current_target_path or existing_attached_object_path or None,
+                    "attached_object_path": existing_attached_object_path,
+                    "attachment_joint_path": None,
+                    "contact_summary": {
+                        "mode": "mock_already_attached",
+                        "simulated": True,
+                        "target_body_path": current_target_path or existing_attached_object_path or None,
+                        "chosen_body_path": existing_attached_object_path,
+                        "selected_body_contact_ready": True,
+                        "ground_contact_present": False,
+                    },
+                    "failure_reason": None,
+                    "timing": {},
+                }
+            raise RuntimeError(
+                f"Already attached to {existing_attached_object_path}; release before attaching a different target."
+            )
+        now = time.time()
+        with self._lock:
+            self._sim_grasp_state = {
+                "has_attached_object": bool(attached_object_path),
+                "attached_object_path": attached_object_path or None,
+                "attachment_joint_path": None,
+                "target_prim_path": attached_object_path or None,
+                "target_body_path": attached_object_path or None,
+                "grasp_state": "attached" if attached_object_path else "failed",
+                "last_contact_time": now if attached_object_path else None,
+                "last_failure_reason": None if attached_object_path else "mock_attach_missing_target",
+            }
+        return {
+            "success": True,
+            "target_prim_path": attached_object_path,
+            "target_body_path": attached_object_path or None,
+            "attached_object_path": attached_object_path or None,
+            "attachment_joint_path": None,
+            "contact_summary": {
+                "mode": "mock_link_only",
+                "simulated": True,
+                "target_body_path": attached_object_path or None,
+                "chosen_body_path": attached_object_path or None,
+                "selected_body_contact_ready": bool(attached_object_path),
+                "ground_contact_present": False,
+            },
+            "failure_reason": None if attached_object_path else "grasp_contact_not_found",
+            "timing": {},
         }
 
     def get_sim_grasp_status(self) -> Dict[str, Any]:

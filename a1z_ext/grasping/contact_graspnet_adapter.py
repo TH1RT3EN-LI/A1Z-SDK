@@ -173,6 +173,24 @@ class ContactGraspNetA1ZAdapterConfig:
     pregrasp_opening_margin_m: float = 0.008
     close_gripper_command: float = 0.0
     tool_front_extent_m: float = 0.1032
+    tool_collision_points_ee: tuple[tuple[float, float, float], ...] = (
+        (-0.0118, -0.050215, -0.0282093875),
+        (-0.0118, -0.050215, 0.028),
+        (-0.0118, 0.0316429235, -0.0282093875),
+        (-0.0118, 0.0316429235, 0.028),
+        (0.1032, -0.050215, -0.0282093875),
+        (0.1032, -0.050215, 0.028),
+        (0.1032, 0.0316429235, -0.0282093875),
+        (0.1032, 0.0316429235, 0.028),
+        (-0.0118, -0.0316429235, -0.028),
+        (-0.0118, -0.0316429235, 0.0282093875),
+        (-0.0118, 0.050215, -0.028),
+        (-0.0118, 0.050215, 0.0282093875),
+        (0.1032, -0.0316429235, -0.028),
+        (0.1032, -0.0316429235, 0.0282093875),
+        (0.1032, 0.050215, -0.028),
+        (0.1032, 0.050215, 0.0282093875),
+    )
     min_approach_travel_m: float = 0.015
     min_joint_margin_deg: float = 5.0
     max_waypoint_delta_rad: float = 2.5
@@ -494,10 +512,7 @@ class ContactGraspNetA1ZAdapter:
                 )
             )
             close_command = float(np.clip(self.config.close_gripper_command, 0.0, 1.0))
-            table_clearance_ok = all(
-                float(pose[2, 3]) >= (self.config.table_height_m + self.config.min_tool_height_above_table_m)
-                for pose in poses.values()
-            )
+            table_clearance_ok = self._table_clearance_ok(poses)
             camera_keepout_ok = self._camera_keepout_ok(poses)
 
             ik_summary = {stage: False for stage in ("pregrasp", "grasp", "lift", "retreat")}
@@ -661,6 +676,21 @@ class ContactGraspNetA1ZAdapter:
             for sphere in self.config.keepout_spheres:
                 center = np.asarray(sphere.center_xyz, dtype=np.float64)
                 if float(np.linalg.norm(position - center)) < float(sphere.radius_m):
+                    return False
+        return True
+
+    def _table_clearance_ok(self, poses: Mapping[str, np.ndarray]) -> bool:
+        table_normal = _normalize(np.asarray(self.config.table_normal_base, dtype=np.float64))
+        min_height = float(self.config.table_height_m + self.config.min_tool_height_above_table_m)
+        collision_points = [
+            np.asarray(point_xyz, dtype=np.float64).reshape(3)
+            for point_xyz in self.config.tool_collision_points_ee
+        ]
+        for pose in poses.values():
+            pose = np.asarray(pose, dtype=np.float64).reshape(4, 4)
+            for point_local in collision_points:
+                point_world = _transform_point(pose, point_local)
+                if float(np.dot(point_world, table_normal)) < min_height:
                     return False
         return True
 

@@ -181,6 +181,65 @@ def cmd_gripper(args: argparse.Namespace) -> None:
     print(f"[a1zctl] Gripper set to {data['gripper']:.2f}")
 
 
+def cmd_grasp_attach(args: argparse.Namespace) -> None:
+    req_args = {
+        "target_prim_path": args.target_prim_path,
+        "timeout_s": args.timeout_s,
+        "contact_window_s": args.contact_window_s,
+        "require_bilateral_contact": not args.allow_single_finger_contact,
+    }
+    data = _ok_or_exit(_send("grasp_attach", req_args))
+    if args.json:
+        _emit(args, data)
+        return
+    print(f"[a1zctl] grasp_attach success={bool(data.get('success', False))}")
+    if data.get("failure_reason"):
+        print(f"[a1zctl] failure_reason: {data['failure_reason']}")
+    attached_object_path = data.get("attached_object_path")
+    if attached_object_path:
+        print(f"[a1zctl] attached_object_path: {attached_object_path}")
+    attachment_joint_path = data.get("attachment_joint_path")
+    if attachment_joint_path:
+        print(f"[a1zctl] attachment_joint_path: {attachment_joint_path}")
+
+
+def cmd_grasp_link(args: argparse.Namespace) -> None:
+    req_args = {
+        "target_prim_path": args.target_prim_path,
+        "require_bilateral_contact": not args.allow_single_finger_contact,
+    }
+    data = _ok_or_exit(_send("grasp_link", req_args))
+    if args.json:
+        _emit(args, data)
+        return
+    print(f"[a1zctl] grasp_link success={bool(data.get('success', False))}")
+    if data.get("failure_reason"):
+        print(f"[a1zctl] failure_reason: {data['failure_reason']}")
+    attached_object_path = data.get("attached_object_path")
+    if attached_object_path:
+        print(f"[a1zctl] attached_object_path: {attached_object_path}")
+    attachment_joint_path = data.get("attachment_joint_path")
+    if attachment_joint_path:
+        print(f"[a1zctl] attachment_joint_path: {attachment_joint_path}")
+
+
+def cmd_grasp_release(args: argparse.Namespace) -> None:
+    data = _ok_or_exit(
+        _send(
+            "grasp_release",
+            {
+                "open_gripper": not args.keep_gripper_closed,
+                "timeout_s": args.timeout_s,
+            },
+        )
+    )
+    if args.json:
+        _emit(args, data)
+        return
+    print(f"[a1zctl] grasp_release success={bool(data.get('success', False))}")
+    print(f"[a1zctl] released={bool(data.get('released', False))}")
+
+
 def cmd_dance(args: argparse.Namespace) -> None:
     req_args: dict = {"speed": args.speed}
     if args.moves:
@@ -247,6 +306,8 @@ Examples:
   python3 tools/a1zctl command 0,60,-60,0,0,0 --gripper 0.5
   python3 tools/a1zctl move --preset home
   python3 tools/a1zctl gripper 0.5
+  python3 tools/a1zctl grasp-attach --target-prim-path /World/TrashSet/mock_target
+  python3 tools/a1zctl grasp-release
   python3 tools/a1zctl dance --moves salute,wave,bow --speed 0.7
   python3 tools/a1zctl stop
         """,
@@ -326,6 +387,61 @@ Examples:
     gp = sub.add_parser("gripper", help="Set gripper opening (0.0=closed, 1.0=open)")
     gp.add_argument("value", type=float, help="Opening in [0.0, 1.0]")
 
+    gap = sub.add_parser(
+        "grasp-attach",
+        help="Close the gripper, detect contact, and create a simulated attachment",
+    )
+    gap.add_argument(
+        "--target-prim-path",
+        default="",
+        help="Optional target prim path to prefer during contact selection",
+    )
+    gap.add_argument(
+        "--timeout-s",
+        type=float,
+        default=2.0,
+        help="Soft-close timeout in seconds before the search-close fallback (default: 2.0)",
+    )
+    gap.add_argument(
+        "--contact-window-s",
+        type=float,
+        default=0.15,
+        help="Contact aggregation window in seconds (default: 0.15)",
+    )
+    gap.add_argument(
+        "--allow-single-finger-contact",
+        action="store_true",
+        help="Allow attachment without bilateral finger contact",
+    )
+
+    glp = sub.add_parser(
+        "grasp-link",
+        help="Create a simulated attachment from the current contact state without moving the gripper",
+    )
+    glp.add_argument(
+        "--target-prim-path",
+        default="",
+        help="Optional target prim path to prefer during contact selection",
+    )
+    glp.add_argument(
+        "--allow-single-finger-contact",
+        action="store_true",
+        help="Allow attachment without bilateral finger contact",
+    )
+
+    grp = sub.add_parser("grasp-release", help="Release a simulated attachment")
+    grp.add_argument(
+        "--keep-gripper-closed",
+        action="store_true",
+        help="Detach without commanding the gripper back open",
+    )
+    grp.add_argument(
+        "--timeout-s",
+        type=float,
+        default=2.0,
+        help="Release timeout in seconds (default: 2.0)",
+    )
+
     # dance
     dp = sub.add_parser("dance", help="Run a dance sequence")
     dp.add_argument("--moves", default=None,
@@ -347,6 +463,9 @@ _COMMANDS = {
     "move":    cmd_move,
     "command": cmd_command,
     "gripper": cmd_gripper,
+    "grasp-attach": cmd_grasp_attach,
+    "grasp-link": cmd_grasp_link,
+    "grasp-release": cmd_grasp_release,
     "dance":   cmd_dance,
     "stop":    cmd_stop,
     "info":    cmd_info,

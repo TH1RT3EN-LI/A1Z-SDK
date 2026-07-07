@@ -168,6 +168,17 @@ class RobotServer:
         )
         return {"ok": True, "data": dict(data)}
 
+    def _cmd_grasp_link(self, args: dict) -> dict:
+        if not self._with_gripper:
+            return {"ok": False, "error": "Server was started without --with-gripper"}
+        if not hasattr(self._robot, "grasp_link_current_contact"):
+            return {"ok": False, "error": "Active backend does not support grasp_link"}
+        data = self._robot.grasp_link_current_contact(
+            str(args.get("target_prim_path", "") or ""),
+            require_bilateral_contact=bool(args.get("require_bilateral_contact", True)),
+        )
+        return {"ok": True, "data": dict(data)}
+
     def _cmd_grasp_release(self, args: dict) -> dict:
         if not self._with_gripper:
             return {"ok": False, "error": "Server was started without --with-gripper"}
@@ -353,6 +364,7 @@ class RobotServer:
         "command": _cmd_command,
         "gripper": _cmd_gripper,
         "grasp_attach": _cmd_grasp_attach,
+        "grasp_link": _cmd_grasp_link,
         "grasp_release": _cmd_grasp_release,
         "grasp_status": _cmd_grasp_status,
         "grasp_contacts": _cmd_grasp_contacts,
