@@ -25,7 +25,10 @@ SDK_DIR = os.path.join(ROOT_DIR, "vendor", "GALAXEA-A1Z")
 RUNTIME_DIR = os.path.join(ROOT_DIR, "runtime")
 RUNTIME_LOG_DIR = os.path.join(RUNTIME_DIR, "logs")
 LOG_DIR = os.path.join(ROOT_DIR, "logs")
-SDK_VENV_DIR = os.environ.get("A1Z_SDK_VENV_DIR", "/home/ubuntu/.venvs/a1z-sdk")
+SDK_VENV_DIR = os.environ.get(
+    "A1Z_SDK_VENV_DIR",
+    os.path.join(ROOT_DIR, "runtime", "venvs", "a1z-sdk"),
+)
 SDK_VENV_SITE_DIRS = [
     os.path.join(SDK_VENV_DIR, "lib", "python3.11", "site-packages"),
     os.path.join(
@@ -60,6 +63,7 @@ from a1z_ext.config import get_tcp_host, get_tcp_port  # noqa: E402
 from a1z_ext.runtime.d405 import attach_d405_wrist_camera  # noqa: E402
 from a1z_ext.runtime.d405.session import D405CaptureSettings, D405FrameSession  # noqa: E402
 from a1z_ext.robots.get_robot import create_a1z_robot  # noqa: E402
+from a1z_ext.robots.isaac6_backend import Isaac6WorldView  # noqa: E402
 from a1z_ext.robots.server import RobotServer  # noqa: E402
 
 
@@ -417,18 +421,24 @@ def _configure_wrist_link_physics(stage) -> None:
         )
 
 
-def _configure_wrist_joint_physics(stage) -> None:
+def _configure_arm_joint_physics(stage) -> None:
     if stage is None:
         return
-    joint_paths = [
-        "/World/A1Z_G1Z/Physics/arm_joint5",
-        "/World/A1Z_G1Z/Physics/arm_joint6",
-    ]
-    drive_targets = {
-        "/World/A1Z_G1Z/Physics/arm_joint5": {"stiffness": 18.0, "damping": 7.0, "max_force": 8.0, "max_velocity": 240.0},
-        "/World/A1Z_G1Z/Physics/arm_joint6": {"stiffness": 22.0, "damping": 8.0, "max_force": 8.0, "max_velocity": 240.0},
-    }
-    for joint_path in joint_paths:
+    control_defaults = get_control_defaults()
+    isaac_cfg = control_defaults["isaacsim"]
+    drive_type = str(isaac_cfg.get("arm_drive_type", "force")).strip().lower()
+    if drive_type not in {"force", "acceleration"}:
+        raise ValueError(f"Unsupported A1Z arm drive type: {drive_type!r}")
+
+    for joint_name, stiffness, damping, max_force, max_velocity_rad_s in zip(
+        isaac_cfg["arm_joint_names"],
+        isaac_cfg["position_hold_kp"],
+        isaac_cfg["position_hold_kd"],
+        isaac_cfg["arm_max_effort"],
+        isaac_cfg["arm_max_velocity"],
+        strict=True,
+    ):
+        joint_path = f"/World/A1Z_G1Z/Physics/{joint_name}"
         prim = stage.GetPrimAtPath(joint_path)
         if not prim.IsValid():
             continue
@@ -443,53 +453,32 @@ def _configure_wrist_joint_physics(stage) -> None:
             physx_joint_api,
             "GetMaxJointVelocityAttr",
             "CreateMaxJointVelocityAttr",
-            drive_targets[joint_path]["max_velocity"],
+            math.degrees(float(max_velocity_rad_s)),
         )
         drive = UsdPhysics.DriveAPI.Get(prim, "angular")
         if not drive:
             drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
         if prim.HasAttribute("drive:angular:physics:type"):
-            drive.GetTypeAttr().Set("acceleration")
+            drive.GetTypeAttr().Set(drive_type)
         else:
-            drive.CreateTypeAttr().Set("acceleration")
+            drive.CreateTypeAttr().Set(drive_type)
+        # USD angular drives store gains per degree. The articulation tensor API
+        # exposes the same live gains per radian, so author the converted values
+        # before PhysX cooks the articulation.
+        usd_stiffness = math.radians(float(stiffness))
+        usd_damping = math.radians(float(damping))
         if prim.HasAttribute("drive:angular:physics:stiffness"):
-            drive.GetStiffnessAttr().Set(drive_targets[joint_path]["stiffness"])
+            drive.GetStiffnessAttr().Set(usd_stiffness)
         else:
-            drive.CreateStiffnessAttr().Set(drive_targets[joint_path]["stiffness"])
+            drive.CreateStiffnessAttr().Set(usd_stiffness)
         if prim.HasAttribute("drive:angular:physics:damping"):
-            drive.GetDampingAttr().Set(drive_targets[joint_path]["damping"])
+            drive.GetDampingAttr().Set(usd_damping)
         else:
-            drive.CreateDampingAttr().Set(drive_targets[joint_path]["damping"])
+            drive.CreateDampingAttr().Set(usd_damping)
         if prim.HasAttribute("drive:angular:physics:maxForce"):
-            drive.GetMaxForceAttr().Set(drive_targets[joint_path]["max_force"])
+            drive.GetMaxForceAttr().Set(float(max_force))
         else:
-            drive.CreateMaxForceAttr().Set(drive_targets[joint_path]["max_force"])
-
-
-def _enable_trashset_contact_reports(stage) -> None:
-    if stage is None:
-        return
-    target_paths = [
-        Sdf.Path("/World/GroundPlane"),
-        Sdf.Path("/World/TrashSet"),
-    ]
-    trash_root = stage.GetPrimAtPath(Sdf.Path("/World/TrashSet"))
-    if trash_root.IsValid():
-        for prim in trash_root.GetChildren():
-            target_paths.append(prim.GetPath())
-    for prim_path in target_paths:
-        prim = stage.GetPrimAtPath(prim_path)
-        if not prim.IsValid():
-            continue
-        if not (
-            prim.HasAPI(UsdPhysics.RigidBodyAPI)
-            or prim.GetAttribute("physics:rigidBodyEnabled").IsValid()
-            or prim.HasAPI(UsdPhysics.CollisionAPI)
-        ):
-            continue
-        report_api = PhysxSchema.PhysxContactReportAPI.Apply(prim)
-        if report_api:
-            report_api.CreateThresholdAttr().Set(0.0)
+            drive.CreateMaxForceAttr().Set(float(max_force))
 
 
 def _enforce_nested_rigid_body_reset_xforms(stage, root_prim_path: str) -> list[str]:
@@ -1272,8 +1261,7 @@ async def open_world(stage_path: str):
     _lighten_wrist_payload_dynamics(stage)
     _configure_arm_articulation_physics(stage)
     _configure_wrist_link_physics(stage)
-    _configure_wrist_joint_physics(stage)
-    _enable_trashset_contact_reports(stage)
+    _configure_arm_joint_physics(stage)
     d405_attachment = None
     if _env_flag("A1Z_D405_ENABLED", _viewport_enabled()):
         d405_attachment = attach_d405_wrist_camera(stage)
@@ -1326,6 +1314,7 @@ async def startup():
     d405_diagnostics_written = False
     ee_drag_target = None
     repaired_reset_paths: set[str] = set()
+    runtime_world = Isaac6WorldView()
 
     try:
         d405_attachment, viewport = await open_world(args.stage_path)
@@ -1348,7 +1337,7 @@ async def startup():
             articulation_root_prim=args.articulation_root,
             zero_gravity_mode=args.gravity_mode,
         )
-        robot.start()
+        robot.start(existing_world=runtime_world, reset_world=False)
         try:
             resolved_articulation_root = robot.get_robot_info().get("articulation_root_prim")
         except Exception:
@@ -1409,7 +1398,17 @@ async def startup():
                     attachment=d405_attachment,
                     color_camera_path=color_path,
                     depth_camera_path=depth_path or color_path,
-                    settings=D405CaptureSettings(),
+                    settings=D405CaptureSettings(
+                        width=_env_int("A1Z_D405_WIDTH", 320),
+                        height=_env_int("A1Z_D405_HEIGHT", 240),
+                        frequency_hz=_env_int("A1Z_D405_CAPTURE_HZ", 10),
+                        annotator_device=_env_str("A1Z_D405_ANNOTATOR_DEVICE", "cuda"),
+                        annotator_idle_timeout_s=_env_float(
+                            "A1Z_D405_ANNOTATOR_IDLE_TIMEOUT_SECONDS", 1.0
+                        ),
+                        zlib_level=_env_int("A1Z_D405_ZLIB_LEVEL", 1),
+                        encode_workers=_env_int("A1Z_D405_ENCODE_WORKERS", 2),
+                    ),
                     stage_path=args.stage_path,
                 )
             else:
@@ -1427,6 +1426,7 @@ async def startup():
             daemon=True,
         )
         server_thread.start()
+        server.wait_until_ready(timeout_s=5.0)
 
         carb.log_info(
             "A1Z Isaac server ready: "
@@ -1438,7 +1438,7 @@ async def startup():
 
         while not server._shutdown.is_set():
             try:
-                robot.process_pending()
+                robot.process_pending(runtime_world.get_physics_dt())
             except Exception as exc:
                 carb.log_error(f"A1Z Isaac control loop failed: {exc}")
                 raise
@@ -1459,6 +1459,8 @@ async def startup():
                         d405_diagnostics_written = await _capture_viewport_diagnostics_once(stage, viewport)
                 except Exception as exc:
                     carb.log_error(f"A1Z D405 FK tracking disabled after update failure: {exc}")
+                    if d405_session is not None:
+                        d405_session.mark_failed(exc)
                     d405_attachment = None
             await app.next_update_async()
     except Exception as exc:
@@ -1467,6 +1469,11 @@ async def startup():
     finally:
         if server is not None:
             server._shutdown.set()
+        if d405_session is not None:
+            try:
+                d405_session.close()
+            except Exception as exc:
+                carb.log_warn(f"A1Z D405 session close failed: {exc}")
         if robot is not None:
             try:
                 robot.stop()

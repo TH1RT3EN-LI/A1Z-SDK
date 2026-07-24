@@ -232,8 +232,8 @@
   <link name="gripper_finger_left_link">
     <inertial>
       <origin xyz="0.02727101 0.02205781 -0.00976829" rpy="0 0 0" />
-      <mass value="0.13786800" />
-      <inertia ixx="0.00008166" ixy="-0.00004615" ixz="0.00002382" iyy="0.00011031" iyz="0.00002050" izz="0.00014642" />
+      <mass value="0.02" />
+      <inertia ixx="0.000012" ixy="-0.000007" ixz="0.000003" iyy="0.000016" iyz="0.000003" izz="0.000021" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -256,12 +256,13 @@
     <parent link="arm_link6" />
     <child link="gripper_finger_left_link" />
     <axis xyz="0 1 0" />
+    <limit lower="0" upper="0.048" effort="120" velocity="0.35" />
   </joint>
   <link name="gripper_finger_rIght_link">
     <inertial>
       <origin xyz="0.02727101 -0.02205781 0.00984327" rpy="0 0 0" />
-      <mass value="0.13786800" />
-      <inertia ixx="0.00008183" ixy="0.00004615" ixz="-0.00002398" iyy="0.00011048" iyz="0.00002070" izz="0.00014642" />
+      <mass value="0.02" />
+      <inertia ixx="0.000012" ixy="0.000007" ixz="-0.000003" iyy="0.000016" iyz="0.000003" izz="0.000021" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -284,5 +285,6 @@
     <parent link="arm_link6" />
     <child link="gripper_finger_rIght_link" />
     <axis xyz="0 1 0" />
+    <limit lower="-0.048" upper="0" effort="120" velocity="0.35" />
   </joint>
 </robot>

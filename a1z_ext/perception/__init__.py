@@ -15,6 +15,7 @@ _EXPORTS = {
     "SelectedMaskDecision": (".mask_selection", "SelectedMaskDecision"),
     "SelectedMaskResult": (".mask_selection", "SelectedMaskResult"),
     "TargetMaskPipelineResult": (".target_mask_pipeline", "TargetMaskPipelineResult"),
+    "evaluate_selected_mask_quality": (".target_mask_pipeline", "evaluate_selected_mask_quality"),
     "build_anygrasp_inputs_from_mask": (".grasping", "build_anygrasp_inputs_from_mask"),
     "check_anygrasp_runtime": (".grasping", "check_anygrasp_runtime"),
     "generate_automatic_masks": (".automatic_masks", "generate_automatic_masks"),
@@ -43,7 +44,11 @@ if TYPE_CHECKING:
     from .grconvnet import GRConvNetInferenceResult, run_grconvnet_inference
     from .mask_selection import SelectedMaskDecision, SelectedMaskResult, select_mask_with_vlm
     from .pipeline import run_pipeline_from_frame_capture, run_pipeline_from_observation
-    from .target_mask_pipeline import TargetMaskPipelineResult, run_target_mask_pipeline
+    from .target_mask_pipeline import (
+        TargetMaskPipelineResult,
+        evaluate_selected_mask_quality,
+        run_target_mask_pipeline,
+    )
 
 __all__ = [
     "AutomaticMaskBundle",
@@ -55,6 +60,7 @@ __all__ = [
     "SelectedMaskDecision",
     "SelectedMaskResult",
     "TargetMaskPipelineResult",
+    "evaluate_selected_mask_quality",
     "build_anygrasp_inputs_from_mask",
     "check_anygrasp_runtime",
     "generate_automatic_masks",

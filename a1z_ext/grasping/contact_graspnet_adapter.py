@@ -165,6 +165,7 @@ class ContactGraspNetA1ZAdapterConfig:
     retreat_offset_m: float = 0.04
     table_height_m: float = 0.0
     min_tool_height_above_table_m: float = 0.005
+    enforce_table_clearance: bool = True
     require_approach_downward: bool = True
     max_approach_deviation_deg: float = 55.0
     table_normal_base: tuple[float, float, float] = (0.0, 0.0, 1.0)
@@ -680,6 +681,8 @@ class ContactGraspNetA1ZAdapter:
         return True
 
     def _table_clearance_ok(self, poses: Mapping[str, np.ndarray]) -> bool:
+        if not bool(self.config.enforce_table_clearance):
+            return True
         table_normal = _normalize(np.asarray(self.config.table_normal_base, dtype=np.float64))
         min_height = float(self.config.table_height_m + self.config.min_tool_height_above_table_m)
         collision_points = [

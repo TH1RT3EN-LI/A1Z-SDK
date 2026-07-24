@@ -182,12 +182,12 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint1"
         {
-            float drive:angular:physics:damping = 26
+            float drive:angular:physics:damping = 0.4537856
             float drive:angular:physics:maxForce = 50
-            float drive:angular:physics:stiffness = 240
+            float drive:angular:physics:stiffness = 4.1887903
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             rel physics:body0 = </A1Z_G1Z/Geometry/base_link>
             rel physics:body1 = </A1Z_G1Z/Geometry/base_link/arm_link1>
             float physics:lowerLimit = -130
@@ -197,12 +197,12 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint2"
         {
-            float drive:angular:physics:damping = 32
+            float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 50
-            float drive:angular:physics:stiffness = 280
+            float drive:angular:physics:stiffness = 4.886922
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1>
             rel physics:body1 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2>
             float physics:lowerLimit = -1.94
@@ -212,12 +212,12 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint3"
         {
-            float drive:angular:physics:damping = 26
+            float drive:angular:physics:damping = 0.4537856
             float drive:angular:physics:maxForce = 50
-            float drive:angular:physics:stiffness = 240
+            float drive:angular:physics:stiffness = 4.1887903
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2>
             rel physics:body1 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3>
             float physics:lowerLimit = -200.38
@@ -227,12 +227,12 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint4"
         {
-            float drive:angular:physics:damping = 16
+            float drive:angular:physics:damping = 0.27925268
             float drive:angular:physics:maxForce = 27
-            float drive:angular:physics:stiffness = 150
+            float drive:angular:physics:stiffness = 2.6179938
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3>
             rel physics:body1 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4>
             float physics:lowerLimit = -91.88
@@ -242,12 +242,12 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint5"
         {
-            float drive:angular:physics:damping = 9
+            float drive:angular:physics:damping = 0.15707964
             float drive:angular:physics:maxForce = 10
-            float drive:angular:physics:stiffness = 42
+            float drive:angular:physics:stiffness = 0.7330383
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4>
             rel physics:body1 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5>
             float physics:lowerLimit = -90
@@ -257,12 +257,12 @@ def Xform "A1Z_G1Z" (
 
         over "arm_joint6"
         {
-            float drive:angular:physics:damping = 10
+            float drive:angular:physics:damping = 0.17453292
             float drive:angular:physics:maxForce = 10
-            float drive:angular:physics:stiffness = 48
+            float drive:angular:physics:stiffness = 0.83775806
             float drive:angular:physics:targetPosition = 0
             float drive:angular:physics:targetVelocity = 0
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5>
             rel physics:body1 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6>
             float physics:lowerLimit = -120
@@ -327,4 +327,3 @@ def Xform "A1Z_G1Z" (
         }
     }
 }
-

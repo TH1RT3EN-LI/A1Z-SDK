@@ -7,6 +7,7 @@ source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
 
 BASE_IMAGE="${A1Z_ROS2_IMAGE_TAG:-a1z-ros2-humble:local}"
 RVIZ_IMAGE="${A1Z_RVIZ_IMAGE_TAG:-a1z-ros2-humble-rviz:local}"
+RVIZ_CONTAINER_NAME="${A1Z_RVIZ_CONTAINER_NAME:-a1z-rviz-humble-isaac6}"
 DOCKERFILE_PATH="$ROOT_DIR/docker/ros2-humble-rviz/Dockerfile"
 XAUTH_FILE="${A1Z_RVIZ_XAUTH_FILE:-/tmp/a1z-rviz-docker.xauth}"
 DEFAULT_RVIZ_CONFIG="${A1Z_RVIZ_CONFIG:-/workspace/A1Z/ros2_ws/rviz/a1z_d405.rviz}"
@@ -74,6 +75,12 @@ if [[ ! -d /tmp/.X11-unix ]]; then
   exit 1
 fi
 
+if docker container inspect "$RVIZ_CONTAINER_NAME" >/dev/null 2>&1; then
+  echo "RViz container already exists: $RVIZ_CONTAINER_NAME" >&2
+  echo "Stop that project-scoped container before launching another RViz instance." >&2
+  exit 1
+fi
+
 if ! docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
   "$ROOT_DIR/scripts/create_a1z_ros2_container.sh"
 fi
@@ -115,6 +122,7 @@ fi
 
 exec docker run --rm \
   "${DOCKER_TTY_ARGS[@]}" \
+  --name "$RVIZ_CONTAINER_NAME" \
   --network host \
   --ipc host \
   "${DOCKER_ENV_ARGS[@]}" \

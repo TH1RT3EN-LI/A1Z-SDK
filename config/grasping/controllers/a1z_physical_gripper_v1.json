@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "controller_profile_id": "a1z_physical_gripper_v1",
+  "calibration_status": "sim_slow_close_v6_loaded_touch_gate",
+  "gripper_model": "A1Z_G1Z_parallel_jaw",
+  "joint_names": ["gripper_finger_left_joint", "gripper_finger_rIght_joint"],
+  "open_dofs_m": [0.048, -0.048],
+  "closed_dofs_m": [0.0, 0.0],
+  "drive_type": "force",
+  "max_close_velocity_m_s": 0.006,
+  "max_command_lead_m": 0.003,
+  "virtual_coupling": {
+    "center_error_gain": 1.0,
+    "maximum_center_correction_m": 0.0015
+  },
+  "profiles": {
+    "free": {
+      "stiffness": [2500.0, 2500.0],
+      "damping": [70.0, 70.0],
+      "max_effort": [25.0, 25.0]
+    },
+    "soft_close": {
+      "stiffness": [1000.0, 1000.0],
+      "damping": [40.0, 40.0],
+      "max_effort": [10.0, 10.0]
+    },
+    "search": {
+      "stiffness": [2000.0, 2000.0],
+      "damping": [60.0, 60.0],
+      "max_effort": [20.0, 20.0]
+    },
+    "hold": {
+      "stiffness": [3000.0, 3000.0],
+      "damping": [80.0, 80.0],
+      "max_effort": [30.0, 30.0]
+    }
+  },
+  "contact": {
+    "require_bilateral": true,
+    "minimum_stable_frames": 5,
+    "force_window_frames": 5,
+    "minimum_normal_force_n": 0.05
+  },
+  "preload": {
+    "delta_m": 0.0005,
+    "maximum_delta_m": 0.008
+  },
+  "force_control": {
+    "target_normal_force_n": 2.0,
+    "maximum_normal_force_n": 12.0,
+    "force_hysteresis_n": 0.25,
+    "confirm_frames": 5,
+    "preload_step_m": 0.00008,
+    "contact_loss_grace_frames": 3,
+    "force_loss_grace_frames": 6,
+    "minimum_effort_residual_n": 0.1,
+    "minimum_position_lag_m": 0.0005,
+    "unilateral_recovery_timeout_s": 1.2
+  },
+  "timeouts_s": {
+    "precheck": 3.0,
+    "soft_close": 2.0,
+    "search": 4.0,
+    "preload": 3.0,
+    "hold_confirm": 0.5
+  }
+}

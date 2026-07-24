@@ -81,11 +81,12 @@ DEFAULT_TRASH_COLLISION_MODE = "mesh"
 DEFAULT_TRASH_STATIC_FRICTION = 1.25
 DEFAULT_TRASH_DYNAMIC_FRICTION = 0.95
 DEFAULT_TRASH_RESTITUTION = 0.0
-DEFAULT_TRASH_COMPLIANT_STIFFNESS = 220.0
-DEFAULT_TRASH_COMPLIANT_DAMPING = 28.0
+DEFAULT_TRASH_COMPLIANT_STIFFNESS = 0.0
+DEFAULT_TRASH_COMPLIANT_DAMPING = 0.0
 DEFAULT_TRASH_ENABLE_ACCEL_SPRING = False
-DEFAULT_TRASH_SOLVER_POSITION_ITERS = 24
-DEFAULT_TRASH_SOLVER_VELOCITY_ITERS = 6
+DEFAULT_TRASH_ENABLE_CCD = True
+DEFAULT_TRASH_SOLVER_POSITION_ITERS = 64
+DEFAULT_TRASH_SOLVER_VELOCITY_ITERS = 16
 DEFAULT_TRASH_MAX_DEPENETRATION_VELOCITY = 0.5
 DEFAULT_TRASH_MAX_CONTACT_IMPULSE = 8.0
 DEFAULT_TRASH_LINEAR_DAMPING = 0.8
@@ -169,6 +170,11 @@ def _sanitize_name(name: str) -> str:
     if value[0].isdigit():
         value = f"_{value}"
     return value
+
+
+def _asset_prim_name(asset: dict) -> str:
+    prim_name = str(asset.get("prim_name") or asset.get("id") or "").strip()
+    return _sanitize_name(prim_name)
 
 
 def _env_str(name: str, default: str) -> str:
@@ -396,6 +402,13 @@ def _define_trash_physics_materials(stage: Usd.Stage, materials_root: Sdf.Path) 
 
 def _apply_rigid_body_contact_profile(prim: Usd.Prim) -> None:
     rigid_body_api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)
+    rigid_body_api.CreateEnableCCDAttr().Set(
+        _env_str(
+            "A1Z_TRASH_ENABLE_CCD",
+            "1" if DEFAULT_TRASH_ENABLE_CCD else "0",
+        ).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
     rigid_body_api.CreateSolverPositionIterationCountAttr().Set(
         int(_env_float("A1Z_TRASH_SOLVER_POSITION_ITERS", DEFAULT_TRASH_SOLVER_POSITION_ITERS))
     )
@@ -628,7 +641,8 @@ def _reference_usd_asset(
             raise FileNotFoundError(usd_path)
         resolved_reference = str(usd_path)
 
-    object_path = trash_root.AppendChild(_sanitize_name(asset_id))
+    prim_name = _asset_prim_name(asset)
+    object_path = trash_root.AppendChild(prim_name)
     object_xform = UsdGeom.Xform.Define(stage, object_path)
     object_translate = np.asarray(layout["position"], dtype=np.float64).reshape(3)
     scale_xyz = np.ones(3, dtype=np.float64)
@@ -694,6 +708,7 @@ def _reference_usd_asset(
 
     return {
         "id": asset_id,
+        "prim_name": prim_name,
         "usd": authored_reference,
         "usd_resolved": resolved_reference,
         "position": tuple(float(v) for v in object_translate.tolist()),
@@ -742,7 +757,8 @@ def _build_asset(
     scale = _compute_scale(raw_dims, target_bbox, str(layout["scale_mode"]))
 
     center_xy = 0.5 * (overall_min[:2] + overall_max[:2])
-    object_path = trash_root.AppendChild(_sanitize_name(asset_id))
+    prim_name = _asset_prim_name(asset)
+    object_path = trash_root.AppendChild(prim_name)
     object_xform = UsdGeom.Xform.Define(stage, object_path)
     object_xform.AddTranslateOp().Set(Gf.Vec3d(*layout["position"]))
     object_xform.AddRotateZOp().Set(float(layout["yaw_deg"]))
@@ -789,6 +805,7 @@ def _build_asset(
 
     return {
         "id": asset_id,
+        "prim_name": prim_name,
         "glb": str(glb_path),
         "position": tuple(layout["position"]),
         "yaw_deg": float(layout["yaw_deg"]),

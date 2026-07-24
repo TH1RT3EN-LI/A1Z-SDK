@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
 
-ROS_CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:-a1z-ros2-humble}"
+ROS_CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:-paw-a1z-ros2-humble-isaac6}"
 VISION_CONTAINER_NAME="${A1Z_VISION_CONTAINER_NAME:-a1z-vision-gpu}"
 DOCKER_USER="${A1Z_CONTAINER_DOCKER_USER:-$(id -u):$(id -g)}"
 CONTAINER_ENV_FILE="/workspace/A1Z/config/a1z_vlm.env"
@@ -20,10 +20,12 @@ ANYGRASP_EXTRINSIC_CORRECTION_LABEL="${A1Z_ANYGRASP_EXTRINSIC_CORRECTION_LABEL:-
 ANYGRASP_EE_GRASP_ORIGIN="${A1Z_ANYGRASP_EE_GRASP_ORIGIN:-[0.0, 0.0, 0.0]}"
 ANYGRASP_EE_OPENING_AXIS="${A1Z_ANYGRASP_EE_OPENING_AXIS:-[0.0, 1.0, 0.0]}"
 ANYGRASP_EE_APPROACH_AXIS="${A1Z_ANYGRASP_EE_APPROACH_AXIS:-[1.0, 0.0, 0.0]}"
+ANYGRASP_DISABLE_TABLE_CLEARANCE="${A1Z_ANYGRASP_DISABLE_TABLE_CLEARANCE:-1}"
 TARGET_FRAME_ID="${A1Z_BASE_LINK_FRAME:-base_link}"
 ROS_CAPTURE_TIMEOUT_S="${A1Z_ROS_CAPTURE_TIMEOUT_S:-30}"
 ROS_CAPTURE_RETRIES="${A1Z_ROS_CAPTURE_RETRIES:-3}"
 REQUIRE_CURRENT_JOINTS=0
+AUTO_RESOLVE_TARGET_PRIM="${A1Z_AUTO_RESOLVE_TARGET_PRIM:-0}"
 
 POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
@@ -56,9 +58,13 @@ while [[ $# -gt 0 ]]; do
       REQUIRE_CURRENT_JOINTS=1
       shift
       ;;
+    --resolve-target-prim)
+      AUTO_RESOLVE_TARGET_PRIM=1
+      shift
+      ;;
     -h|--help)
   cat <<'EOF'
-usage: run_target_mask_to_anygrasp_from_ros.sh [--binding-label <label>] [--camera-correction-label <label>] [--extrinsic-correction-label <label>] [--ee-grasp-origin-xyz-m <json>] [--ee-opening-axis-xyz <json>] [--ee-approach-axis-xyz <json>] [--require-current-joints] '<instruction>' [output_dir] [provider]
+usage: run_target_mask_to_anygrasp_from_ros.sh [--binding-label <label>] [--camera-correction-label <label>] [--extrinsic-correction-label <label>] [--ee-grasp-origin-xyz-m <json>] [--ee-opening-axis-xyz <json>] [--ee-approach-axis-xyz <json>] [--require-current-joints] [--resolve-target-prim] '<instruction>' [output_dir] [provider]
 
 Pipeline:
   natural-language target -> ROS RGB-D capture -> target mask -> AnyGrasp -> adapter + best_direct + analysis + renders
@@ -76,7 +82,7 @@ set -- "${POSITIONAL_ARGS[@]}"
 
 INSTRUCTION="${1:-}"
 if [[ -z "$INSTRUCTION" ]]; then
-  echo "usage: $0 [--binding-label <label>] [--camera-correction-label <label>] [--extrinsic-correction-label <label>] [--ee-grasp-origin-xyz-m <json>] [--ee-opening-axis-xyz <json>] [--ee-approach-axis-xyz <json>] [--require-current-joints] '<instruction>' [output_dir] [provider]" >&2
+  echo "usage: $0 [--binding-label <label>] [--camera-correction-label <label>] [--extrinsic-correction-label <label>] [--ee-grasp-origin-xyz-m <json>] [--ee-opening-axis-xyz <json>] [--ee-approach-axis-xyz <json>] [--require-current-joints] [--resolve-target-prim] '<instruction>' [output_dir] [provider]" >&2
   exit 2
 fi
 
@@ -116,6 +122,45 @@ SELECTED_RANK=-1
 BEST_DIRECT_STATUS=-1
 BEST_DIRECT_PLAN_PRESENT=0
 CURRENT_JOINTS_ARG=()
+TARGET_PRIM_PATH=""
+
+archive_previous_output() {
+  mkdir -p "$HOST_OUTPUT_DIR"
+  local has_previous=0
+  local child
+  for child in \
+    capture target_mask anygrasp_from_mask adapter analysis renders execute \
+    pipeline_status.json pipeline_manifest.json
+  do
+    if [[ -e "$HOST_OUTPUT_DIR/$child" ]]; then
+      has_previous=1
+      break
+    fi
+  done
+  if [[ "$has_previous" == "0" ]]; then
+    return 0
+  fi
+
+  local archive_root="$HOST_OUTPUT_DIR/_previous_runs"
+  local stamp
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  local archive_dir="$archive_root/$stamp"
+  local suffix=1
+  while [[ -e "$archive_dir" ]]; do
+    archive_dir="$archive_root/${stamp}_$(printf '%02d' "$suffix")"
+    suffix=$((suffix + 1))
+  done
+  mkdir -p "$archive_dir"
+  for child in \
+    capture target_mask anygrasp_from_mask adapter analysis renders execute \
+    pipeline_status.json pipeline_manifest.json
+  do
+    if [[ -e "$HOST_OUTPUT_DIR/$child" ]]; then
+      mv -- "$HOST_OUTPUT_DIR/$child" "$archive_dir/"
+    fi
+  done
+  echo "Previous output archived -> $archive_dir"
+}
 
 wait_for_ros_tf() {
   docker exec \
@@ -158,6 +203,10 @@ if anygrasp_result_path.is_file():
 adapter_result = {}
 if adapter_result_path.is_file():
     adapter_result = json.loads(adapter_result_path.read_text(encoding="utf-8"))
+resolved_target_payload = {}
+resolved_target_path = output_dir / "target_mask" / "selection" / "resolved_target_prim.json"
+if resolved_target_path.is_file():
+    resolved_target_payload = json.loads(resolved_target_path.read_text(encoding="utf-8"))
 
 status_payload = {
     "capture_ok": (output_dir / "capture" / "rgb.npy").is_file() and (output_dir / "capture" / "depth_m.npy").is_file(),
@@ -179,6 +228,8 @@ status_payload = {
     "analysis_summary_present": (output_dir / "analysis" / "analysis_summary.json").is_file(),
     "current_joints_required": bool(int(r"$REQUIRE_CURRENT_JOINTS")),
     "current_joints_present": (output_dir / "capture" / "current_joints_rad.json").is_file(),
+    "resolved_target_prim_present": resolved_target_path.is_file(),
+    "resolved_target_prim_path": resolved_target_payload.get("target_prim_path", ""),
     "stage_status": {
         "capture": int(r"$CAPTURE_STATUS"),
         "target_mask": int(r"$TARGET_MASK_STATUS"),
@@ -207,6 +258,7 @@ manifest = {
         "selection_json": str(output_dir / "target_mask" / "selection" / "selection.json"),
         "selected_mask_npy": str(output_dir / "target_mask" / "selection" / "selected_mask.npy"),
         "overlay_candidates_png": str(output_dir / "target_mask" / "selection" / "overlay_object_candidates.png"),
+        "resolved_target_prim_json": str(output_dir / "target_mask" / "selection" / "resolved_target_prim.json"),
     },
     "anygrasp": {
         "dir": str(output_dir / "anygrasp_from_mask"),
@@ -253,6 +305,7 @@ manifest = {
         "best_direct_plan_present": bool(int(r"$BEST_DIRECT_PLAN_PRESENT")),
         "best_vs_selected_summary_present": (output_dir / "adapter" / "best_vs_selected_summary.json").is_file(),
         "analysis_summary_present": (output_dir / "analysis" / "analysis_summary.json").is_file(),
+        "resolved_target_prim_path": resolved_target_payload.get("target_prim_path", ""),
         "tcp_defaults": {
             "ee_grasp_origin_xyz_m": json.loads(r'''$ANYGRASP_EE_GRASP_ORIGIN'''),
             "ee_opening_axis_xyz": json.loads(r'''$ANYGRASP_EE_OPENING_AXIS'''),
@@ -278,17 +331,18 @@ on_exit() {
 }
 
 trap on_exit EXIT
+archive_previous_output
 
 if [[ "$(docker inspect -f '{{.State.Running}}' "$ROS_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
   docker start "$ROS_CONTAINER_NAME" >/dev/null
 fi
 
-bash "$ROOT_DIR/scripts/run_a1z_ros2_motion_in_container.sh" restart
-bash "$ROOT_DIR/scripts/run_a1z_ros2_motion_in_container.sh" wait
-
-if [[ "$(docker inspect -f '{{.State.Running}}' "$VISION_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
-  docker start "$VISION_CONTAINER_NAME" >/dev/null
+if ! bash "$ROOT_DIR/scripts/run_a1z_ros2_motion_in_container.sh" wait; then
+  bash "$ROOT_DIR/scripts/run_a1z_ros2_motion_in_container.sh" restart
+  bash "$ROOT_DIR/scripts/run_a1z_ros2_motion_in_container.sh" wait
 fi
+
+"$ROOT_DIR/scripts/ensure_a1z_vision_container.sh"
 
 mkdir -p "$HOST_OUTPUT_DIR" || true
 chmod 0777 "$HOST_OUTPUT_DIR" || true
@@ -351,7 +405,7 @@ if [[ -f "$HOST_OUTPUT_DIR/capture/current_joints_rad.json" ]]; then
   :
 elif docker exec \
   -e A1Z_TCP_HOST="${A1Z_TCP_HOST:-127.0.0.1}" \
-  -e A1Z_TCP_PORT="${A1Z_TCP_PORT:-18080}" \
+  -e A1Z_TCP_PORT="${A1Z_TCP_PORT:-37103}" \
   "$ROS_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail
@@ -366,6 +420,12 @@ else
     exit 4
   fi
   echo "warning: failed to capture current_joints_rad.json from control server" >&2
+fi
+
+if ! docker exec "$VISION_CONTAINER_NAME" test -f "$CAPTURE_DIR/color.png"; then
+  echo "error: captured RGB image is not visible in $VISION_CONTAINER_NAME: $CAPTURE_DIR/color.png" >&2
+  echo "       host artifact: $HOST_OUTPUT_DIR/capture/color.png" >&2
+  exit 5
 fi
 
 if docker exec \
@@ -396,6 +456,28 @@ then
 else
   TARGET_MASK_STATUS=$?
   exit "$TARGET_MASK_STATUS"
+fi
+
+if [[ "$AUTO_RESOLVE_TARGET_PRIM" == "1" && -f "$HOST_OUTPUT_DIR/target_mask/selection/selection.json" && -f "$HOST_OUTPUT_DIR/capture/depth_m.npy" && -f "$HOST_OUTPUT_DIR/capture/observation.json" && -f "$HOST_OUTPUT_DIR/capture/extrinsic_camera_to_base.npy" ]]; then
+  if "$ROOT_DIR/scripts/a1z_sdk_python_in_container.sh" \
+    /workspace/A1Z/scripts/resolve_trash_target_prim.py \
+    --selection-json "$TARGET_MASK_DIR/selection/selection.json" \
+    --depth-npy "$CAPTURE_DIR/depth_m.npy" \
+    --intrinsics-json "$CAPTURE_DIR/observation.json" \
+    --extrinsic-camera-to-base "$CAPTURE_DIR/extrinsic_camera_to_base.npy" \
+    --output-path "$TARGET_MASK_DIR/selection/resolved_target_prim.json" \
+    --tcp-host "${A1Z_TCP_HOST:-127.0.0.1}" \
+    --tcp-port "${A1Z_TCP_PORT:-37103}"
+  then
+    TARGET_PRIM_PATH="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("target_prim_path",""))' \
+      "$HOST_OUTPUT_DIR/target_mask/selection/resolved_target_prim.json")"
+    if [[ -z "$TARGET_PRIM_PATH" ]]; then
+      echo "warning: resolved target prim output did not contain target_prim_path" >&2
+    fi
+  else
+    TARGET_PRIM_PATH=""
+    echo "warning: failed to resolve live TrashSet target prim from selected mask" >&2
+  fi
 fi
 
 if docker exec \
@@ -442,6 +524,43 @@ else
   ANYGRASP_STATUS=$?
 fi
 
+if ! python3 - "$HOST_OUTPUT_DIR/anygrasp_from_mask/anygrasp/anygrasp_result.json" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+if not path.is_file():
+    print(f"error: AnyGrasp result is missing: {path}", file=sys.stderr)
+    raise SystemExit(1)
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as exc:
+    print(f"error: AnyGrasp result is unreadable: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+grasps = payload.get("top_grasps") or []
+error = str(payload.get("error", "") or "")
+if (
+    not bool(payload.get("ran", False))
+    or int(payload.get("grasp_count", 0) or 0) <= 0
+    or not grasps
+    or error
+):
+    detail = error or "detector returned no grasp candidates"
+    print(
+        "error: AnyGrasp produced no executable grasp candidates; "
+        f"{detail}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+PY
+then
+  if [[ "$ANYGRASP_STATUS" == "0" ]]; then
+    ANYGRASP_STATUS=6
+  fi
+  exit "$ANYGRASP_STATUS"
+fi
+
 if [[ ! -f "$ROOT_DIR/${CAPTURE_DIR#/workspace/A1Z/}/extrinsic_camera_to_base.npy" ]]; then
   if ! docker exec \
     "$ROS_CONTAINER_NAME" \
@@ -484,6 +603,8 @@ if [[ -f "$ROOT_DIR/${CAPTURE_DIR#/workspace/A1Z/}/extrinsic_camera_to_base.npy"
     --ee-grasp-origin-xyz-m "$ANYGRASP_EE_GRASP_ORIGIN" \
     --ee-opening-axis-xyz "$ANYGRASP_EE_OPENING_AXIS" \
     --ee-approach-axis-xyz "$ANYGRASP_EE_APPROACH_AXIS" \
+    --target-prim-path "$TARGET_PRIM_PATH" \
+    $(if [[ "$ANYGRASP_DISABLE_TABLE_CLEARANCE" == "1" ]]; then printf '%s' '--disable-table-clearance'; fi) \
       --backend anygrasp_ros_live
   then
     ADAPTER_STATUS=0
@@ -516,6 +637,8 @@ PY
     --ee-grasp-origin-xyz-m "$ANYGRASP_EE_GRASP_ORIGIN" \
     --ee-opening-axis-xyz "$ANYGRASP_EE_OPENING_AXIS" \
     --ee-approach-axis-xyz "$ANYGRASP_EE_APPROACH_AXIS" \
+    --target-prim-path "$TARGET_PRIM_PATH" \
+    $(if [[ "$ANYGRASP_DISABLE_TABLE_CLEARANCE" == "1" ]]; then printf '%s' '--disable-table-clearance'; fi) \
     --backend anygrasp_best_direct_ros_live
   then
     BEST_DIRECT_STATUS=0

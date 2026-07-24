@@ -73,13 +73,14 @@ over "A1Z_G1Z"
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
+            float physxJoint:maxJointVelocity = 20.053522
         }
 
         over "gripper_finger_rIght_joint" (
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
+            float physxJoint:maxJointVelocity = 20.053522
         }
     }
 }
-

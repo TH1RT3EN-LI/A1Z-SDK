@@ -30,6 +30,7 @@ expected_env = {
     "A1Z_ANYGRASP_CAMERA_CORRECTION_LABEL": frame_camera,
     "A1Z_ANYGRASP_EXTRINSIC_CORRECTION_LABEL": frame_extrinsic,
     "A1Z_ANYGRASP_EXECUTION_MODE": "best_direct",
+    "A1Z_ANYGRASP_GRASP_MODE": "physical_v2",
     "A1Z_ANYGRASP_EE_GRASP_ORIGIN": "[0.0, 0.0, 0.0]",
     "A1Z_ANYGRASP_EE_OPENING_AXIS": "[0.0, 1.0, 0.0]",
     "A1Z_ANYGRASP_EE_APPROACH_AXIS": "[1.0, 0.0, 0.0]",
@@ -40,6 +41,7 @@ for key, value in expected_env.items():
     assert actual == value, (key, actual, value)
 
 assert 'EXECUTION_MODE="${A1Z_ANYGRASP_EXECUTION_MODE:-best_direct}"' in pick_text, pick_text
+assert 'GRASP_MODE="${A1Z_ANYGRASP_GRASP_MODE:-physical_v2}"' in pick_text, pick_text
 assert f'ANYGRASP_BINDING_LABEL="${{A1Z_ANYGRASP_BINDING_LABEL:-{frame_binding}}}"' in from_ros_text, from_ros_text
 assert f'ANYGRASP_CAMERA_CORRECTION_LABEL="${{A1Z_ANYGRASP_CAMERA_CORRECTION_LABEL:-{frame_camera}}}"' in from_ros_text, from_ros_text
 assert f'ANYGRASP_EXTRINSIC_CORRECTION_LABEL="${{A1Z_ANYGRASP_EXTRINSIC_CORRECTION_LABEL:-{frame_extrinsic}}}"' in from_ros_text, from_ros_text

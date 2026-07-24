@@ -25,6 +25,7 @@ DEFAULT_D405_STAGE_MOUNT_OFFSET_XYZ_M = (0.08, 0.0, 0.08623718)
 DEFAULT_D405_STAGE_MOUNT_RPY_DEG = (0.0, 0.0, 0.0)
 DEFAULT_D405_MASS_KG = 0.001
 D405_BASE_MASS_KG = 0.072
+DEFAULT_GRIPPER_FINGER_MASS_KG = 0.02
 D405_BASE_INERTIA = (
     0.003881243,
     0.0,
@@ -51,6 +52,10 @@ GRIPPER_JOINT_NAMES = (
     "gripper_finger_rIght_joint",
 )
 GRIPPER_JOINT_AXIS = "0 1 0"
+GRIPPER_JOINT_LIMITS_M = {
+    "gripper_finger_left_joint": (0.0, 0.048),
+    "gripper_finger_rIght_joint": (-0.048, 0.0),
+}
 LINK3_INERTIA_OVERRIDE = {
     "mass": 0.93954481,
     "origin_xyz": (0.16216028, -6.8e-06, 0.05497523),
@@ -375,6 +380,20 @@ def _set_gripper_joint_mode(root: ET.Element, *, fixed: bool) -> None:
             if axis is None:
                 axis = ET.SubElement(joint, "axis")
             axis.set("xyz", GRIPPER_JOINT_AXIS)
+            limit = joint.find("limit")
+            if limit is None:
+                limit = ET.SubElement(joint, "limit")
+            lower_m, upper_m = GRIPPER_JOINT_LIMITS_M[joint_name]
+            limit.set("lower", _float_string(lower_m))
+            limit.set("upper", _float_string(upper_m))
+            limit.set(
+                "effort",
+                _float_string(CONTROL_DEFAULTS["isaacsim"]["gripper_max_effort"][0]),
+            )
+            limit.set(
+                "velocity",
+                _float_string(CONTROL_DEFAULTS["isaacsim"]["gripper_max_velocity"][0]),
+            )
 
 
 def _override_link_inertial(root: ET.Element, link_name: str, override: dict[str, float | tuple[float, float, float]]) -> None:
@@ -404,6 +423,30 @@ def _override_link_inertial(root: ET.Element, link_name: str, override: dict[str
         inertia.set("izz", _float_string(override["izz"]))
 
 
+def _scale_link_inertial_mass(root: ET.Element, link_name: str, target_mass_kg: float) -> None:
+    match = _find_named_child(root, "link", link_name)
+    if match is None:
+        return
+    _, link = match
+    inertial = link.find("inertial")
+    if inertial is None:
+        return
+    mass = inertial.find("mass")
+    inertia = inertial.find("inertia")
+    if mass is None or inertia is None:
+        return
+
+    source_mass_kg = float(mass.get("value", "0"))
+    if source_mass_kg <= 0:
+        raise ValueError(f"Link {link_name} has non-positive source mass: {source_mass_kg}")
+
+    target_mass_kg = max(target_mass_kg, 1e-6)
+    inertia_scale = target_mass_kg / source_mass_kg
+    mass.set("value", _float_string(target_mass_kg))
+    for attribute in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz"):
+        inertia.set(attribute, _float_string(float(inertia.get(attribute, "0")) * inertia_scale))
+
+
 def _remove_gripper_subtree(root: ET.Element) -> None:
     gripper_link_names = {"gripper_finger_left_link", "gripper_finger_rIght_link"}
     gripper_joint_names = set(GRIPPER_JOINT_NAMES)
@@ -429,6 +472,9 @@ def _build_variant(*, fixed_gripper: bool, limit_kind: str) -> ET.ElementTree:
     _upsert_grasp_tcp(variant_root)
     _upsert_d405(variant_root)
     if _env_bool("A1Z_WITH_GRIPPER", True):
+        finger_mass_kg = _env_float("A1Z_GRIPPER_FINGER_MASS_KG", DEFAULT_GRIPPER_FINGER_MASS_KG)
+        _scale_link_inertial_mass(variant_root, "gripper_finger_left_link", finger_mass_kg)
+        _scale_link_inertial_mass(variant_root, "gripper_finger_rIght_link", finger_mass_kg)
         _set_gripper_joint_mode(variant_root, fixed=fixed_gripper)
     else:
         _remove_gripper_subtree(variant_root)

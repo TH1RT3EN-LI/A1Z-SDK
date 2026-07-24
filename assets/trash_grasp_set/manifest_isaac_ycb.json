@@ -4,6 +4,7 @@
   "direct_assets": [
     {
       "id": "can_crushed",
+      "prim_name": "pudding_box",
       "source_type": "usd_reference",
       "category": "paper",
       "source_provider": "Isaac Sim YCB",
@@ -15,6 +16,7 @@
     },
     {
       "id": "marker_upright",
+      "prim_name": "large_marker",
       "source_type": "usd_reference",
       "category": "tool",
       "source_provider": "Isaac Sim YCB",
@@ -26,6 +28,7 @@
     },
     {
       "id": "bottle_plastic",
+      "prim_name": "cracker_box",
       "source_type": "usd_reference",
       "category": "paper",
       "source_provider": "Isaac Sim YCB",
@@ -37,6 +40,7 @@
     },
     {
       "id": "bottle_water",
+      "prim_name": "sugar_box",
       "source_type": "usd_reference",
       "category": "paper",
       "source_provider": "Isaac Sim YCB",
@@ -48,6 +52,7 @@
     },
     {
       "id": "paper_debris",
+      "prim_name": "gelatin_box",
       "source_type": "usd_reference",
       "category": "paper",
       "source_provider": "Isaac Sim YCB",

@@ -4,10 +4,27 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
+
+
+@dataclass(frozen=True)
+class ArmMotionSpeedLimits:
+    minimum: float
+    default: float
+    maximum: float
+
+    def validate(self, value: float) -> float:
+        speed = float(value)
+        if not self.minimum <= speed <= self.maximum:
+            raise ValueError(
+                "机械臂速度必须位于 "
+                f"[{self.minimum:g}, {self.maximum:g}] rad/s，当前为 {speed:g}"
+            )
+        return speed
 
 
 def _repo_root() -> Path:
@@ -48,3 +65,19 @@ def get_tcp_port() -> int:
 
 def get_default_backend() -> str:
     return os.environ.get("A1Z_BACKEND", get_control_defaults()["default_backend"])
+
+
+def get_arm_motion_speed_limits() -> ArmMotionSpeedLimits:
+    values = get_control_defaults()["arm_motion_speed_rad_s"]
+    limits = ArmMotionSpeedLimits(
+        minimum=float(values["minimum"]),
+        default=float(values["default"]),
+        maximum=float(values["maximum"]),
+    )
+    if not 0.0 < limits.minimum <= limits.default <= limits.maximum:
+        raise ValueError(f"Invalid arm_motion_speed_rad_s configuration: {values!r}")
+    return limits
+
+
+def validate_arm_motion_speed(value: float) -> float:
+    return get_arm_motion_speed_limits().validate(value)

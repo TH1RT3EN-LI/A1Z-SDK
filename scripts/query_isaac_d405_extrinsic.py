@@ -100,7 +100,7 @@ def _query_live_status() -> dict[str, object]:
         "status",
         socket_path=os.environ.get("A1Z_SOCKET_PATH", ""),
         tcp_host=os.environ.get("A1Z_TCP_HOST", ""),
-        tcp_port=int(os.environ.get("A1Z_TCP_PORT", "18080")),
+        tcp_port=int(os.environ.get("A1Z_TCP_PORT", "37103")),
     )
     return dict(payload)
 

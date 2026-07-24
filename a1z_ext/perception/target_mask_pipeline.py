@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 import json
 import os
 from pathlib import Path
+import shutil
 from typing import Any
 
 from a1z_ext.llm import LLMProviderConfig
@@ -27,6 +28,8 @@ class TargetMaskPipelineResult:
     selected_mask_index: int
     confidence: float
     reason: str
+    mask_quality: dict[str, Any]
+    refinement_attempted: bool
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -53,6 +56,32 @@ def _build_llm_config_from_env(*, provider: str | None, max_tokens: int) -> LLMP
         max_tokens=max_tokens,
         temperature=base.temperature,
     )
+
+
+def evaluate_selected_mask_quality(
+    selected_mask: dict[str, Any] | None,
+    *,
+    minimum_area_px: int = 256,
+) -> dict[str, Any]:
+    """Return the grasp-readiness gate for a VLM-selected segmentation mask."""
+    required_area = max(1, int(minimum_area_px))
+    area = int((selected_mask or {}).get("area", 0) or 0)
+    usable = area >= required_area
+    if selected_mask is None:
+        reason = "target selection did not produce a mask"
+    elif not usable:
+        reason = (
+            f"selected mask is too small for reliable grasping: "
+            f"{area} px, minimum {required_area} px"
+        )
+    else:
+        reason = "selected mask passed grasp input quality checks"
+    return {
+        "area_px": area,
+        "minimum_area_px": required_area,
+        "usable_for_grasp": usable,
+        "reason": reason,
+    }
 
 
 def run_target_mask_pipeline(
@@ -83,6 +112,8 @@ def run_target_mask_pipeline(
     max_preview_masks: int | None = 24,
     max_area_ratio: float = 0.7,
     max_boundary_touches: int = 2,
+    minimum_selected_mask_area_px: int = 256,
+    refine_small_masks: bool = True,
 ) -> TargetMaskPipelineResult:
     if env_file is not None:
         load_env_file(env_file)
@@ -129,6 +160,62 @@ def run_target_mask_pipeline(
         max_area_ratio=max_area_ratio,
         max_boundary_touches=max_boundary_touches,
     )
+    mask_quality = evaluate_selected_mask_quality(
+        selection_result.selected_mask,
+        minimum_area_px=minimum_selected_mask_area_px,
+    )
+    refinement_attempted = False
+
+    if (
+        refine_small_masks
+        and selection_result.decision.target_found
+        and not mask_quality["usable_for_grasp"]
+    ):
+        refinement_attempted = True
+        initial_selection = selection_dir / "selection.json"
+        if initial_selection.is_file():
+            shutil.copy2(initial_selection, selection_dir / "selection_initial.json")
+
+        refined_dir = output_root / "automatic_masks_refined"
+        automatic_bundle = generate_automatic_masks(
+            image_path=resolved_image.image_path,
+            output_dir=refined_dir,
+            sam_checkpoint=sam_checkpoint,
+            sam_config=sam_config,
+            points_per_side=max(int(points_per_side), 64),
+            points_per_batch=points_per_batch,
+            pred_iou_thresh=min(float(pred_iou_thresh), 0.75),
+            stability_score_thresh=min(float(stability_score_thresh), 0.9),
+            stability_score_offset=stability_score_offset,
+            box_nms_thresh=min(float(box_nms_thresh), 0.65),
+            crop_n_layers=max(int(crop_n_layers), 1),
+            crop_nms_thresh=crop_nms_thresh,
+            crop_overlap_ratio=crop_overlap_ratio,
+            crop_n_points_downscale_factor=max(
+                int(crop_n_points_downscale_factor),
+                2,
+            ),
+            min_mask_region_area=0,
+            max_preview_masks=(
+                None
+                if max_preview_masks is None
+                else max(int(max_preview_masks), 48)
+            ),
+        )
+        selection_result = select_mask_with_vlm(
+            instruction=instruction,
+            automatic_mask_bundle=automatic_bundle,
+            output_dir=selection_dir,
+            llm_config=llm_config,
+            image_detail=image_detail,
+            max_area_ratio=max_area_ratio,
+            max_boundary_touches=max_boundary_touches,
+        )
+        mask_quality = evaluate_selected_mask_quality(
+            selection_result.selected_mask,
+            minimum_area_px=minimum_selected_mask_area_px,
+        )
+        automatic_dir = refined_dir
 
     result = TargetMaskPipelineResult(
         instruction=instruction,
@@ -141,11 +228,16 @@ def run_target_mask_pipeline(
         automatic_mask_summary_path=str(automatic_dir / "summary.json"),
         selection_json_path=selection_result.selection_json_path,
         selected_mask=selection_result.selected_mask,
-        direct_grasp_recommended=selection_result.decision.direct_grasp_recommended,
+        direct_grasp_recommended=(
+            selection_result.decision.direct_grasp_recommended
+            and bool(mask_quality["usable_for_grasp"])
+        ),
         target_found=selection_result.decision.target_found,
         selected_mask_index=selection_result.decision.selected_mask_index,
         confidence=selection_result.decision.confidence,
         reason=selection_result.decision.reason,
+        mask_quality=mask_quality,
+        refinement_attempted=refinement_attempted,
     )
     (output_root / "pipeline_result.json").write_text(
         json.dumps(result.to_dict(), ensure_ascii=True, indent=2),

@@ -24,10 +24,16 @@ def _read_json_line(sock: socket.socket) -> dict[str, Any]:
     return payload
 
 
-def _send_unix_socket_request(socket_path: str, cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+def _send_unix_socket_request(
+    socket_path: str,
+    cmd: str,
+    args: dict[str, Any] | None = None,
+    *,
+    timeout_s: float = 10.0,
+) -> dict[str, Any]:
     request = json.dumps({"cmd": cmd, "args": args or {}}) + "\n"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(10.0)
+    sock.settimeout(float(timeout_s))
     try:
         sock.connect(socket_path)
         sock.sendall(request.encode("utf-8"))
@@ -54,17 +60,19 @@ def _send_tcp_request(
     tcp_port: int,
     cmd: str,
     args: dict[str, Any] | None = None,
+    *,
+    timeout_s: float = 10.0,
 ) -> dict[str, Any]:
     request = json.dumps({"cmd": cmd, "args": args or {}}) + "\n"
     last_error: Exception | None = None
     for host in _tcp_connect_hosts(tcp_host):
         try:
-            sock = socket.create_connection((host, int(tcp_port)), timeout=10.0)
+            sock = socket.create_connection((host, int(tcp_port)), timeout=float(timeout_s))
         except Exception as exc:
             last_error = exc
             continue
         try:
-            sock.settimeout(10.0)
+            sock.settimeout(float(timeout_s))
             sock.sendall(request.encode("utf-8"))
             payload = _read_json_line(sock)
         finally:
@@ -85,21 +93,30 @@ def send_control_request(
     socket_path: str | None = None,
     tcp_host: str | None = None,
     tcp_port: int | None = None,
+    timeout_s: float = 10.0,
 ) -> dict[str, Any]:
-    unix_path = socket_path or get_socket_path()
+    # None means "use the configured Unix socket"; an explicit empty string
+    # disables Unix transport so callers can require TCP deterministically.
+    unix_path = get_socket_path() if socket_path is None else socket_path
     resolved_tcp_host = tcp_host or get_tcp_host()
     resolved_tcp_port = int(get_tcp_port() if tcp_port is None else tcp_port)
 
     unix_error: Exception | None = None
     if unix_path:
         try:
-            return _send_unix_socket_request(unix_path, cmd, args)
+            return _send_unix_socket_request(unix_path, cmd, args, timeout_s=float(timeout_s))
         except Exception as exc:
             unix_error = exc
 
     if resolved_tcp_port > 0:
         try:
-            return _send_tcp_request(resolved_tcp_host, resolved_tcp_port, cmd, args)
+            return _send_tcp_request(
+                resolved_tcp_host,
+                resolved_tcp_port,
+                cmd,
+                args,
+                timeout_s=float(timeout_s),
+            )
         except Exception as exc:
             if unix_error is not None:
                 raise RuntimeError(

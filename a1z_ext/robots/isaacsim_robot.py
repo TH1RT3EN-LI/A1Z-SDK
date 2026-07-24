@@ -2,27 +2,58 @@
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import time
 import warnings
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional
+from dataclasses import dataclass, field, replace
+from typing import Any, Callable, Dict, Mapping, Optional
 
 import carb
 import numpy as np
 import omni.physx
 import omni.usd
-from isaacsim.core.api import World
-from isaacsim.core.prims import RigidPrim, SingleArticulation
 from isaacsim.core.simulation_manager import SimulationManager
-from isaacsim.core.utils.types import ArticulationAction
 from omni.physx import get_physx_simulation_interface
 from omni.physx.bindings._physx import ContactEventType
-from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics
-from a1z_ext.config import get_control_defaults
+from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+from a1z_ext.config import get_arm_motion_speed_limits, get_control_defaults
+from a1z_ext.grasping.contact_reducer import reduce_contact_impulses
+from a1z_ext.grasping.parallel_jaw import (
+    ParallelJawMapping,
+    rate_limit_parallel_jaw_setpoint,
+)
+from a1z_ext.grasping.physical_fsm import PhysicalGraspFSM
+from a1z_ext.grasping.physical_types import (
+    ContactSnapshot,
+    DriveProfile,
+    GraspPhase,
+    GripperSnapshot,
+    PhysicalGraspConfig,
+    PhysicalGraspStatus,
+)
 from a1z_ext.robots.grasp_attach_policy import select_contact_candidate, summarize_attach_contacts
+from a1z_ext.robots.position_hold import bounded_position_hold_feedforward
 from a1z_ext.robots.trajectory import RecordingSession, Trajectory, play_trajectory_blocking
+
+
+from a1z_ext.robots.isaac6_backend import configured_isaac_api_profile
+
+
+_NATIVE_ISAAC6 = configured_isaac_api_profile() == "native_6_0"
+if _NATIVE_ISAAC6:
+    from a1z_ext.robots.isaac6_backend import (
+        A1ZArticulationCommand as ArticulationCommand,
+        Isaac6ArticulationAdapter as ArticulationAdapter,
+        Isaac6RigidPrimAdapter as RigidPrim,
+    )
+
+    World = Any
+else:
+    from isaacsim.core.api import World
+    from isaacsim.core.prims import RigidPrim, SingleArticulation as ArticulationAdapter
+    from isaacsim.core.utils.types import ArticulationAction as ArticulationCommand
 
 
 def _smoothstep(t: float) -> float:
@@ -68,6 +99,10 @@ class _SimGraspState:
     last_failure_reason: Optional[str] = None
     filtered_pairs: list[tuple[str, str]] = field(default_factory=list)
     rigid_body_restore: dict[str, object] = field(default_factory=dict)
+    post_attach_closing_active: bool = False
+    post_attach_stable_count: int = 0
+    post_attach_required_count: int = 0
+    post_attach_target_value: float = 0.0
 
 
 @dataclass
@@ -120,14 +155,43 @@ class _PendingGraspAttach:
     precheck_last_arm_pos: Optional[np.ndarray] = None
 
 
+@dataclass
+class _PhysicalGraspOperation:
+    fsm: PhysicalGraspFSM
+    mapping: ParallelJawMapping
+    target_body_path: str
+    initial_constraint_paths: frozenset[str]
+    initial_target_physics_state: Mapping[str, bool]
+    initial_target_world_translation_m: Optional[tuple[float, float, float]]
+    max_close_velocity_m_s: float
+    max_command_lead_m: float
+    controller_profile: Optional[Mapping[str, Any]] = None
+    last_applied_command_signature: Optional[tuple[Any, ...]] = None
+    close_done_event: threading.Event = field(default_factory=threading.Event)
+    release_done_event: threading.Event = field(default_factory=threading.Event)
+    close_result: Optional[Dict[str, Any]] = None
+    release_result: Optional[Dict[str, Any]] = None
+    error: Optional[BaseException] = None
+    latest_contacts: ContactSnapshot = field(default_factory=ContactSnapshot)
+    latest_gripper: Optional[GripperSnapshot] = None
+    started_at_s: float = 0.0
+    holding_confirmed: bool = False
+    minimum_effort_residual_n: float = 0.1
+    minimum_position_lag_m: float = 0.0005
+    gripper_effort_baseline_n: Optional[tuple[float, float]] = None
+    gripper_effort_baseline_samples: int = 0
+    latest_effort_residual_n: Optional[tuple[float, float]] = None
+
+
 class IsaacSimArmRobot:
     """Drive the imported A1Z articulation from inside the Isaac Kit thread."""
 
     _REQUEST_TIMEOUT_S = 120.0
-    _ARM_SETTLE_TOL_RAD = np.deg2rad(0.75)
-    _ARM_FORCE_SNAP_TOL_RAD = np.deg2rad(6.0)
-    _ARM_LEAD_JOINT_SNAP_TOL_RAD = np.deg2rad(5.0)
-    _ARM_WRIST_JOINT_SNAP_TOL_RAD = np.deg2rad(70.0)
+    _ARM_SETTLE_TOL_RAD = np.deg2rad(0.50)
+    _ARM_SETTLE_REQUIRED_SAMPLES = 3
+    _ARM_FORCE_SNAP_TOL_RAD = np.deg2rad(0.75)
+    _ARM_LEAD_JOINT_SNAP_TOL_RAD = np.deg2rad(0.75)
+    _ARM_WRIST_JOINT_SNAP_TOL_RAD = np.deg2rad(3.0)
     _ARM_POST_MOVE_WRIST_RECOVERY_TOL_RAD = np.deg2rad(10.0)
     _ARM_STAGE_WRIST_DELTA_RAD = np.deg2rad(12.0)
     _ARM_STAGE_SPEED_RAD_S = 0.30
@@ -135,6 +199,7 @@ class IsaacSimArmRobot:
     _GRASP_ATTACH_REQUIRED_CONTACT_COUNT = 3
     _GRASP_ATTACH_PRECHECK_CLEAR_STEPS = 3
     _GRASP_ATTACH_PRECHECK_MAX_ARM_VEL_RAD_S = 0.12
+    _GRASP_ATTACH_PRECHECK_MAX_WRIST_VEL_RAD_S = 0.20
     _GRASP_ATTACH_PRECHECK_MAX_ARM_COMMAND_ERR_RAD = np.deg2rad(2.0)
     _GRASP_ATTACH_PRECHECK_MAX_ARM_FRAME_DELTA_RAD = np.deg2rad(0.10)
     _GRASP_ATTACH_CLOSED_TOL = 0.05
@@ -162,6 +227,13 @@ class IsaacSimArmRobot:
     _GRASP_ATTACH_COMPLIANT_MAX_CONTACT_IMPULSE = 2.5
     _GRASP_ATTACH_COMPLIANT_SOLVER_POSITION_ITERS = 32
     _GRASP_ATTACH_COMPLIANT_SOLVER_VELOCITY_ITERS = 8
+    _POST_ATTACH_CLOSE_REQUIRED_CONTACT_COUNT = 2
+    _PHYSICAL_GRASP_MOTION_STABLE_VEL_M_S = 0.002
+    _PHYSICAL_GRASP_FULLY_CLOSED_TOL_M = 0.001
+    _PHYSICAL_GRASP_MAX_COMMAND_LEAD_M = 0.005
+    _GRIPPER_PAD_MATERIAL_PATH = "/World/PhysicsMaterials/A1ZGripperPad"
+    _GRIPPER_PAD_STATIC_FRICTION = 2.0
+    _GRIPPER_PAD_DYNAMIC_FRICTION = 1.5
 
     @staticmethod
     def _flatten_gain_array(values: Any) -> np.ndarray:
@@ -194,7 +266,21 @@ class IsaacSimArmRobot:
         self._with_gripper = with_gripper
         self._control_freq_hz = control_freq_hz
         self._control_period_s = 1.0 / max(1, control_freq_hz)
+        self._control_elapsed_s = 0.0
+        # ArticulationController is the authoritative live command path.  The
+        # old USD mirror is retained only for version-specific compatibility
+        # experiments because writing both paths every control tick produces
+        # redundant USD/Fabric notices in Isaac Sim 6.
+        self._mirror_drive_targets_to_usd = os.environ.get(
+            "A1Z_ISAAC_MIRROR_DRIVE_TARGETS_TO_USD", "0"
+        ).strip().lower() in {"1", "true", "yes", "on"}
         self._articulation_root_prim = articulation_root_prim or isaac_cfg["articulation_root_prim"]
+        self._arm_drive_type = str(isaac_cfg.get("arm_drive_type", "force")).strip().lower()
+        if self._arm_drive_type not in {"force", "acceleration"}:
+            raise ValueError(
+                "isaacsim.arm_drive_type must be 'force' or 'acceleration', "
+                f"got {self._arm_drive_type!r}"
+            )
         self._arm_joint_names = list(isaac_cfg["arm_joint_names"])
         self._gripper_joint_names = list(isaac_cfg["gripper_joint_names"])
 
@@ -206,23 +292,61 @@ class IsaacSimArmRobot:
         )[: self._num_joints].copy()
         self._hold_kp = np.asarray(isaac_cfg["position_hold_kp"], dtype=np.float64).reshape(-1)
         self._hold_kd = np.asarray(isaac_cfg["position_hold_kd"], dtype=np.float64).reshape(-1)
+        self._position_hold_gravity_compensation = bool(
+            isaac_cfg.get("position_hold_gravity_compensation", True)
+        )
+        self._position_hold_feedforward_limit = np.asarray(
+            isaac_cfg.get(
+                "position_hold_feedforward_limit_nm",
+                control_defaults["arm_rated_torque_nm"],
+            ),
+            dtype=np.float64,
+        ).reshape(-1)[: self._num_joints]
+        if (
+            self._position_hold_feedforward_limit.size != self._num_joints
+            or not np.all(np.isfinite(self._position_hold_feedforward_limit))
+            or np.any(self._position_hold_feedforward_limit <= 0.0)
+        ):
+            raise ValueError(
+                "isaacsim.position_hold_feedforward_limit_nm must contain "
+                f"{self._num_joints} finite positive values"
+            )
         self._arm_max_effort = np.asarray(isaac_cfg["arm_max_effort"], dtype=np.float64).reshape(-1)
         self._arm_max_velocity = np.asarray(isaac_cfg["arm_max_velocity"], dtype=np.float64).reshape(-1)
         self._arm_peak_velocity = np.asarray(control_defaults["arm_peak_velocity_rad_s"], dtype=np.float64).reshape(-1)
+        self._arm_motion_speed_limits = get_arm_motion_speed_limits()
         self._gravity_mode_kd_scale = float(isaac_cfg["gravity_mode_kd_scale"])
         self._gripper_kp = np.asarray(isaac_cfg["gripper_kp"], dtype=np.float64).reshape(-1)
         self._gripper_kd = np.asarray(isaac_cfg["gripper_kd"], dtype=np.float64).reshape(-1)
         self._gripper_max_effort = np.asarray(isaac_cfg["gripper_max_effort"], dtype=np.float64).reshape(-1)
         self._gripper_max_velocity = np.asarray(isaac_cfg["gripper_max_velocity"], dtype=np.float64).reshape(-1)
-        self._gripper_soft_kp = self._gripper_kp.copy() * 0.05
-        self._gripper_soft_kd = self._gripper_kd.copy() * 0.20
-        self._gripper_soft_max_effort = np.maximum(self._gripper_max_effort.copy() * 0.08, np.array([6.0, 6.0], dtype=np.float64))
-        self._gripper_search_kp = self._gripper_kp.copy() * 0.065
-        self._gripper_search_kd = self._gripper_kd.copy() * 0.24
-        self._gripper_search_max_effort = np.maximum(self._gripper_max_effort.copy() * 0.12, np.array([8.0, 8.0], dtype=np.float64))
-        self._gripper_hold_kp = self._gripper_kp.copy() * 0.04
-        self._gripper_hold_kd = self._gripper_kd.copy() * 0.16
-        self._gripper_hold_max_effort = np.maximum(self._gripper_max_effort.copy() * 0.05, np.array([4.0, 4.0], dtype=np.float64))
+        self._gripper_soft_kp = np.minimum(
+            self._gripper_kp.copy(), np.array([4000.0, 4000.0], dtype=np.float64)
+        )
+        self._gripper_soft_kd = np.minimum(
+            self._gripper_kd.copy(), np.array([140.0, 140.0], dtype=np.float64)
+        )
+        self._gripper_soft_max_effort = np.minimum(
+            self._gripper_max_effort.copy(), np.array([50.0, 50.0], dtype=np.float64)
+        )
+        self._gripper_search_kp = np.minimum(
+            self._gripper_kp.copy(), np.array([6000.0, 6000.0], dtype=np.float64)
+        )
+        self._gripper_search_kd = np.minimum(
+            self._gripper_kd.copy(), np.array([180.0, 180.0], dtype=np.float64)
+        )
+        self._gripper_search_max_effort = np.minimum(
+            self._gripper_max_effort.copy(), np.array([80.0, 80.0], dtype=np.float64)
+        )
+        self._gripper_hold_kp = np.minimum(
+            self._gripper_kp.copy(), np.array([7000.0, 7000.0], dtype=np.float64)
+        )
+        self._gripper_hold_kd = np.minimum(
+            self._gripper_kd.copy(), np.array([220.0, 220.0], dtype=np.float64)
+        )
+        self._gripper_hold_max_effort = np.minimum(
+            self._gripper_max_effort.copy(), np.array([100.0, 100.0], dtype=np.float64)
+        )
 
         self._default_kp = (
             np.asarray(default_kp, dtype=np.float64).reshape(-1).copy()
@@ -267,7 +391,7 @@ class IsaacSimArmRobot:
 
         self._main_thread_id = threading.get_ident()
         self._world: Optional[World] = None
-        self._articulation: Optional[SingleArticulation] = None
+        self._articulation: Optional[ArticulationAdapter] = None
         self._running = False
 
         self._request_queue: queue.Queue[_MainThreadRequest] = queue.Queue()
@@ -285,6 +409,8 @@ class IsaacSimArmRobot:
         self._gripper_joint_paths: list[str] = []
         self._last_control_action_time = 0.0
         self._last_gripper_action_time = 0.0
+        self._gripper_command_dofs: Optional[np.ndarray] = None
+        self._gripper_target_dofs_override: Optional[np.ndarray] = None
         self._last_hard_limit_log_time = 0.0
 
         self._gripper_open_value = 1.0
@@ -301,7 +427,9 @@ class IsaacSimArmRobot:
         self._nested_rigid_body_reset_repaired: set[str] = set()
         self._nested_rigid_body_reset_flip_logged: set[str] = set()
         self._pending_grasp_attach: Optional[_PendingGraspAttach] = None
+        self._physical_grasp_operation: Optional[_PhysicalGraspOperation] = None
         self._active_gripper_drive_profile = ""
+        self._gripper_pad_material_status: dict[str, Any] = {}
 
         initial_kp = self._active_arm_kp()
         initial_kd = self._active_arm_kd()
@@ -327,7 +455,7 @@ class IsaacSimArmRobot:
     def num_dofs(self) -> int:
         return self._num_joints + (1 if self._with_gripper else 0)
 
-    def _resolve_articulation(self) -> tuple[str, SingleArticulation]:
+    def _resolve_articulation(self) -> tuple[str, ArticulationAdapter]:
         stage = omni.usd.get_context().get_stage()
         if stage is None:
             raise RuntimeError("Isaac stage is not available while resolving articulation root.")
@@ -335,7 +463,7 @@ class IsaacSimArmRobot:
         if not prim.IsValid():
             raise RuntimeError(f"Invalid articulation root prim: {self._articulation_root_prim}")
 
-        articulation = SingleArticulation(prim_path=self._articulation_root_prim, name="a1z")
+        articulation = ArticulationAdapter(prim_path=self._articulation_root_prim, name="a1z")
         articulation.initialize()
         if not articulation.is_valid():
             raise RuntimeError(f"Invalid articulation at requested root: {self._articulation_root_prim}")
@@ -353,21 +481,38 @@ class IsaacSimArmRobot:
         self,
         initial_kp: Optional[np.ndarray] = None,
         initial_kd: Optional[np.ndarray] = None,
+        existing_world=None,
+        reset_world: bool = True,
     ) -> None:
         self._run_on_main_thread(
-            lambda: self._start_impl(initial_kp=initial_kp, initial_kd=initial_kd)
+            lambda: self._start_impl(
+                initial_kp=initial_kp,
+                initial_kd=initial_kd,
+                existing_world=existing_world,
+                reset_world=reset_world,
+            )
         )
 
     def _start_impl(
         self,
         initial_kp: Optional[np.ndarray] = None,
         initial_kd: Optional[np.ndarray] = None,
+        existing_world=None,
+        reset_world: bool = True,
     ) -> None:
         self._contact_view_cache.clear()
         self._rigid_body_view_cache.clear()
         self._active_gripper_drive_profile = ""
-        self._world = World(stage_units_in_meters=1.0)
-        self._world.reset()
+        if existing_world is None:
+            if _NATIVE_ISAAC6:
+                raise RuntimeError("Isaac 6 A1Z backend requires the A1Z public-API world adapter.")
+            self._world = World(stage_units_in_meters=1.0)
+            if reset_world:
+                self._world.reset()
+        else:
+            self._world = existing_world
+            if reset_world and hasattr(self._world, "reset"):
+                self._world.reset()
         resolved_root, articulation = self._resolve_articulation()
         self._articulation_root_prim = resolved_root
         self._articulation = articulation
@@ -381,8 +526,18 @@ class IsaacSimArmRobot:
         self._resolve_joint_indices()
         self._refresh_joint_limits()
         self._running = True
+        self._control_elapsed_s = 0.0
+        if self._with_gripper:
+            try:
+                self._gripper_pad_material_status = self._ensure_gripper_pad_physics_material()
+            except Exception as exc:
+                self._gripper_pad_material_status = {"ready": False, "error": str(exc)}
+                carb.log_warn(f"A1Z Isaac could not configure high-friction gripper pads: {exc}")
 
         self._update_state_cache()
+        if self._with_gripper and self._gripper_joint_indices.size == 2:
+            self._gripper_command_dofs = self._full_pos[self._gripper_joint_indices].copy()
+            self._gripper_target_dofs_override = None
         with self._command_lock:
             self._command.pos = self._clip_arm_pos(self._full_pos[self._arm_joint_indices].copy())
             self._command.vel = np.zeros(self._num_joints, dtype=np.float64)
@@ -415,6 +570,8 @@ class IsaacSimArmRobot:
     def _stop_impl(self) -> None:
         self._trajectory = None
         self._running = False
+        self._gripper_command_dofs = None
+        self._gripper_target_dofs_override = None
         self._contact_view_cache.clear()
         self._rigid_body_view_cache.clear()
         self._active_gripper_drive_profile = ""
@@ -423,12 +580,18 @@ class IsaacSimArmRobot:
         if pending is not None and not pending.done_event.is_set():
             pending.error = RuntimeError("Isaac Sim robot stopped while grasp_attach was running.")
             pending.done_event.set()
+        physical = self._physical_grasp_operation
+        self._physical_grasp_operation = None
+        if physical is not None:
+            physical.error = RuntimeError("Isaac Sim robot stopped while physical grasp was running.")
+            physical.close_done_event.set()
+            physical.release_done_event.set()
 
     @property
     def is_running(self) -> bool:
         return self._running
 
-    def process_pending(self) -> None:
+    def process_pending(self, step_size: Optional[float] = None) -> bool:
         self._ensure_main_thread()
         while True:
             try:
@@ -443,7 +606,13 @@ class IsaacSimArmRobot:
                 request.event.set()
 
         if not self._running or self._articulation is None:
-            return
+            return False
+
+        if step_size is not None:
+            self._control_elapsed_s += max(0.0, float(step_size))
+            if self._control_elapsed_s + 1.0e-12 < self._control_period_s:
+                return False
+            self._control_elapsed_s %= self._control_period_s
 
         self._update_state_cache()
         self._check_arm_hard_limits()
@@ -453,8 +622,10 @@ class IsaacSimArmRobot:
         )
         self._advance_trajectory()
         self._apply_control_action()
-        self._update_state_cache()
+        self._advance_physical_grasp()
         self._advance_pending_grasp_attach()
+        self._advance_post_attach_close()
+        return True
 
     def get_joint_pos(self) -> np.ndarray:
         with self._state_lock:
@@ -484,11 +655,21 @@ class IsaacSimArmRobot:
         return state
 
     def get_robot_info(self) -> Dict[str, Any]:
+        # RobotServer calls this method on a socket thread, but articulation
+        # property reads enter PhysX. Serialize the complete read on Kit's main
+        # thread just like the other Isaac-backed operations.
+        return self._run_on_main_thread(self._get_robot_info_impl)
+
+    def _get_robot_info_impl(self) -> Dict[str, Any]:
+        self._ensure_main_thread()
         with self._state_lock:
             articulation_joint_limits = None if self._joint_limits is None else self._joint_limits.copy()
         actual_kp = None
         actual_kd = None
+        actual_max_effort = None
+        actual_position_targets = None
         effort_modes = None
+        active_physics_engine = None
         if self._articulation is not None:
             try:
                 dof_props = self._articulation.dof_properties
@@ -500,14 +681,37 @@ class IsaacSimArmRobot:
                 effort_modes = list(self._controller().get_effort_modes())
             except Exception:
                 pass
+            try:
+                actual_max_effort = np.asarray(
+                    self._controller().get_max_efforts(), dtype=np.float64
+                ).reshape(-1).copy()
+            except Exception:
+                pass
+            try:
+                actual_position_targets = np.asarray(
+                    self._articulation.get_joint_position_targets(), dtype=np.float64
+                ).reshape(-1).copy()
+            except Exception:
+                pass
+            try:
+                active_physics_engine = str(SimulationManager.get_active_physics_engine())
+            except Exception:
+                pass
         with self._command_lock:
             command_pos = self._command.pos.copy()
             command_vel = self._command.vel.copy()
         gripper_target_value = float(self._gripper_target_value)
         gripper_target_dofs = None
         gripper_current_dofs = None
+        gripper_command_dofs = None
         if self._with_gripper and self._gripper_joint_indices.size == 2:
-            gripper_target_dofs = self._normalized_to_gripper_dofs(gripper_target_value).copy()
+            gripper_target_dofs = (
+                self._normalized_to_gripper_dofs(gripper_target_value).copy()
+                if self._gripper_target_dofs_override is None
+                else self._gripper_target_dofs_override.copy()
+            )
+            if self._gripper_command_dofs is not None:
+                gripper_command_dofs = self._gripper_command_dofs.copy()
             with self._state_lock:
                 gripper_current_dofs = self._full_pos[self._gripper_joint_indices].copy()
         return {
@@ -522,6 +726,11 @@ class IsaacSimArmRobot:
             "articulation_joint_limits": articulation_joint_limits,
             "arm_max_velocity": self._arm_max_velocity.copy(),
             "arm_peak_velocity": self._arm_peak_velocity.copy(),
+            "arm_motion_speed_rad_s": {
+                "minimum": self._arm_motion_speed_limits.minimum,
+                "default": self._arm_motion_speed_limits.default,
+                "maximum": self._arm_motion_speed_limits.maximum,
+            },
             "articulation_root_prim": self._articulation_root_prim,
             "dof_names": list(self._dof_names),
             "arm_joint_indices": self._arm_joint_indices.copy(),
@@ -529,11 +738,27 @@ class IsaacSimArmRobot:
             "gripper_joint_paths": list(self._gripper_joint_paths),
             "gravity_comp_factor": self._gravity_comp_factor,
             "zero_gravity_mode": self.zero_gravity_mode,
+            "gravity_model_available": self._gravity_model is not None,
+            "position_hold_gravity_compensation_enabled": (
+                self._position_hold_gravity_compensation
+            ),
+            "position_hold_gravity_compensation_active": (
+                not self.zero_gravity_mode
+                and self._position_hold_gravity_compensation
+                and self._gravity_model is not None
+            ),
+            "position_hold_feedforward_limit_nm": (
+                self._position_hold_feedforward_limit.copy()
+            ),
             "gravity_torque_scale": self._gravity_torque_scale.copy(),
             "max_gravity_torque": self._max_gravity_torque.copy(),
             "torque_clip": self._torque_clip.copy(),
             "actual_kp": actual_kp,
             "actual_kd": actual_kd,
+            "actual_max_effort": actual_max_effort,
+            "actual_position_targets": actual_position_targets,
+            "active_physics_engine": active_physics_engine,
+            "configured_arm_drive_type": self._arm_drive_type,
             "controller_kp": self._command.kp.copy(),
             "controller_kd": self._command.kd.copy(),
             "gravity_debug_q": self._last_gravity_q.copy(),
@@ -547,12 +772,19 @@ class IsaacSimArmRobot:
             "command_vel": command_vel,
             "gripper_target_value": gripper_target_value,
             "gripper_target_dofs": gripper_target_dofs,
+            "gripper_command_dofs": gripper_command_dofs,
             "gripper_current_dofs": gripper_current_dofs,
             "gripper_carrier_body_path": self._gripper_carrier_body_path,
             "left_finger_body_path": self._left_finger_body_path,
             "right_finger_body_path": self._right_finger_body_path,
+            "gripper_pad_material": dict(self._gripper_pad_material_status),
             "sim_grasp_state": self.get_sim_grasp_status(),
             "control_mode": "gravity_comp_effort" if self.zero_gravity_mode else "position_hold",
+            "command_path": (
+                "articulation_controller_with_usd_mirror"
+                if self._mirror_drive_targets_to_usd
+                else "articulation_controller"
+            ),
         }
 
     def command_gripper(self, value: float) -> None:
@@ -561,8 +793,11 @@ class IsaacSimArmRobot:
         if not self._with_gripper:
             raise RuntimeError("No gripper attached. Start the backend with gripper enabled.")
         value = float(np.clip(value, 0.0, 1.0))
+        self._run_on_main_thread(lambda: self._abort_physical_grasp_impl("manual_gripper_override"))
         if self._sim_grasp_state.attached_object_path and value > float(self._gripper_open_value) + 1e-3:
             self._run_on_main_thread(lambda: self._release_attached_object_impl(open_gripper=False, timeout_s=2.0))
+        else:
+            self._run_on_main_thread(self._cancel_post_attach_close)
         self._run_on_main_thread(lambda: self._set_gripper_target(value))
         try:
             self._wait_for_gripper_target(value, timeout_s=2.0)
@@ -595,6 +830,78 @@ class IsaacSimArmRobot:
             "last_contact_time": self._sim_grasp_state.last_contact_time,
             "last_failure_reason": self._sim_grasp_state.last_failure_reason,
         }
+
+    def grasp_close_physical(
+        self,
+        *,
+        timeout_s: float = 15.0,
+        minimum_normal_force_n: Optional[float] = None,
+        preload_delta_m: Optional[float] = None,
+        controller_profile: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Close slowly and lock the rigid body contacted by both fingers."""
+
+        if not self._running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        if not self._with_gripper:
+            raise RuntimeError("Physical grasp requires the gripper-enabled backend.")
+        timeout = float(timeout_s)
+        if timeout <= 0.0:
+            raise ValueError("timeout_s must be positive")
+        operation = self._run_on_main_thread(
+            lambda: self._start_physical_grasp_impl(
+                timeout_s=timeout,
+                minimum_normal_force_n=minimum_normal_force_n,
+                preload_delta_m=preload_delta_m,
+                controller_profile=controller_profile,
+            )
+        )
+        if not operation.close_done_event.wait(timeout=timeout + self._control_period_s * 4.0):
+            self._run_on_main_thread(lambda: self._abort_physical_grasp_impl("client_timeout"))
+            raise TimeoutError(f"Physical grasp timed out after {timeout:.3f}s")
+        if operation.error is not None:
+            raise RuntimeError(str(operation.error)) from operation.error
+        return dict(operation.close_result or self._physical_grasp_status_payload(operation))
+
+    def release_physical_grasp(self, *, timeout_s: float = 3.0) -> Dict[str, Any]:
+        """Open the jaws and wait for the physical grasp FSM to report released."""
+
+        timeout = float(timeout_s)
+        if timeout <= 0.0:
+            raise ValueError("timeout_s must be positive")
+        operation = self._run_on_main_thread(self._start_physical_release_impl)
+        if not operation.release_done_event.wait(timeout=timeout + self._control_period_s * 4.0):
+            self._run_on_main_thread(lambda: self._abort_physical_grasp_impl("release_timeout"))
+            raise TimeoutError(f"Physical grasp release timed out after {timeout:.3f}s")
+        if operation.error is not None:
+            raise RuntimeError(str(operation.error)) from operation.error
+        return dict(operation.release_result or self._physical_grasp_status_payload(operation))
+
+    def get_physical_grasp_status(self) -> Dict[str, Any]:
+        operation = self._physical_grasp_operation
+        if operation is None:
+            return {
+                "contract_version": 2,
+                "mode": "physical",
+                "success": False,
+                "phase": GraspPhase.IDLE.value,
+                "target_body_path": None,
+                "bilateral_contact": False,
+                "stable_contact_frames": 0,
+                "contact_loss_frames": 0,
+                "force_control_active": False,
+                "force_target_reached": False,
+                "force_stable_frames": 0,
+                "force_loss_frames": 0,
+                "resistance_confirmed": False,
+                "support_body_paths": [],
+                "left_support_body_paths": [],
+                "right_support_body_paths": [],
+                "support_contact_present": False,
+                "constraint_count_delta": 0,
+                "failure_reason": None,
+            }
+        return self._run_on_main_thread(lambda: self._physical_grasp_status_payload(operation))
 
     def get_sim_grasp_contacts(
         self,
@@ -781,8 +1088,7 @@ class IsaacSimArmRobot:
     ) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
-        if speed <= 0:
-            raise ValueError("speed must be > 0")
+        speed = self._arm_motion_speed_limits.validate(speed)
 
         target_pos = np.asarray(target_pos, dtype=np.float64).reshape(-1)
         arm_target = self._clip_arm_pos(target_pos[: self._num_joints])
@@ -845,6 +1151,26 @@ class IsaacSimArmRobot:
 
     def _set_gripper_target(self, value: float) -> None:
         self._gripper_target_value = float(np.clip(value, 0.0, 1.0))
+        self._gripper_target_dofs_override = None
+        self._apply_control_action()
+
+    def _set_gripper_dof_target(self, target_dofs: np.ndarray) -> None:
+        target = self._clip_gripper_dofs(
+            np.asarray(target_dofs, dtype=np.float64).reshape(-1)[:2]
+        )
+        if target.shape[0] != 2 or not np.all(np.isfinite(target)):
+            raise ValueError("gripper DOF target must contain two finite values")
+        self._gripper_target_dofs_override = target.copy()
+        width = abs(float(target[0] - target[1]))
+        width_range = max(
+            1e-9,
+            abs(self._gripper_left_open - self._gripper_right_open)
+            - abs(self._gripper_left_closed - self._gripper_right_closed),
+        )
+        closed_width = abs(self._gripper_left_closed - self._gripper_right_closed)
+        self._gripper_target_value = float(
+            np.clip((width - closed_width) / width_range, 0.0, 1.0)
+        )
         self._apply_control_action()
 
     def _set_command_now(
@@ -862,6 +1188,7 @@ class IsaacSimArmRobot:
         self._trajectory = None
         if gripper_target is not None:
             self._gripper_target_value = gripper_target
+            self._gripper_target_dofs_override = None
         self._apply_control_action()
 
     def _set_joint_state_now(
@@ -1206,7 +1533,6 @@ class IsaacSimArmRobot:
             return (-physics_score, prim.GetPath().pathElementCount, len(str(prim.GetPath())))
 
         return str(min(candidates, key=_candidate_key).GetPath())
-        return ""
 
     def _find_rigid_body_ancestor_path(self, prim_path: str) -> str:
         stage = omni.usd.get_context().get_stage()
@@ -1269,6 +1595,47 @@ class IsaacSimArmRobot:
         self._left_finger_body_path = self._find_rigid_body_ancestor_path(left_link_path)
         self._right_finger_body_path = self._find_rigid_body_ancestor_path(right_link_path)
         self._gripper_carrier_body_path = self._find_rigid_body_ancestor_path(carrier_link_path)
+
+    def _ensure_gripper_pad_physics_material(self) -> dict[str, Any]:
+        self._ensure_gripper_structure_paths()
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            raise RuntimeError("Isaac stage is unavailable while configuring gripper friction.")
+
+        UsdGeom.Scope.Define(stage, "/World/PhysicsMaterials")
+        material = UsdShade.Material.Define(stage, self._GRIPPER_PAD_MATERIAL_PATH)
+        material_api = UsdPhysics.MaterialAPI.Apply(material.GetPrim())
+        material_api.CreateStaticFrictionAttr().Set(self._GRIPPER_PAD_STATIC_FRICTION)
+        material_api.CreateDynamicFrictionAttr().Set(self._GRIPPER_PAD_DYNAMIC_FRICTION)
+        material_api.CreateRestitutionAttr().Set(0.0)
+        physx_material_api = PhysxSchema.PhysxMaterialAPI.Apply(material.GetPrim())
+        physx_material_api.CreateFrictionCombineModeAttr().Set("max")
+        physx_material_api.CreateRestitutionCombineModeAttr().Set("min")
+
+        collision_paths: list[str] = []
+        for body_path in (self._left_finger_body_path, self._right_finger_body_path):
+            collision_path = self._resolve_first_collision_descendant_path(body_path)
+            if not collision_path:
+                continue
+            collision_prim = stage.GetPrimAtPath(collision_path)
+            if not collision_prim.IsValid():
+                continue
+            UsdShade.MaterialBindingAPI.Apply(collision_prim)
+            collision_prim.CreateRelationship(
+                "material:binding:physics", custom=False
+            ).SetTargets([Sdf.Path(self._GRIPPER_PAD_MATERIAL_PATH)])
+            collision_paths.append(collision_path)
+
+        status = {
+            "ready": len(collision_paths) == 2,
+            "material_path": self._GRIPPER_PAD_MATERIAL_PATH,
+            "static_friction": self._GRIPPER_PAD_STATIC_FRICTION,
+            "dynamic_friction": self._GRIPPER_PAD_DYNAMIC_FRICTION,
+            "friction_combine_mode": "max",
+            "collision_paths": collision_paths,
+        }
+        self._gripper_pad_material_status = status
+        return status
 
     def _nested_rigid_body_paths(self) -> list[str]:
         self._ensure_gripper_structure_paths()
@@ -1610,6 +1977,7 @@ class IsaacSimArmRobot:
         self._sim_grasp_state.rigid_body_restore = {}
         self._sim_grasp_state.attached_object_path = None
         self._sim_grasp_state.attachment_joint_path = None
+        self._cancel_post_attach_close()
 
     def _set_gripper_drive_profile(
         self,
@@ -1618,14 +1986,23 @@ class IsaacSimArmRobot:
         kp: np.ndarray,
         kd: np.ndarray,
         max_effort: np.ndarray,
+        drive_type: str = "acceleration",
     ) -> None:
         if not self._with_gripper or self._gripper_joint_indices.size != 2:
             return
-        if profile_name == self._active_gripper_drive_profile:
+        drive_type = str(drive_type).strip().lower()
+        if drive_type not in {"force", "acceleration"}:
+            raise ValueError(
+                "gripper drive_type must be 'force' or 'acceleration', "
+                f"got {drive_type!r}"
+            )
+        profile_key = f"{profile_name}:{drive_type}"
+        if profile_key == self._active_gripper_drive_profile:
             return
         kp = np.asarray(kp, dtype=np.float64).reshape(-1)[:2]
         kd = np.asarray(kd, dtype=np.float64).reshape(-1)[:2]
         max_effort = np.asarray(max_effort, dtype=np.float64).reshape(-1)[:2]
+        self._set_subset_effort_mode(drive_type, self._gripper_joint_indices)
         self._set_subset_gains(self._gripper_joint_indices, kp, kd)
         self._set_subset_max_efforts(self._gripper_joint_indices, max_effort)
         stage = omni.usd.get_context().get_stage()
@@ -1640,10 +2017,14 @@ class IsaacSimArmRobot:
             drive = UsdPhysics.DriveAPI.Get(prim, "linear")
             if not drive:
                 drive = UsdPhysics.DriveAPI.Apply(prim, "linear")
+            if prim.HasAttribute("drive:linear:physics:type"):
+                drive.GetTypeAttr().Set(drive_type)
+            else:
+                drive.CreateTypeAttr().Set(drive_type)
             drive.GetStiffnessAttr().Set(float(kp[local_idx]))
             drive.GetDampingAttr().Set(float(kd[local_idx]))
             drive.GetMaxForceAttr().Set(float(max_effort[local_idx]))
-        self._active_gripper_drive_profile = profile_name
+        self._active_gripper_drive_profile = profile_key
 
     def _set_gripper_soft_grasp_gains(self) -> None:
         self._set_gripper_drive_profile(
@@ -2197,8 +2578,10 @@ class IsaacSimArmRobot:
             "prim_path": query_path,
             "prim_type": prim.GetTypeName(),
             "parent_path": str(parent.GetPath()) if parent and parent.IsValid() else None,
+            "child_paths": [str(child.GetPath()) for child in prim.GetChildren()],
             "is_rigid_body": self._stage_prim_is_rigid_body(prim),
             "has_collision": self._stage_prim_has_collision(prim),
+            "world_matrix": [[float(value) for value in row] for row in np.asarray(world, dtype=np.float64).tolist()],
             "world_translation": self._vec3_to_tuple(world.ExtractTranslation()),
             "local_translation": self._vec3_to_tuple(local_matrix.ExtractTranslation()),
             "resets_xform_stack": bool(resets_stack),
@@ -2267,18 +2650,72 @@ class IsaacSimArmRobot:
 
     def _filter_attached_collisions(self, attached_body_path: str) -> list[tuple[str, str]]:
         applied_pairs: list[tuple[str, str]] = []
-        for source_path in (
-            self._left_finger_body_path,
-            self._right_finger_body_path,
-            self._gripper_carrier_body_path,
-        ):
-            if not source_path:
-                continue
+        source_path = self._gripper_carrier_body_path
+        if source_path:
             self._set_filtered_pair(source_path, attached_body_path)
             self._set_filtered_pair(attached_body_path, source_path)
             applied_pairs.append((source_path, attached_body_path))
             applied_pairs.append((attached_body_path, source_path))
         return applied_pairs
+
+    def _start_post_attach_close(self, body_path: str) -> None:
+        if not body_path or not self._with_gripper:
+            return
+        current_gripper = float(self._gripper_open_value)
+        target_value = 0.0
+        if current_gripper <= target_value + 1e-4:
+            self._sim_grasp_state.post_attach_closing_active = False
+            self._sim_grasp_state.post_attach_stable_count = 0
+            self._sim_grasp_state.post_attach_required_count = 0
+            self._sim_grasp_state.post_attach_target_value = current_gripper
+            self._set_gripper_target(current_gripper)
+            self._set_gripper_hold_gains()
+            return
+        self._sim_grasp_state.grasp_state = "attached_closing"
+        self._sim_grasp_state.post_attach_closing_active = True
+        self._sim_grasp_state.post_attach_stable_count = 0
+        self._sim_grasp_state.post_attach_required_count = self._POST_ATTACH_CLOSE_REQUIRED_CONTACT_COUNT
+        self._sim_grasp_state.post_attach_target_value = target_value
+        self._set_gripper_soft_grasp_gains()
+        self._set_gripper_target(target_value)
+
+    def _cancel_post_attach_close(self) -> None:
+        self._sim_grasp_state.post_attach_closing_active = False
+        self._sim_grasp_state.post_attach_stable_count = 0
+        self._sim_grasp_state.post_attach_required_count = 0
+        self._sim_grasp_state.post_attach_target_value = float(self._gripper_target_value)
+        if self._sim_grasp_state.attached_object_path:
+            self._sim_grasp_state.grasp_state = "attached"
+
+    def _advance_post_attach_close(self) -> None:
+        if not self._sim_grasp_state.post_attach_closing_active:
+            return
+        attached_body_path = str(self._sim_grasp_state.attached_object_path or "")
+        if not attached_body_path:
+            self._cancel_post_attach_close()
+            return
+        contacts = self._poll_grasp_body_contacts(filter_paths=[attached_body_path])
+        _, _, summary = self._contact_satisfies_attach(
+            contacts,
+            target_body_path=attached_body_path,
+            require_bilateral_contact=False,
+        )
+        if bool(summary.get("ground_contact_present")):
+            return
+        if bool(summary.get("selected_body_contact_ready")):
+            self._sim_grasp_state.post_attach_stable_count += 1
+        else:
+            self._sim_grasp_state.post_attach_stable_count = 0
+        current_open = float(self._gripper_open_value)
+        if (
+            self._sim_grasp_state.post_attach_stable_count
+            >= max(1, int(self._sim_grasp_state.post_attach_required_count))
+            or self._is_gripper_near_closed(current_open)
+        ):
+            self._cancel_post_attach_close()
+            self._sim_grasp_state.post_attach_target_value = current_open
+            self._set_gripper_target(current_open)
+            self._set_gripper_hold_gains()
 
     def _apply_attach_compliance_profile(self, body_path: str) -> dict[str, object]:
         stage = omni.usd.get_context().get_stage()
@@ -2463,9 +2900,6 @@ class IsaacSimArmRobot:
         )
         filtered_pairs = self._filter_attached_collisions(body_path)
         rigid_body_restore = self._apply_attach_compliance_profile(body_path)
-        current_gripper = float(self._gripper_open_value)
-        self._set_gripper_target(current_gripper)
-        self._set_gripper_hold_gains()
         self._sim_grasp_state.grasp_state = "attached"
         self._sim_grasp_state.attached_object_path = body_path
         self._sim_grasp_state.attachment_joint_path = attachment_joint_path
@@ -2475,6 +2909,7 @@ class IsaacSimArmRobot:
         self._sim_grasp_state.last_failure_reason = None
         self._sim_grasp_state.filtered_pairs = list(filtered_pairs)
         self._sim_grasp_state.rigid_body_restore = dict(rigid_body_restore)
+        self._start_post_attach_close(body_path)
         return {
             "success": True,
             "target_prim_path": target_prim_path or "",
@@ -2526,6 +2961,756 @@ class IsaacSimArmRobot:
             return
         if stage.GetPrimAtPath(joint_path).IsValid():
             stage.RemovePrim(joint_path)
+
+    def _physics_constraint_paths(self) -> frozenset[str]:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            return frozenset()
+        return frozenset(
+            str(prim.GetPath())
+            for prim in stage.Traverse()
+            if prim.IsValid() and prim.IsA(UsdPhysics.Joint)
+        )
+
+    def _target_physics_state(self, body_path: str) -> Dict[str, bool]:
+        stage = omni.usd.get_context().get_stage()
+        if stage is None:
+            raise RuntimeError("Isaac stage is unavailable while auditing target physics state.")
+        prim = stage.GetPrimAtPath(body_path)
+        if not prim.IsValid():
+            raise RuntimeError(f"Target rigid body disappeared during physical grasp: {body_path}")
+
+        def read_bool(name: str, default: bool) -> bool:
+            attribute = prim.GetAttribute(name)
+            if not attribute.IsValid():
+                return default
+            value = attribute.Get()
+            return default if value is None else bool(value)
+
+        return {
+            "rigid_body_enabled": read_bool(
+                "physics:rigidBodyEnabled", prim.HasAPI(UsdPhysics.RigidBodyAPI)
+            ),
+            "kinematic_enabled": read_bool("physics:kinematicEnabled", False),
+            "gravity_disabled": read_bool("physxRigidBody:disableGravity", False),
+        }
+
+    def _validate_physical_grasp_target(
+        self,
+        body_path: str,
+    ) -> tuple[str, Dict[str, bool], tuple[float, float, float]]:
+        requested_path = str(body_path or "")
+        if not requested_path.startswith("/"):
+            raise ValueError("discovered physical grasp body path must be absolute")
+        resolved_path = self._resolve_target_rigid_body_path(requested_path)
+        if not resolved_path:
+            raise ValueError(
+                f"physical grasp contact does not resolve to an enabled rigid body: {requested_path}"
+            )
+        state = self._target_physics_state(resolved_path)
+        if not bool(state.get("rigid_body_enabled")):
+            raise ValueError(f"physical grasp body is not dynamic: {resolved_path}")
+        if bool(state.get("kinematic_enabled")):
+            raise ValueError(f"physical grasp body must not be kinematic: {resolved_path}")
+        if bool(state.get("gravity_disabled")):
+            raise ValueError(f"physical grasp body must remain gravity-enabled: {resolved_path}")
+        if not self._resolve_first_collision_descendant_path(resolved_path):
+            raise ValueError(f"physical grasp body has no enabled collision shape: {resolved_path}")
+        transform = self._get_rigid_body_world_transform(resolved_path)
+        translation = self._vec3_to_tuple(transform.ExtractTranslation())
+        if translation is None:
+            raise RuntimeError(
+                f"physical grasp body world translation is unavailable: {resolved_path}"
+            )
+        return resolved_path, state, translation
+
+    def _physics_dt_s(self) -> float:
+        world = self._world
+        getter = getattr(world, "get_physics_dt", None)
+        if not callable(getter):
+            raise RuntimeError("Isaac World does not expose get_physics_dt(); physical forces are unavailable.")
+        physics_dt_s = float(getter())
+        if not np.isfinite(physics_dt_s) or physics_dt_s <= 0.0 or physics_dt_s > 1.0:
+            raise RuntimeError(f"Invalid Isaac physics dt for physical grasp: {physics_dt_s!r}")
+        return physics_dt_s
+
+    def _physical_jaw_mapping(self) -> ParallelJawMapping:
+        if self._gripper_joint_indices.size != 2:
+            raise RuntimeError("Physical grasp requires two resolved gripper DOFs.")
+        return ParallelJawMapping.from_sequences(
+            open_dofs_m=(self._gripper_left_open, self._gripper_right_open),
+            closed_dofs_m=(self._gripper_left_closed, self._gripper_right_closed),
+        )
+
+    def _start_physical_grasp_impl(
+        self,
+        *,
+        timeout_s: float,
+        minimum_normal_force_n: Optional[float],
+        preload_delta_m: Optional[float],
+        controller_profile: Optional[Mapping[str, Any]],
+    ) -> _PhysicalGraspOperation:
+        self._ensure_main_thread()
+        if self._pending_grasp_attach is not None or self._sim_grasp_state.attached_object_path:
+            raise RuntimeError("Release the legacy grasp attachment before starting physical grasp v2.")
+        existing = self._physical_grasp_operation
+        if existing is not None and existing.fsm.phase not in {
+            GraspPhase.RELEASED,
+            GraspPhase.FAILED,
+            GraspPhase.ABORTED,
+        }:
+            raise RuntimeError(f"Physical grasp is already active in phase {existing.fsm.phase.value}.")
+        self._ensure_gripper_structure_paths()
+        pad_status = self._ensure_gripper_pad_physics_material()
+        if not pad_status["ready"]:
+            raise RuntimeError(
+                "Physical grasp requires high-friction material bindings on both finger "
+                f"colliders; resolved={pad_status['collision_paths']}"
+            )
+        mapping = self._physical_jaw_mapping()
+        profile = None if controller_profile is None else dict(controller_profile)
+        if profile is None:
+            max_close_velocity_m_s = min(
+                self._GRASP_CLOSE_MAX_VELOCITY_M_S,
+                0.008,
+            )
+            max_command_lead_m = self._PHYSICAL_GRASP_MAX_COMMAND_LEAD_M
+            preload = 0.0005 if preload_delta_m is None else float(preload_delta_m)
+            maximum_preload = min(0.006, 0.25 * (mapping.open_width_m - mapping.closed_width_m))
+            config = PhysicalGraspConfig(
+                open_width_m=mapping.open_width_m,
+                closed_width_m=mapping.closed_width_m,
+                preload_delta_m=preload,
+                maximum_preload_delta_m=maximum_preload,
+                minimum_stable_frames=5,
+                minimum_normal_force_n=(
+                    None if minimum_normal_force_n is None else float(minimum_normal_force_n)
+                ),
+                precheck_timeout_s=timeout_s * 0.15,
+                soft_close_timeout_s=timeout_s * 0.25,
+                search_timeout_s=timeout_s * 0.35,
+                hold_confirm_timeout_s=timeout_s * 0.10,
+                target_normal_force_n=0.75,
+                maximum_normal_force_n=3.0,
+                force_hysteresis_n=0.12,
+                force_confirm_frames=5,
+                preload_step_m=0.0001,
+                preload_timeout_s=timeout_s * 0.15,
+                contact_loss_grace_frames=3,
+                force_loss_grace_frames=6,
+                unilateral_recovery_timeout_s=1.0,
+            )
+        else:
+            max_close_velocity_m_s = float(profile["max_close_velocity_m_s"])
+            if not np.isfinite(max_close_velocity_m_s) or max_close_velocity_m_s <= 0.0:
+                raise ValueError("controller profile max_close_velocity_m_s must be positive")
+            max_command_lead_m = float(
+                profile.get("max_command_lead_m", self._PHYSICAL_GRASP_MAX_COMMAND_LEAD_M)
+            )
+            if not np.isfinite(max_command_lead_m) or max_command_lead_m <= 0.0:
+                raise ValueError("controller profile max_command_lead_m must be positive")
+            config = PhysicalGraspConfig.from_controller_profile(profile)
+            if not np.isclose(config.open_width_m, mapping.open_width_m, atol=1e-4) or not np.isclose(
+                config.closed_width_m, mapping.closed_width_m, atol=1e-4
+            ):
+                raise ValueError(
+                    "controller profile jaw widths do not match the active Isaac articulation: "
+                    f"profile=[{config.closed_width_m}, {config.open_width_m}] "
+                    f"articulation=[{mapping.closed_width_m}, {mapping.open_width_m}]"
+                )
+            config = PhysicalGraspConfig(
+                open_width_m=config.open_width_m,
+                closed_width_m=config.closed_width_m,
+                preload_delta_m=(
+                    config.preload_delta_m if preload_delta_m is None else float(preload_delta_m)
+                ),
+                maximum_preload_delta_m=config.maximum_preload_delta_m,
+                minimum_stable_frames=config.minimum_stable_frames,
+                minimum_normal_force_n=(
+                    config.minimum_normal_force_n
+                    if minimum_normal_force_n is None
+                    else float(minimum_normal_force_n)
+                ),
+                precheck_timeout_s=config.precheck_timeout_s,
+                soft_close_timeout_s=config.soft_close_timeout_s,
+                search_timeout_s=config.search_timeout_s,
+                hold_confirm_timeout_s=config.hold_confirm_timeout_s,
+                force_window_frames=config.force_window_frames,
+                target_normal_force_n=config.target_normal_force_n,
+                maximum_normal_force_n=config.maximum_normal_force_n,
+                force_hysteresis_n=config.force_hysteresis_n,
+                force_confirm_frames=config.force_confirm_frames,
+                preload_step_m=config.preload_step_m,
+                preload_timeout_s=config.preload_timeout_s,
+                contact_loss_grace_frames=config.contact_loss_grace_frames,
+                force_loss_grace_frames=config.force_loss_grace_frames,
+                minimum_effort_residual_n=config.minimum_effort_residual_n,
+                minimum_position_lag_m=config.minimum_position_lag_m,
+                unilateral_recovery_timeout_s=config.unilateral_recovery_timeout_s,
+            )
+            configured_duration_s = (
+                config.precheck_timeout_s
+                + config.soft_close_timeout_s
+                + config.search_timeout_s
+                + config.preload_timeout_s
+                + config.hold_confirm_timeout_s
+            )
+            if configured_duration_s > timeout_s:
+                raise ValueError(
+                    f"timeout_s={timeout_s} is shorter than controller profile budget "
+                    f"{configured_duration_s:.3f}s"
+                )
+        fsm = PhysicalGraspFSM(config)
+        operation = _PhysicalGraspOperation(
+            fsm=fsm,
+            mapping=mapping,
+            target_body_path="",
+            initial_constraint_paths=self._physics_constraint_paths(),
+            initial_target_physics_state={},
+            initial_target_world_translation_m=None,
+            max_close_velocity_m_s=max_close_velocity_m_s,
+            max_command_lead_m=max_command_lead_m,
+            controller_profile=profile,
+            started_at_s=time.monotonic(),
+            minimum_effort_residual_n=config.minimum_effort_residual_n,
+            minimum_position_lag_m=config.minimum_position_lag_m,
+        )
+        self._physical_grasp_operation = operation
+        initial_width_m = mapping.dofs_to_width(
+            self._full_pos[self._gripper_joint_indices].copy()
+        )
+        status = fsm.begin(
+            now_s=operation.started_at_s,
+            initial_width_m=initial_width_m,
+        )
+        self._apply_physical_grasp_command(operation, status)
+        return operation
+
+    def _start_physical_release_impl(self) -> _PhysicalGraspOperation:
+        self._ensure_main_thread()
+        operation = self._physical_grasp_operation
+        if operation is None:
+            raise RuntimeError("No physical grasp v2 operation is available to release.")
+        phase = operation.fsm.phase
+        if phase == GraspPhase.RELEASED:
+            operation.release_result = self._physical_grasp_status_payload(operation)
+            operation.release_done_event.set()
+            return operation
+        if phase in {GraspPhase.PRECHECK, GraspPhase.SOFT_CLOSE, GraspPhase.SEARCH}:
+            operation.fsm.abort(reason="release_requested_during_close")
+        status = operation.fsm.release(now_s=time.monotonic())
+        operation.release_done_event.clear()
+        self._apply_physical_grasp_command(operation, status)
+        return operation
+
+    def _abort_physical_grasp_impl(self, reason: str) -> None:
+        operation = self._physical_grasp_operation
+        if operation is None or operation.fsm.phase in {
+            GraspPhase.IDLE,
+            GraspPhase.RELEASED,
+            GraspPhase.FAILED,
+            GraspPhase.ABORTED,
+        }:
+            return
+        status = operation.fsm.abort(reason=reason)
+        self._apply_physical_grasp_command(operation, status)
+        payload = self._physical_grasp_status_payload(operation)
+        operation.close_result = operation.close_result or payload
+        operation.release_result = operation.release_result or payload
+        operation.close_done_event.set()
+        operation.release_done_event.set()
+
+    def _physical_gripper_snapshot(self, mapping: ParallelJawMapping) -> GripperSnapshot:
+        measured_dofs = self._full_pos[self._gripper_joint_indices].copy()
+        measured_velocity = self._full_vel[self._gripper_joint_indices].copy()
+        measured_effort = self._full_eff[self._gripper_joint_indices].copy()
+        command_dofs = (
+            measured_dofs
+            if self._gripper_command_dofs is None
+            else self._gripper_command_dofs.copy()
+        )
+        width_m = mapping.dofs_to_width(measured_dofs)
+        stable = bool(
+            measured_velocity.size == 2
+            and float(np.max(np.abs(measured_velocity))) <= self._PHYSICAL_GRASP_MOTION_STABLE_VEL_M_S
+        )
+        return GripperSnapshot(
+            width_m=width_m,
+            motion_stable=stable,
+            fully_closed=(
+                width_m <= mapping.closed_width_m + self._PHYSICAL_GRASP_FULLY_CLOSED_TOL_M
+            ),
+            joint_positions_m=tuple(float(value) for value in measured_dofs),
+            joint_velocities_m_s=tuple(float(value) for value in measured_velocity),
+            projected_joint_forces_n=(
+                tuple(float(value) for value in measured_effort)
+                if np.all(np.isfinite(measured_effort))
+                else None
+            ),
+            command_lag_m=(
+                tuple(float(value) for value in np.abs(command_dofs - measured_dofs))
+                if np.all(np.isfinite(command_dofs))
+                else None
+            ),
+        )
+
+    def _update_physical_resistance_diagnostics(
+        self,
+        operation: _PhysicalGraspOperation,
+    ) -> None:
+        gripper = operation.latest_gripper
+        if gripper is None or gripper.projected_joint_forces_n is None:
+            operation.latest_effort_residual_n = None
+            return
+        raw = np.asarray(gripper.projected_joint_forces_n, dtype=np.float64)
+        contacts = operation.latest_contacts
+        support_paths = set(contacts.support_body_paths)
+        object_contact_paths = (
+            set(contacts.left_body_paths).union(contacts.right_body_paths)
+            - support_paths
+        )
+        if (
+            not object_contact_paths
+            and operation.fsm.phase
+            in {GraspPhase.PRECHECK, GraspPhase.SOFT_CLOSE, GraspPhase.SEARCH}
+        ):
+            if operation.gripper_effort_baseline_n is None:
+                baseline = raw
+            else:
+                previous = np.asarray(
+                    operation.gripper_effort_baseline_n,
+                    dtype=np.float64,
+                )
+                alpha = 1.0 / min(operation.gripper_effort_baseline_samples + 1, 20)
+                baseline = previous + alpha * (raw - previous)
+            operation.gripper_effort_baseline_n = tuple(
+                float(value) for value in baseline
+            )
+            operation.gripper_effort_baseline_samples += 1
+        if operation.gripper_effort_baseline_n is None:
+            operation.latest_effort_residual_n = None
+            return
+        baseline = np.asarray(operation.gripper_effort_baseline_n, dtype=np.float64)
+        operation.latest_effort_residual_n = tuple(
+            float(value) for value in np.abs(raw - baseline)
+        )
+
+    def _physical_arm_is_stable(self) -> bool:
+        arm_pos = self._full_pos[self._arm_joint_indices].copy()
+        arm_vel = self._full_vel[self._arm_joint_indices].copy()
+        with self._command_lock:
+            command_pos = self._command.pos.copy()
+        lead_velocity = (
+            float(np.max(np.abs(arm_vel[:4]))) if arm_vel.size else 0.0
+        )
+        wrist_velocity = (
+            float(np.max(np.abs(arm_vel[4:6]))) if arm_vel.size > 4 else lead_velocity
+        )
+        max_error = (
+            float(np.max(np.abs(arm_pos - command_pos[: arm_pos.size])))
+            if arm_pos.size and command_pos.size
+            else 0.0
+        )
+        return bool(
+            lead_velocity <= self._GRASP_ATTACH_PRECHECK_MAX_ARM_VEL_RAD_S
+            and wrist_velocity <= self._GRASP_ATTACH_PRECHECK_MAX_WRIST_VEL_RAD_S
+            and max_error <= self._GRASP_ATTACH_PRECHECK_MAX_ARM_COMMAND_ERR_RAD
+        )
+
+    def _physical_contact_snapshot(self, operation: _PhysicalGraspOperation) -> ContactSnapshot:
+        stage = omni.usd.get_context().get_stage()
+        blocker_seeds = [self._gripper_carrier_body_path]
+        support_seeds: list[str] = []
+        if stage is not None:
+            for path in (
+                "/World/GroundPlane",
+                "/World/defaultGroundPlane",
+                "/World/groundPlane",
+                "/World/Table",
+                "/World/table",
+                "/World/Workbench",
+            ):
+                if stage.GetPrimAtPath(path).IsValid():
+                    support_seeds.append(path)
+        support_seeds.extend(
+            path.strip()
+            for path in os.environ.get(
+                "A1Z_PHYSICAL_GRASP_SUPPORT_BODY_PATHS", ""
+            ).split(",")
+            if path.strip()
+        )
+        blocker_seeds.extend(
+            path.strip()
+            for path in os.environ.get(
+                "A1Z_PHYSICAL_GRASP_BLOCKING_BODY_PATHS", ""
+            ).split(",")
+            if path.strip()
+        )
+        filter_paths = self._build_grasp_attach_contact_filter_paths(
+            target_body_path=operation.target_body_path,
+            seed_paths=[*blocker_seeds, *support_seeds],
+        )
+        blocking_paths = []
+        for path in blocker_seeds:
+            resolved = self._resolve_contact_body_path(path)
+            if resolved and resolved not in blocking_paths:
+                blocking_paths.append(resolved)
+        support_paths = []
+        for path in support_seeds:
+            resolved = self._resolve_contact_body_path(path)
+            if resolved and resolved not in support_paths:
+                support_paths.append(resolved)
+        records = self._poll_grasp_body_contacts(filter_paths=filter_paths)
+        return reduce_contact_impulses(
+            left_records=records.get("left", []),
+            right_records=records.get("right", []),
+            left_finger_body_path=self._left_finger_body_path,
+            right_finger_body_path=self._right_finger_body_path,
+            target_body_path=operation.target_body_path,
+            physics_dt_s=self._physics_dt_s(),
+            blocking_body_paths=blocking_paths,
+            support_body_paths=support_paths,
+        )
+
+    def _apply_physical_grasp_command(
+        self,
+        operation: _PhysicalGraspOperation,
+        status: PhysicalGraspStatus,
+    ) -> None:
+        command = status.command
+        if command is None:
+            return
+        width = operation.mapping.clamp_width(command.target_width_m)
+        target_dofs = np.asarray(
+            operation.mapping.width_to_dofs(width),
+            dtype=np.float64,
+        )
+        measured_dofs = (
+            None
+            if operation.latest_gripper is None
+            or operation.latest_gripper.joint_positions_m is None
+            else np.asarray(
+                operation.latest_gripper.joint_positions_m,
+                dtype=np.float64,
+            )
+        )
+        if measured_dofs is not None:
+            if command.freeze_contact_finger is not None:
+                frozen_index = 0 if command.freeze_contact_finger == "left" else 1
+                # Shift the symmetric width target without changing its width,
+                # pinning the contacting jaw while the free jaw catches up.
+                target_dofs += measured_dofs[frozen_index] - target_dofs[frozen_index]
+            else:
+                coupling = (
+                    operation.controller_profile.get("virtual_coupling", {})
+                    if operation.controller_profile is not None
+                    else {}
+                )
+                center_gain = float(coupling.get("center_error_gain", 1.0))
+                maximum_center_correction_m = float(
+                    coupling.get("maximum_center_correction_m", 0.0015)
+                )
+                reference_center = float(np.mean(target_dofs))
+                measured_center = float(np.mean(measured_dofs))
+                center_correction = float(
+                    np.clip(
+                        -center_gain * (measured_center - reference_center),
+                        -maximum_center_correction_m,
+                        maximum_center_correction_m,
+                    )
+                )
+                target_dofs += center_correction
+        target_dofs = self._clip_gripper_dofs(target_dofs)
+        signature = (
+            command.drive_profile.value,
+            round(float(command.target_width_m), 9),
+            command.reason,
+            command.freeze_contact_finger,
+            round(float(target_dofs[0]), 9),
+            round(float(target_dofs[1]), 9),
+        )
+        if signature == operation.last_applied_command_signature:
+            return
+        configured_profiles = (
+            operation.controller_profile.get("profiles")
+            if operation.controller_profile is not None
+            else None
+        )
+        profile_payload = (
+            configured_profiles.get(command.drive_profile.value)
+            if isinstance(configured_profiles, Mapping)
+            else None
+        )
+        if isinstance(profile_payload, Mapping):
+            self._set_gripper_drive_profile(
+                profile_name=f"physical_v2_{command.drive_profile.value}",
+                kp=np.asarray(profile_payload["stiffness"], dtype=np.float64),
+                kd=np.asarray(profile_payload["damping"], dtype=np.float64),
+                max_effort=np.asarray(profile_payload["max_effort"], dtype=np.float64),
+                drive_type=str(
+                    operation.controller_profile.get("drive_type", "acceleration")
+                ),
+            )
+        elif command.drive_profile == DriveProfile.SOFT_CLOSE:
+            self._set_gripper_soft_grasp_gains()
+        elif command.drive_profile == DriveProfile.SEARCH:
+            self._set_gripper_search_gains()
+        elif command.drive_profile == DriveProfile.HOLD:
+            self._set_gripper_hold_gains()
+        else:
+            self._set_gripper_default_gains()
+        self._set_gripper_dof_target(target_dofs)
+        operation.last_applied_command_signature = signature
+
+    def _physical_grasp_status_payload(
+        self,
+        operation: _PhysicalGraspOperation,
+    ) -> Dict[str, Any]:
+        status = operation.fsm.status()
+        contacts = operation.latest_contacts
+        gripper = operation.latest_gripper
+        new_constraints = sorted(self._physics_constraint_paths() - operation.initial_constraint_paths)
+        command = status.command
+        target_path = str(operation.target_body_path or "")
+        target_physics_state = (
+            self._target_physics_state(target_path) if target_path else {}
+        )
+        target_world = (
+            self._get_rigid_body_world_transform(target_path) if target_path else None
+        )
+        carrier_path = self._gripper_carrier_body_path
+        carrier_world = (
+            self._get_rigid_body_world_transform(carrier_path) if carrier_path else None
+        )
+        target_translation = (
+            None
+            if target_world is None
+            else self._vec3_to_tuple(target_world.ExtractTranslation())
+        )
+        left_force, right_force = (
+            contacts.normal_force_for(target_path)
+            if target_path
+            else (contacts.left_normal_force_n, contacts.right_normal_force_n)
+        )
+        carrier_translation = (
+            None if carrier_world is None else self._vec3_to_tuple(carrier_world.ExtractTranslation())
+        )
+        relative_translation = (
+            None
+            if target_translation is None or carrier_translation is None
+            else tuple(
+                float(target_translation[index] - carrier_translation[index])
+                for index in range(3)
+            )
+        )
+        effort_residual = operation.latest_effort_residual_n
+        command_lag = None if gripper is None else gripper.command_lag_m
+        joint_load_resistance = bool(
+            effort_residual is not None
+            and command_lag is not None
+            and min(effort_residual) >= operation.minimum_effort_residual_n
+            and min(command_lag) >= operation.minimum_position_lag_m
+        )
+        contact_force_resistance = bool(
+            status.bilateral_contact
+            and status.filtered_weak_normal_force_n is not None
+            and status.filtered_weak_normal_force_n > 0.0
+        )
+        force_target_reached = bool(
+            status.target_normal_force_n is not None
+            and status.effective_grip_force_n is not None
+            and status.effective_grip_force_n >= status.target_normal_force_n
+        )
+        return {
+            "contract_version": 2,
+            "mode": "physical",
+            "controller_profile_id": (
+                None
+                if operation.controller_profile is None
+                else operation.controller_profile.get("controller_profile_id")
+            ),
+            "calibration_status": (
+                "runtime_default"
+                if operation.controller_profile is None
+                else operation.controller_profile.get("calibration_status")
+            ),
+            "gripper_drive_type": (
+                "acceleration"
+                if operation.controller_profile is None
+                else operation.controller_profile.get("drive_type", "acceleration")
+            ),
+            "active_gripper_drive_profile": self._active_gripper_drive_profile,
+            "success": bool(
+                operation.holding_confirmed
+                and status.phase in {GraspPhase.HOLDING, GraspPhase.RELEASED}
+            ),
+            "phase": status.phase.value,
+            "target_body_path": status.target_body_path,
+            "target_discovery_mode": True,
+            "candidate_body_path": status.candidate_body_path,
+            "carrier_body_path": carrier_path or None,
+            "target_world_translation_m": target_translation,
+            "initial_target_world_translation_m": operation.initial_target_world_translation_m,
+            "carrier_world_translation_m": carrier_translation,
+            "target_to_carrier_translation_m": relative_translation,
+            "target_physics_state": target_physics_state,
+            "initial_target_physics_state": dict(operation.initial_target_physics_state),
+            "target_physics_state_mutated": (
+                bool(target_path)
+                and target_physics_state != dict(operation.initial_target_physics_state)
+            ),
+            "bilateral_contact": bool(status.bilateral_contact),
+            "stable_contact_frames": int(status.stable_contact_frames),
+            "contact_loss_frames": int(status.contact_loss_frames),
+            "contact_width_m": status.contact_width_m,
+            "hold_width_m": status.hold_width_m,
+            "applied_preload_delta_m": (
+                None
+                if status.contact_width_m is None or status.hold_width_m is None
+                else max(0.0, float(status.contact_width_m - status.hold_width_m))
+            ),
+            "gripper_pad_material": dict(self._gripper_pad_material_status),
+            "measured_width_m": None if gripper is None else float(gripper.width_m),
+            "measured_jaw_dofs_m": (
+                None if gripper is None else gripper.joint_positions_m
+            ),
+            "left_normal_force_n": left_force,
+            "right_normal_force_n": right_force,
+            "filtered_left_normal_force_n": status.filtered_left_normal_force_n,
+            "filtered_right_normal_force_n": status.filtered_right_normal_force_n,
+            "filtered_weak_normal_force_n": status.filtered_weak_normal_force_n,
+            "effective_grip_force_n": status.effective_grip_force_n,
+            "grip_force_source": status.grip_force_source,
+            "target_normal_force_n": status.target_normal_force_n,
+            "maximum_normal_force_n": status.maximum_normal_force_n,
+            "force_control_active": bool(status.force_control_active),
+            "force_target_reached": force_target_reached,
+            "force_stable_frames": int(status.force_stable_frames),
+            "force_loss_frames": int(status.force_loss_frames),
+            "unilateral_recovery_active": bool(status.unilateral_recovery_active),
+            "unilateral_contact_side": status.unilateral_contact_side,
+            "resistance_confirmed": bool(
+                status.bilateral_contact
+                and (contact_force_resistance or joint_load_resistance)
+            ),
+            "resistance_signals": {
+                "contact_force_resistance": contact_force_resistance,
+                "joint_load_resistance": joint_load_resistance,
+                "projected_joint_force_n": (
+                    None
+                    if gripper is None
+                    else gripper.projected_joint_forces_n
+                ),
+                "free_motion_baseline_n": operation.gripper_effort_baseline_n,
+                "effort_residual_n": effort_residual,
+                "command_lag_m": command_lag,
+                "minimum_effort_residual_n": operation.minimum_effort_residual_n,
+                "minimum_position_lag_m": operation.minimum_position_lag_m,
+                "semantics": (
+                    "bilateral filtered contact force is primary; bilateral "
+                    "baseline-subtracted joint resistance is a guarded fallback"
+                ),
+            },
+            "left_body_paths": list(contacts.left_body_paths),
+            "right_body_paths": list(contacts.right_body_paths),
+            "support_body_paths": list(contacts.support_body_paths),
+            "left_support_body_paths": list(contacts.left_support_body_paths),
+            "right_support_body_paths": list(contacts.right_support_body_paths),
+            "support_contact_present": bool(
+                contacts.left_support_body_paths or contacts.right_support_body_paths
+            ),
+            "constraint_count_delta": len(new_constraints),
+            "new_constraint_paths": new_constraints,
+            "attachment_joint_path": None,
+            "attached_object_path": None,
+            "failure_reason": status.failure_reason,
+            "command": None
+            if command is None
+            else {
+                "drive_profile": command.drive_profile.value,
+                "target_width_m": float(command.target_width_m),
+                "target_dofs_m": (
+                    None
+                    if self._gripper_target_dofs_override is None
+                    else self._gripper_target_dofs_override.tolist()
+                ),
+                "freeze_contact_finger": command.freeze_contact_finger,
+                "reason": command.reason,
+            },
+            "elapsed_s": max(0.0, time.monotonic() - operation.started_at_s),
+        }
+
+    def _advance_physical_grasp(self) -> None:
+        operation = self._physical_grasp_operation
+        if operation is None or operation.fsm.phase in {
+            GraspPhase.IDLE,
+            GraspPhase.RELEASED,
+            GraspPhase.FAILED,
+            GraspPhase.ABORTED,
+        }:
+            return
+        try:
+            new_constraints = self._physics_constraint_paths() - operation.initial_constraint_paths
+            target_physics_mutated = (
+                bool(operation.target_body_path)
+                and self._target_physics_state(operation.target_body_path)
+                != dict(operation.initial_target_physics_state)
+            )
+            if new_constraints:
+                status = operation.fsm.abort(reason="constraint_created_during_physical_grasp")
+            elif target_physics_mutated:
+                status = operation.fsm.abort(reason="target_physics_state_mutated")
+            else:
+                operation.latest_gripper = self._physical_gripper_snapshot(operation.mapping)
+                operation.latest_contacts = self._physical_contact_snapshot(operation)
+                self._update_physical_resistance_diagnostics(operation)
+                operation.latest_gripper = replace(
+                    operation.latest_gripper,
+                    residual_joint_forces_n=operation.latest_effort_residual_n,
+                )
+                status = operation.fsm.step(
+                    now_s=time.monotonic(),
+                    arm_stable=self._physical_arm_is_stable(),
+                    gripper=operation.latest_gripper,
+                    contacts=operation.latest_contacts,
+                )
+                discovered_path = str(status.target_body_path or "")
+                if discovered_path and not operation.target_body_path:
+                    (
+                        resolved_path,
+                        initial_state,
+                        initial_translation,
+                    ) = self._validate_physical_grasp_target(discovered_path)
+                    if resolved_path != discovered_path:
+                        raise RuntimeError(
+                            "physical grasp contact path was not a canonical rigid body: "
+                            f"{discovered_path} -> {resolved_path}"
+                        )
+                    operation.target_body_path = resolved_path
+                    operation.initial_target_physics_state = initial_state
+                    operation.initial_target_world_translation_m = initial_translation
+            self._apply_physical_grasp_command(operation, status)
+            if status.phase == GraspPhase.HOLDING:
+                operation.holding_confirmed = True
+            payload = self._physical_grasp_status_payload(operation)
+            if status.phase == GraspPhase.HOLDING and not operation.close_done_event.is_set():
+                operation.close_result = payload
+                operation.close_done_event.set()
+            elif status.phase in {GraspPhase.FAILED, GraspPhase.ABORTED}:
+                operation.close_result = operation.close_result or payload
+                operation.release_result = operation.release_result or payload
+                operation.close_done_event.set()
+                operation.release_done_event.set()
+            elif status.phase == GraspPhase.RELEASED:
+                operation.close_result = operation.close_result or payload
+                operation.release_result = payload
+                operation.close_done_event.set()
+                operation.release_done_event.set()
+        except BaseException as exc:
+            operation.error = exc
+            operation.fsm.abort(reason=f"runtime_error:{type(exc).__name__}")
+            operation.close_done_event.set()
+            operation.release_done_event.set()
 
     def _start_grasp_close_and_attach_impl(
         self,
@@ -2935,7 +4120,22 @@ class IsaacSimArmRobot:
 
     def _active_gripper_velocity_limits(self) -> np.ndarray:
         limits = self._gripper_max_velocity[:2].copy()
-        if self._sim_grasp_state.grasp_state == "contact_candidate":
+        physical = self._physical_grasp_operation
+        if physical is not None and physical.fsm.phase in {GraspPhase.PRELOAD, GraspPhase.HOLDING}:
+            limits[:] = np.minimum(
+                limits,
+                min(physical.max_close_velocity_m_s, self._GRASP_CONTACT_HOLD_MAX_VELOCITY_M_S),
+            )
+        elif physical is not None and physical.fsm.phase in {
+            GraspPhase.PRECHECK,
+            GraspPhase.SOFT_CLOSE,
+            GraspPhase.SEARCH,
+            GraspPhase.RELEASING,
+            GraspPhase.FAILED,
+            GraspPhase.ABORTED,
+        }:
+            limits[:] = np.minimum(limits, physical.max_close_velocity_m_s)
+        elif self._sim_grasp_state.grasp_state == "contact_candidate":
             limits[:] = np.minimum(limits, self._GRASP_CONTACT_HOLD_MAX_VELOCITY_M_S)
         elif self._sim_grasp_state.grasp_state in {
             "closing_for_grasp",
@@ -3009,18 +4209,25 @@ class IsaacSimArmRobot:
             if not drive:
                 drive = UsdPhysics.DriveAPI.Apply(prim, "angular")
 
+            # Isaac's controller API expresses angular drive gains per radian,
+            # while the USD angular DriveAPI attributes are per degree. Writing
+            # controller gains directly to USD multiplies the live PhysX gain by
+            # 180/pi when the stage change is consumed.
+            usd_stiffness = float(np.deg2rad(arm_kp[local_idx]))
+            usd_damping = float(np.deg2rad(arm_kd[local_idx]))
+
             if prim.HasAttribute("drive:angular:physics:type"):
-                drive.GetTypeAttr().Set("acceleration")
+                drive.GetTypeAttr().Set(self._arm_drive_type)
             else:
-                drive.CreateTypeAttr().Set("acceleration")
+                drive.CreateTypeAttr().Set(self._arm_drive_type)
             if prim.HasAttribute("drive:angular:physics:stiffness"):
-                drive.GetStiffnessAttr().Set(float(arm_kp[local_idx]))
+                drive.GetStiffnessAttr().Set(usd_stiffness)
             else:
-                drive.CreateStiffnessAttr().Set(float(arm_kp[local_idx]))
+                drive.CreateStiffnessAttr().Set(usd_stiffness)
             if prim.HasAttribute("drive:angular:physics:damping"):
-                drive.GetDampingAttr().Set(float(arm_kd[local_idx]))
+                drive.GetDampingAttr().Set(usd_damping)
             else:
-                drive.CreateDampingAttr().Set(float(arm_kd[local_idx]))
+                drive.CreateDampingAttr().Set(usd_damping)
             if local_idx < arm_max_effort.shape[0]:
                 if prim.HasAttribute("drive:angular:physics:maxForce"):
                     drive.GetMaxForceAttr().Set(float(arm_max_effort[local_idx]))
@@ -3099,6 +4306,7 @@ class IsaacSimArmRobot:
             joint_indices=self._gripper_joint_indices.astype(np.int64),
         )
         self._set_gripper_drive_targets(target_dofs)
+        self._gripper_command_dofs = target_dofs.copy()
         self._update_state_cache()
 
     def _force_arm_positions(self, target_arm: np.ndarray) -> None:
@@ -3137,12 +4345,41 @@ class IsaacSimArmRobot:
         else:
             arm_kp = self._hold_kp.copy()
             arm_kd = self._hold_kd.copy()
+            preserve_authored_gains = os.environ.get(
+                "A1Z_ISAAC_PRESERVE_AUTHORED_DRIVE_GAINS", "0"
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            if preserve_authored_gains:
+                dof_props = self._articulation.dof_properties
+                authored_kp = np.asarray(dof_props["stiffness"], dtype=np.float64).reshape(-1)[
+                    self._arm_joint_indices
+                ]
+                authored_kd = np.asarray(dof_props["damping"], dtype=np.float64).reshape(-1)[
+                    self._arm_joint_indices
+                ]
+                if (
+                    authored_kp.size != self._num_joints
+                    or authored_kd.size != self._num_joints
+                    or not np.all(np.isfinite(authored_kp))
+                    or not np.all(np.isfinite(authored_kd))
+                    or np.any(authored_kp <= 0.0)
+                    or np.any(authored_kd < 0.0)
+                ):
+                    raise RuntimeError(
+                        "A1Z authored drive gains are invalid for mounted Isaac operation: "
+                        f"kp={authored_kp.tolist()} kd={authored_kd.tolist()}"
+                    )
+                arm_kp = authored_kp.copy()
+                arm_kd = authored_kd.copy()
+                carb.log_info(
+                    "A1Z Isaac preserving authored mounted-arm drive gains: "
+                    f"kp={np.round(arm_kp, 2).tolist()} kd={np.round(arm_kd, 2).tolist()}"
+                )
 
-        # SingleArticulation only exposes the articulation controller for drive
-        # configuration. The controller accepts full gain arrays, while control
+        # The compatibility facade exposes the articulation controller for drive
+        # configuration. It accepts full gain arrays, while control
         # mode and effort mode can still be set per DOF.
         self._set_subset_effort_mode(
-            "force" if self.zero_gravity_mode else "acceleration",
+            "force" if self.zero_gravity_mode else self._arm_drive_type,
             self._arm_joint_indices,
         )
         self._set_subset_gains(self._arm_joint_indices, arm_kp, arm_kd)
@@ -3161,6 +4398,11 @@ class IsaacSimArmRobot:
                 self._switch_dof_control_mode("position", int(dof_index))
             self._configure_gripper_drive_targets()
 
+        position_hold_gravity_ff_active = bool(
+            not self.zero_gravity_mode
+            and self._position_hold_gravity_compensation
+            and self._gravity_model is not None
+        )
         try:
             dof_props = self._articulation.dof_properties
             actual_kp = np.asarray(dof_props["stiffness"], dtype=np.float64).reshape(-1)
@@ -3168,10 +4410,12 @@ class IsaacSimArmRobot:
             carb.log_info(
                 "A1Z Isaac actuator config: "
                 f"mode={'gravity_comp_effort' if self.zero_gravity_mode else 'position_hold'} "
+                f"position_hold_gravity_ff={position_hold_gravity_ff_active} "
                 f"arm_idx={self._arm_joint_indices.tolist()} "
                 f"gripper_idx={self._gripper_joint_indices.tolist()} "
                 f"actual_arm_kp={np.round(actual_kp[self._arm_joint_indices], 2).tolist()} "
-                f"actual_arm_kd={np.round(actual_kd[self._arm_joint_indices], 2).tolist()}"
+                f"actual_arm_kd={np.round(actual_kd[self._arm_joint_indices], 2).tolist()} "
+                f"drive_type={'force' if self.zero_gravity_mode else self._arm_drive_type}"
             )
         except Exception as exc:
             carb.log_warn(f"A1Z Isaac actuator introspection failed: {exc}")
@@ -3233,29 +4477,68 @@ class IsaacSimArmRobot:
                 )
                 self._debug_last_gravity_log = now
             self._controller().apply_action(
-                ArticulationAction(
+                ArticulationCommand(
                     joint_efforts=arm_effort.astype(np.float32),
                     joint_indices=self._arm_joint_indices.astype(np.int64),
                 )
             )
         else:
-            self._set_arm_drive_targets(pos_target)
+            q = self._full_pos[self._arm_joint_indices].copy()
+            qd = self._full_vel[self._arm_joint_indices].copy()
+            pos_err = pos_target - q
+            vel_err = vel_target - qd
+            gravity_tau = np.zeros(self._num_joints, dtype=np.float64)
+            if self._position_hold_gravity_compensation:
+                zeros = np.zeros(self._num_joints, dtype=np.float64)
+                gravity_tau = self._compute_gravity_feedforward(q, zeros, zeros)
+            arm_feedforward = bounded_position_hold_feedforward(
+                gravity_tau,
+                torque_ff,
+                self._position_hold_feedforward_limit,
+            )
+            self._last_gravity_q = q.copy()
+            self._last_gravity_qd = qd.copy()
+            self._last_gravity_pos_err = pos_err.copy()
+            self._last_gravity_vel_err = vel_err.copy()
+            self._last_gravity_tau_id = gravity_tau.copy()
+            self._last_gravity_effort = arm_feedforward.copy()
+            now = time.monotonic()
+            if (
+                np.max(np.abs(pos_err)) > self._ARM_SETTLE_TOL_RAD
+                and now - self._debug_last_gravity_log >= 1.0
+            ):
+                carb.log_info(
+                    "A1Z position hold gravity feedforward: "
+                    f"pos_err_deg={np.round(np.rad2deg(pos_err), 3).tolist()} "
+                    f"tau_g={np.round(gravity_tau, 3).tolist()} "
+                    f"ff={np.round(arm_feedforward, 3).tolist()}"
+                )
+                self._debug_last_gravity_log = now
+            if self._mirror_drive_targets_to_usd:
+                self._set_arm_drive_targets(pos_target)
             self._controller().apply_action(
-                ArticulationAction(
+                ArticulationCommand(
                     joint_positions=pos_target.astype(np.float32),
+                    joint_efforts=arm_feedforward.astype(np.float32),
                     joint_indices=self._arm_joint_indices.astype(np.int64),
                 )
             )
 
         if self._with_gripper and self._gripper_joint_indices.size == 2:
-            grip = self._rate_limit_gripper_dofs(self._normalized_to_gripper_dofs(self._gripper_target_value))
+            raw_grip_target = (
+                self._normalized_to_gripper_dofs(self._gripper_target_value)
+                if self._gripper_target_dofs_override is None
+                else self._gripper_target_dofs_override.copy()
+            )
+            grip = self._rate_limit_gripper_dofs(raw_grip_target)
+            if self._mirror_drive_targets_to_usd:
+                self._set_gripper_drive_targets(grip)
             self._controller().apply_action(
-                ArticulationAction(
+                ArticulationCommand(
                     joint_positions=grip.astype(np.float32),
                     joint_indices=self._gripper_joint_indices.astype(np.int64),
                 )
             )
-            self._set_gripper_drive_targets(grip)
 
     def _normalized_to_gripper_dofs(self, value: float) -> np.ndarray:
         open_fraction = float(np.clip(value, 0.0, 1.0))
@@ -3324,9 +4607,42 @@ class IsaacSimArmRobot:
         pending_grasp_attach = self._pending_grasp_attach
         if pending_grasp_attach is not None and not pending_grasp_attach.done_event.is_set():
             dt = min(dt, self._GRASP_ATTACH_RATE_LIMIT_DT_CAP_S)
+        physical_grasp = self._physical_grasp_operation
+        if physical_grasp is not None and physical_grasp.fsm.phase not in {
+            GraspPhase.IDLE,
+            GraspPhase.RELEASED,
+            GraspPhase.FAILED,
+            GraspPhase.ABORTED,
+        }:
+            dt = min(dt, self._GRASP_ATTACH_RATE_LIMIT_DT_CAP_S)
         current_pos = self._full_pos[self._gripper_joint_indices].copy()
         max_step = self._active_gripper_velocity_limits() * dt
-        return self._clip_gripper_dofs(current_pos + np.clip(target_pos - current_pos, -max_step, max_step))
+        previous_pos = (
+            current_pos.copy()
+            if self._gripper_command_dofs is None
+            else self._gripper_command_dofs.copy()
+        )
+        physical = self._physical_grasp_operation
+        max_lead_m = (
+            physical.max_command_lead_m
+            if physical is not None
+            and physical.fsm.phase
+            not in {GraspPhase.IDLE, GraspPhase.RELEASED}
+            else self._PHYSICAL_GRASP_MAX_COMMAND_LEAD_M
+        )
+        limited = np.asarray(
+            rate_limit_parallel_jaw_setpoint(
+                previous_dofs_m=previous_pos,
+                measured_dofs_m=current_pos,
+                target_dofs_m=target_pos,
+                max_velocity_m_s=max_step / dt,
+                dt_s=dt,
+                max_lead_m=max_lead_m,
+            ),
+            dtype=np.float64,
+        )
+        self._gripper_command_dofs = self._clip_gripper_dofs(limited)
+        return self._gripper_command_dofs.copy()
 
     def _refresh_joint_limits(self) -> None:
         if self._articulation is None:
@@ -3498,10 +4814,15 @@ class IsaacSimArmRobot:
 
     def _wait_for_arm_target(self, target_arm: np.ndarray, timeout_s: float) -> None:
         deadline = time.monotonic() + timeout_s
+        stable_samples = 0
         while time.monotonic() < deadline:
             current_arm = self.get_joint_state()["pos"]
             if np.max(np.abs(current_arm - target_arm)) <= self._ARM_SETTLE_TOL_RAD:
-                return
+                stable_samples += 1
+                if stable_samples >= self._ARM_SETTLE_REQUIRED_SAMPLES:
+                    return
+            else:
+                stable_samples = 0
             time.sleep(min(0.02, self._control_period_s))
         current_arm = self.get_joint_state()["pos"]
         joint_err = np.abs(current_arm - target_arm)

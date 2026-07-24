@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -53,9 +53,75 @@ class MockArmRobot:
             "attachment_joint_path": None,
             "target_prim_path": None,
             "target_body_path": None,
+            "carrier_body_path": "/World/mock/gripper_carrier",
+            "target_world_translation_m": None,
+            "carrier_world_translation_m": [0.0, 0.0, 0.0],
+            "target_to_carrier_translation_m": None,
+            "target_physics_state": {
+                "rigid_body_enabled": True,
+                "kinematic_enabled": False,
+                "gravity_disabled": False,
+            },
+            "initial_target_physics_state": {
+                "rigid_body_enabled": True,
+                "kinematic_enabled": False,
+                "gravity_disabled": False,
+            },
+            "target_physics_state_mutated": False,
             "grasp_state": "idle",
             "last_contact_time": None,
             "last_failure_reason": None,
+        }
+        self._physical_grasp_state: Dict[str, Any] = self._idle_physical_grasp_state()
+
+    @staticmethod
+    def _idle_physical_grasp_state() -> Dict[str, Any]:
+        return {
+            "contract_version": 2,
+            "mode": "physical",
+            "simulated": True,
+            "success": False,
+            "phase": "idle",
+            "target_body_path": None,
+            "bilateral_contact": False,
+            "stable_contact_frames": 0,
+            "contact_loss_frames": 0,
+            "contact_width_m": None,
+            "hold_width_m": None,
+            "measured_width_m": 0.096,
+            "left_normal_force_n": None,
+            "right_normal_force_n": None,
+            "filtered_left_normal_force_n": None,
+            "filtered_right_normal_force_n": None,
+            "filtered_weak_normal_force_n": None,
+            "target_normal_force_n": None,
+            "maximum_normal_force_n": None,
+            "force_control_active": False,
+            "force_target_reached": False,
+            "force_stable_frames": 0,
+            "force_loss_frames": 0,
+            "resistance_confirmed": False,
+            "resistance_signals": {
+                "contact_force_resistance": False,
+                "joint_load_resistance": False,
+                "projected_joint_force_n": None,
+                "free_motion_baseline_n": None,
+                "effort_residual_n": None,
+                "command_lag_m": None,
+            },
+            "left_body_paths": [],
+            "right_body_paths": [],
+            "support_body_paths": [],
+            "left_support_body_paths": [],
+            "right_support_body_paths": [],
+            "support_contact_present": False,
+            "constraint_count_delta": 0,
+            "new_constraint_paths": [],
+            "attachment_joint_path": None,
+            "attached_object_path": None,
+            "failure_reason": None,
+            "command": None,
+            "elapsed_s": 0.0,
         }
 
     def num_dofs(self) -> int:
@@ -162,6 +228,118 @@ class MockArmRobot:
     def get_gripper_pos(self) -> Optional[float]:
         with self._lock:
             return self._gripper_pos
+
+    def grasp_close_physical(
+        self,
+        *,
+        timeout_s: float = 15.0,
+        minimum_normal_force_n: Optional[float] = None,
+        preload_delta_m: Optional[float] = None,
+        controller_profile: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        del timeout_s
+        target = "/World/Mock/AutoDetectedObject"
+        if minimum_normal_force_n is not None and float(minimum_normal_force_n) < 0.0:
+            raise ValueError("minimum_normal_force_n cannot be negative")
+        profile = None if controller_profile is None else dict(controller_profile)
+        profile_preload = (
+            float(profile["preload"]["delta_m"])
+            if profile is not None
+            else 0.001
+        )
+        profile_maximum_preload = (
+            float(profile["preload"]["maximum_delta_m"])
+            if profile is not None
+            else 0.004
+        )
+        preload = profile_preload if preload_delta_m is None else float(preload_delta_m)
+        force_control = (
+            {}
+            if profile is None
+            else dict(profile.get("force_control", {}) or {})
+        )
+        target_force = (
+            0.75
+            if force_control.get("target_normal_force_n") is None
+            else float(force_control["target_normal_force_n"])
+        )
+        maximum_force = (
+            3.0
+            if force_control.get("maximum_normal_force_n") is None
+            else float(force_control["maximum_normal_force_n"])
+        )
+        if not 0.0 <= preload <= profile_maximum_preload:
+            raise ValueError(
+                f"preload_delta_m must be within [0.0, {profile_maximum_preload}]"
+            )
+        self.command_gripper(0.5)
+        state = {
+            **self._idle_physical_grasp_state(),
+            "success": True,
+            "phase": "holding",
+            "controller_profile_id": (
+                None if profile is None else profile.get("controller_profile_id")
+            ),
+            "calibration_status": (
+                "mock" if profile is None else profile.get("calibration_status")
+            ),
+            "target_body_path": target,
+            "target_discovery_mode": True,
+            "candidate_body_path": target,
+            "bilateral_contact": True,
+            "stable_contact_frames": 5,
+            "contact_width_m": 0.048,
+            "hold_width_m": 0.048 - preload,
+            "measured_width_m": 0.048 - preload,
+            "left_normal_force_n": minimum_normal_force_n,
+            "right_normal_force_n": minimum_normal_force_n,
+            "filtered_left_normal_force_n": target_force,
+            "filtered_right_normal_force_n": target_force,
+            "filtered_weak_normal_force_n": target_force,
+            "target_normal_force_n": target_force,
+            "maximum_normal_force_n": maximum_force,
+            "force_control_active": True,
+            "force_target_reached": True,
+            "force_stable_frames": int(force_control.get("confirm_frames", 5)),
+            "resistance_confirmed": True,
+            "resistance_signals": {
+                "contact_force_resistance": True,
+                "joint_load_resistance": False,
+                "projected_joint_force_n": None,
+                "free_motion_baseline_n": None,
+                "effort_residual_n": None,
+                "command_lag_m": None,
+            },
+            "left_body_paths": [target],
+            "right_body_paths": [target],
+            "command": {
+                "drive_profile": "hold",
+                "target_width_m": 0.048 - preload,
+                "reason": "mock_physical_contact_holding",
+            },
+        }
+        with self._lock:
+            self._physical_grasp_state = state
+        return dict(state)
+
+    def release_physical_grasp(self, *, timeout_s: float = 3.0) -> Dict[str, Any]:
+        del timeout_s
+        self.command_gripper(1.0)
+        with self._lock:
+            target = self._physical_grasp_state.get("target_body_path")
+            state = {
+                **self._idle_physical_grasp_state(),
+                "success": True,
+                "phase": "released",
+                "target_body_path": target,
+                "measured_width_m": 0.096,
+            }
+            self._physical_grasp_state = state
+        return dict(state)
+
+    def get_physical_grasp_status(self) -> Dict[str, Any]:
+        with self._lock:
+            return dict(self._physical_grasp_state)
 
     def grasp_close_and_attach(
         self,

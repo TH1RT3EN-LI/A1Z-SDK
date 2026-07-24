@@ -51,6 +51,14 @@ class MockGraspAttachLifecycleTest(unittest.TestCase):
         self.assertEqual(status["grasp_state"], "idle")
         self.assertAlmostEqual(self.robot.get_gripper_pos() or -1.0, 1.0)
 
+    def test_attach_preserves_attached_state_for_followup_gripper_behavior(self) -> None:
+        result = self.robot.grasp_close_and_attach("/World/TrashSet/mock_target")
+        self.assertTrue(result["success"])
+        status = self.robot.get_sim_grasp_status()
+        self.assertTrue(status["has_attached_object"])
+        self.assertEqual(status["attached_object_path"], "/World/TrashSet/mock_target")
+        self.assertIn(status["grasp_state"], {"attached"})
+
 
 if __name__ == "__main__":
     unittest.main()

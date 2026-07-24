@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FIXTURE_DIR="$ROOT_DIR/runtime/anygrasp_replay_compare_summary_v2"
+FIXTURE_DIR="$ROOT_DIR/tests/fixtures/anygrasp_execution_modes"
 VERIFY_ROOT="$ROOT_DIR/runtime/anygrasp_pick_attempt_modes_verify"
 
 rm -rf "$VERIFY_ROOT"

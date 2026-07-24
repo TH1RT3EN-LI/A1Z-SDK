@@ -7,7 +7,6 @@ from typing import Optional
 import numpy as np
 
 from a1z_ext.config import get_control_defaults, get_default_backend, get_default_can_channel
-from a1z_ext.robots.gripper import GRIPPER_CAN_ID, GRIPPER_MOTOR_RANGES, Gripper
 from a1z_ext.robots.mock_robot import MockArmRobot
 from a1z.robots.robot import Robot
 
@@ -58,6 +57,7 @@ def get_a1z_robot(
 ):
     """Create and return a configured SocketCAN-backed A1Z ArmRobot."""
     import can
+    from a1z_ext.robots.gripper import GRIPPER_CAN_ID, GRIPPER_MOTOR_RANGES, Gripper
 
     from a1z.motor_drivers.motor_a_driver import MotorA, MotorARanges
     from a1z.motor_drivers.motor_b_driver import MotorB, MotorBRanges, MixedMotorChain

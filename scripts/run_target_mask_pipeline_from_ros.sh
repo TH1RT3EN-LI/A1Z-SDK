@@ -26,9 +26,7 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$ROS_CONTAINER_NAME" 2>/dev/nul
   docker start "$ROS_CONTAINER_NAME" >/dev/null
 fi
 
-if [[ "$(docker inspect -f '{{.State.Running}}' "$VISION_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
-  docker start "$VISION_CONTAINER_NAME" >/dev/null
-fi
+"$ROOT_DIR/scripts/ensure_a1z_vision_container.sh"
 
 docker exec \
   -e A1Z_CAPTURE_TOPIC="$ROS_TOPIC" \
@@ -44,6 +42,8 @@ docker exec \
       --ros-topic "$A1Z_CAPTURE_TOPIC" \
       --output "$A1Z_CAPTURE_OUTPUT"
   '
+
+docker exec "$VISION_CONTAINER_NAME" test -f "$CAPTURE_PATH"
 
 docker exec \
   -e A1Z_TARGET_INSTRUCTION="$INSTRUCTION" \

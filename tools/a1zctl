@@ -22,7 +22,6 @@ Usage
 import argparse
 import json
 import os
-import socket
 import sys
 
 # Allow running from any directory without installing the package.
@@ -32,12 +31,15 @@ sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, SDK_ROOT)
 
 from a1z_ext.config import (
+    get_arm_motion_speed_limits,
     get_default_backend,
     get_default_can_channel,
     get_socket_path,
     get_tcp_host,
     get_tcp_port,
+    validate_arm_motion_speed,
 )  # noqa: E402
+from a1z_ext.control_client import send_control_request  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -46,28 +48,18 @@ from a1z_ext.config import (
 
 def _send(cmd: str, args: dict | None = None) -> dict:
     """Send one command to the server and return the parsed response."""
-    req = json.dumps({"cmd": cmd, "args": args or {}}) + "\n"
-    socket_path = get_socket_path()
     try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(120.0)
-        sock.connect(socket_path)
-        sock.sendall(req.encode())
-        data = b""
-        while b"\n" not in data:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            data += chunk
-        sock.close()
-        return json.loads(data.split(b"\n", 1)[0].decode())
-    except FileNotFoundError:
-        print(f"[a1zctl] Socket not found: {get_socket_path()}")
-        print("[a1zctl] Start the server first:  python3 tools/a1zctl serve")
-        sys.exit(1)
-    except ConnectionRefusedError:
-        print("[a1zctl] Server not running.  Start with:  python3 tools/a1zctl serve")
-        sys.exit(1)
+        data = send_control_request(
+            cmd,
+            args,
+            socket_path=get_socket_path(),
+            tcp_host=get_tcp_host(),
+            tcp_port=get_tcp_port(),
+            timeout_s=120.0,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "data": data}
 
 
 def _ok_or_exit(resp: dict) -> dict:
@@ -240,6 +232,80 @@ def cmd_grasp_release(args: argparse.Namespace) -> None:
     print(f"[a1zctl] released={bool(data.get('released', False))}")
 
 
+def _print_physical_grasp_result(data: dict) -> None:
+    print(
+        "[a1zctl] physical grasp "
+        f"phase={data.get('phase', 'unknown')} success={bool(data.get('success', False))}"
+    )
+    if data.get("target_body_path"):
+        print(f"[a1zctl] target_body_path: {data['target_body_path']}")
+    print(
+        "[a1zctl] "
+        f"bilateral_contact={bool(data.get('bilateral_contact', False))} "
+        f"stable_frames={int(data.get('stable_contact_frames', 0))} "
+        f"constraint_delta={int(data.get('constraint_count_delta', 0))}"
+    )
+    left_force = data.get("left_normal_force_n")
+    right_force = data.get("right_normal_force_n")
+    if left_force is not None or right_force is not None:
+        print(f"[a1zctl] normal_force_n: left={left_force} right={right_force}")
+    if data.get("force_control_active"):
+        print(
+            "[a1zctl] force_control "
+            f"filtered_weak_n={data.get('filtered_weak_normal_force_n')} "
+            f"target_n={data.get('target_normal_force_n')} "
+            f"target_reached={bool(data.get('force_target_reached', False))} "
+            f"resistance_confirmed={bool(data.get('resistance_confirmed', False))}"
+        )
+    if data.get("failure_reason"):
+        print(f"[a1zctl] failure_reason: {data['failure_reason']}")
+
+
+def cmd_grasp_close_physical(args: argparse.Namespace) -> None:
+    controller_profile = None
+    if args.controller_profile:
+        try:
+            with open(args.controller_profile, "r", encoding="utf-8") as stream:
+                controller_profile = json.load(stream)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"[a1zctl] Could not load controller profile: {exc}")
+            sys.exit(1)
+        if not isinstance(controller_profile, dict):
+            print("[a1zctl] Controller profile must contain a JSON object")
+            sys.exit(1)
+    data = _ok_or_exit(
+        _send(
+            "grasp_close_v2",
+            {
+                "timeout_s": args.timeout_s,
+                "minimum_normal_force_n": args.minimum_normal_force_n,
+                "preload_delta_m": args.preload_delta_m,
+                "controller_profile": controller_profile,
+            },
+        )
+    )
+    if args.json:
+        _emit(args, data)
+        return
+    _print_physical_grasp_result(data)
+
+
+def cmd_grasp_release_physical(args: argparse.Namespace) -> None:
+    data = _ok_or_exit(_send("grasp_release_v2", {"timeout_s": args.timeout_s}))
+    if args.json:
+        _emit(args, data)
+        return
+    _print_physical_grasp_result(data)
+
+
+def cmd_grasp_status_physical(args: argparse.Namespace) -> None:
+    data = _ok_or_exit(_send("grasp_status_v2"))
+    if args.json:
+        _emit(args, data)
+        return
+    _print_physical_grasp_result(data)
+
+
 def cmd_dance(args: argparse.Namespace) -> None:
     req_args: dict = {"speed": args.speed}
     if args.moves:
@@ -308,6 +374,9 @@ Examples:
   python3 tools/a1zctl gripper 0.5
   python3 tools/a1zctl grasp-attach --target-prim-path /World/TrashSet/mock_target
   python3 tools/a1zctl grasp-release
+  python3 tools/a1zctl grasp-close-physical
+  python3 tools/a1zctl grasp-status-physical
+  python3 tools/a1zctl grasp-release-physical
   python3 tools/a1zctl dance --moves salute,wave,bow --speed 0.7
   python3 tools/a1zctl stop
         """,
@@ -351,8 +420,8 @@ Examples:
     sp.add_argument(
         "--control-freq",
         type=int,
-        default=250,
-        help="Backend control/update frequency in Hz (default: 250; use 60 for Isaac)",
+        default=60,
+        help="Backend control/update frequency in Hz (default: 60)",
     )
     sp.add_argument(
         "--articulation-root",
@@ -377,7 +446,17 @@ Examples:
                     help="6 joint angles in degrees, comma-separated (e.g. 0,60,-60,0,0,0)")
     mp.add_argument("--preset", default=None,
                     help="Named preset: home | ready | salute | wave_l | wave_r | reach | bow ...")
-    mp.add_argument("--speed", type=float, default=0.5, help="Movement speed rad/s (default: 0.5)")
+    speed_limits = get_arm_motion_speed_limits()
+    mp.add_argument(
+        "--speed",
+        type=validate_arm_motion_speed,
+        default=speed_limits.default,
+        help=(
+            "Movement speed rad/s "
+            f"({speed_limits.minimum:g}–{speed_limits.maximum:g}, "
+            f"default: {speed_limits.default:g})"
+        ),
+    )
 
     cp = sub.add_parser("command", help="Send an immediate joint target without waiting for motion completion")
     cp.add_argument("joints", help="6 joint angles in degrees, comma-separated (e.g. 0,60,-60,0,0,0)")
@@ -442,6 +521,50 @@ Examples:
         help="Release timeout in seconds (default: 2.0)",
     )
 
+    gcp = sub.add_parser(
+        "grasp-close-physical",
+        help="Close slowly and auto-detect the rigid body contacted by both fingers (contract v2)",
+    )
+    gcp.add_argument(
+        "--timeout-s",
+        type=float,
+        default=15.0,
+        help="Total precheck/close/search/preload/hold timeout in seconds (default: 15.0)",
+    )
+    gcp.add_argument(
+        "--minimum-normal-force-n",
+        type=float,
+        default=None,
+        help="Optional calibrated minimum normal force required on each finger",
+    )
+    gcp.add_argument(
+        "--preload-delta-m",
+        type=float,
+        default=None,
+        help="Override additional jaw-width closure after bilateral contact",
+    )
+    gcp.add_argument(
+        "--controller-profile",
+        default=None,
+        help="Versioned controller profile JSON; supplies gains, contact policy, preload, and timeouts",
+    )
+
+    grpv2 = sub.add_parser(
+        "grasp-release-physical",
+        help="Open the jaws and complete physical grasp contract v2 release",
+    )
+    grpv2.add_argument(
+        "--timeout-s",
+        type=float,
+        default=3.0,
+        help="Release timeout in seconds (default: 3.0)",
+    )
+
+    sub.add_parser(
+        "grasp-status-physical",
+        help="Show bilateral contact, force, width, and constraint audit for contract v2",
+    )
+
     # dance
     dp = sub.add_parser("dance", help="Run a dance sequence")
     dp.add_argument("--moves", default=None,
@@ -466,6 +589,9 @@ _COMMANDS = {
     "grasp-attach": cmd_grasp_attach,
     "grasp-link": cmd_grasp_link,
     "grasp-release": cmd_grasp_release,
+    "grasp-close-physical": cmd_grasp_close_physical,
+    "grasp-release-physical": cmd_grasp_release_physical,
+    "grasp-status-physical": cmd_grasp_status_physical,
     "dance":   cmd_dance,
     "stop":    cmd_stop,
     "info":    cmd_info,

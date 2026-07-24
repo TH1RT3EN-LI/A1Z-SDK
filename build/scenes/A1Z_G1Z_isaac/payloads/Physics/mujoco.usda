@@ -103,8 +103,8 @@ over "A1Z_G1Z"
         {
             uniform double[] mjc:biasPrm = [0, -280, -32, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
-            uniform double mjc:forceRange:max = inf
-            uniform double mjc:forceRange:min = -inf
+            uniform double mjc:forceRange:max = 120
+            uniform double mjc:forceRange:min = -120
             uniform double[] mjc:gainPrm = [280, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
@@ -115,8 +115,8 @@ over "A1Z_G1Z"
         {
             uniform double[] mjc:biasPrm = [0, -280, -32, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:biasType = "affine"
-            uniform double mjc:forceRange:max = inf
-            uniform double mjc:forceRange:min = -inf
+            uniform double mjc:forceRange:max = 120
+            uniform double mjc:forceRange:min = -120
             uniform double[] mjc:gainPrm = [280, 0, 0, 0, 0, 0, 0, 0, 0, 0]
             uniform token mjc:gainType = "fixed"
             custom rel mjc:target
@@ -305,4 +305,3 @@ over "A1Z_G1Z"
     {
     }
 }
-

@@ -75,8 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=int(os.environ.get("A1Z_ISAAC_CONTROL_FREQ_HZ", "60")),
         help="Isaac backend control frequency.",
     )
-    parser.add_argument("--width", type=int, default=int(os.environ.get("A1Z_D405_WIDTH", "1280")))
-    parser.add_argument("--height", type=int, default=int(os.environ.get("A1Z_D405_HEIGHT", "720")))
+    parser.add_argument("--width", type=int, default=int(os.environ.get("A1Z_D405_WIDTH", "320")))
+    parser.add_argument("--height", type=int, default=int(os.environ.get("A1Z_D405_HEIGHT", "240")))
     parser.add_argument("--warmup-frames", type=int, default=30)
     parser.add_argument("--capture-frames", type=int, default=8)
     parser.add_argument("--post-camera-warmup-frames", type=int, default=45)

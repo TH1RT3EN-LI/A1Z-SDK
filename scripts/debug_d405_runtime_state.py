@@ -68,8 +68,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("A1Z_ISAAC_ARTICULATION_ROOT", "/World/A1Z_G1Z/Geometry"),
         help="Articulation root prim path.",
     )
-    parser.add_argument("--width", type=int, default=int(os.environ.get("A1Z_D405_WIDTH", "1280")))
-    parser.add_argument("--height", type=int, default=int(os.environ.get("A1Z_D405_HEIGHT", "720")))
+    parser.add_argument("--width", type=int, default=int(os.environ.get("A1Z_D405_WIDTH", "320")))
+    parser.add_argument("--height", type=int, default=int(os.environ.get("A1Z_D405_HEIGHT", "240")))
     parser.add_argument("--warmup-frames", type=int, default=30)
     parser.add_argument("--post-camera-warmup-frames", type=int, default=45)
     parser.add_argument("--control-freq", type=int, default=int(os.environ.get("A1Z_ISAAC_CONTROL_FREQ_HZ", "60")))

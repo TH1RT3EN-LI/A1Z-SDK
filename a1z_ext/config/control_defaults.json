@@ -1,9 +1,9 @@
 {
   "default_can_channel": "can0",
-  "socket_path": "/tmp/a1z.sock",
-  "tcp_host": "0.0.0.0",
-  "tcp_port": 18080,
-  "default_backend": "socketcan",
+  "socket_path": "",
+  "tcp_host": "127.0.0.1",
+  "tcp_port": 37103,
+  "default_backend": "isaacsim",
   "num_joints": 6,
   "motor_a_joint_indices": [0, 1, 2],
   "motor_b_joint_indices": [3, 4, 5],
@@ -32,11 +32,17 @@
   "arm_peak_torque_nm": [50.0, 50.0, 50.0, 25.0, 7.0, 7.0],
   "arm_rated_velocity_rad_s": [5.654867, 5.654867, 5.654867, 3.769911, 10.471976, 10.471976],
   "arm_peak_velocity_rad_s": [6.283185, 6.283185, 6.283185, 5.445427, 15.707963, 15.707963],
+  "arm_motion_speed_rad_s": {
+    "minimum": 0.05,
+    "default": 0.5,
+    "maximum": 1.5
+  },
   "gravity_torque_scale": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
   "max_gravity_torque": [50.0, 50.0, 50.0, 24.0, 10.0, 10.0],
   "torque_clip": [70.0, 70.0, 70.0, 27.0, 10.0, 10.0],
   "isaacsim": {
     "articulation_root_prim": "/World/A1Z_G1Z/Geometry",
+    "arm_drive_type": "force",
     "arm_joint_names": [
       "arm_joint1",
       "arm_joint2",
@@ -51,6 +57,8 @@
     ],
     "position_hold_kp": [240.0, 280.0, 240.0, 150.0, 42.0, 48.0],
     "position_hold_kd": [26.0, 32.0, 26.0, 16.0, 9.0, 10.0],
+    "position_hold_gravity_compensation": true,
+    "position_hold_feedforward_limit_nm": [20.0, 25.0, 20.0, 9.0, 3.5, 3.5],
     "arm_max_effort": [50.0, 50.0, 50.0, 27.0, 10.0, 10.0],
     "arm_max_velocity": [5.654867, 5.654867, 5.654867, 3.769911, 10.471976, 10.471976],
     "gravity_mode_kd_scale": 0.5,

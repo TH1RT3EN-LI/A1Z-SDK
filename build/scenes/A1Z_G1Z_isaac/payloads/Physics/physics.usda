@@ -106,9 +106,19 @@ over "A1Z_G1Z"
                                     )
                                     {
                                         point3f physics:centerOfMass = (0.02727101, 0.02205781, -0.00976829)
-                                        float3 physics:diagonalInertia = (0.00003855451, 0.00014386437, 0.00015597114)
-                                        float physics:mass = 0.137868
-                                        quatf physics:principalAxes = (0.9309793, 0.13406353, -0.10331831, -0.32346535)
+                                        float3 physics:diagonalInertia = (0.00000557385, 0.000021, 0.00002242615)
+                                        float physics:mass = 0.02
+                                        quatf physics:principalAxes = (-0.25456852, 0.90405387, 0.33969662, -0.04987669)
+
+                                        over "gripper_finger_left_link_1"
+                                        {
+                                            over "gripper_finger_left_link" (
+                                                prepend apiSchemas = ["MaterialBindingAPI"]
+                                            )
+                                            {
+                                                rel material:binding:physics = </A1Z_G1Z/PhysicsMaterials/A1ZGripperPad>
+                                            }
+                                        }
                                     }
 
                                     over "gripper_finger_rIght_link" (
@@ -116,9 +126,19 @@ over "A1Z_G1Z"
                                     )
                                     {
                                         point3f physics:centerOfMass = (0.02727101, -0.02205781, 0.00984327)
-                                        float3 physics:diagonalInertia = (0.000038577844, 0.00014401008, 0.0001561421)
-                                        float physics:mass = 0.137868
-                                        quatf physics:principalAxes = (0.9304235, 0.13673973, 0.1035132, 0.3238818)
+                                        float3 physics:diagonalInertia = (0.00000557385, 0.000021, 0.00002242615)
+                                        float physics:mass = 0.02
+                                        quatf physics:principalAxes = (0.90405387, 0.25456852, 0.04987669, 0.33969662)
+
+                                        over "gripper_finger_rIght_link_1"
+                                        {
+                                            over "gripper_finger_rIght_link" (
+                                                prepend apiSchemas = ["MaterialBindingAPI"]
+                                            )
+                                            {
+                                                rel material:binding:physics = </A1Z_G1Z/PhysicsMaterials/A1ZGripperPad>
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -126,6 +146,20 @@ over "A1Z_G1Z"
                     }
                 }
             }
+        }
+    }
+
+    def Scope "PhysicsMaterials"
+    {
+        def Material "A1ZGripperPad" (
+            prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 1.5
+            float physics:restitution = 0
+            float physics:staticFriction = 2
+            token physxMaterial:frictionCombineMode = "max"
+            token physxMaterial:restitutionCombineMode = "min"
         }
     }
 
@@ -138,7 +172,7 @@ over "A1Z_G1Z"
             float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 20
             float drive:angular:physics:stiffness = 4.886922
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             uniform token physics:axis = "Z"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link>
@@ -161,7 +195,7 @@ over "A1Z_G1Z"
             float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 25
             float drive:angular:physics:stiffness = 4.886922
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             uniform token physics:axis = "Y"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1>
@@ -184,7 +218,7 @@ over "A1Z_G1Z"
             float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 20
             float drive:angular:physics:stiffness = 4.886922
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             uniform token physics:axis = "Y"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2>
@@ -207,7 +241,7 @@ over "A1Z_G1Z"
             float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 9
             float drive:angular:physics:stiffness = 4.886922
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             uniform token physics:axis = "Y"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3>
@@ -230,7 +264,7 @@ over "A1Z_G1Z"
             float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 3.5
             float drive:angular:physics:stiffness = 4.886922
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             uniform token physics:axis = "Z"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4>
@@ -253,7 +287,7 @@ over "A1Z_G1Z"
             float drive:angular:physics:damping = 0.55850536
             float drive:angular:physics:maxForce = 3.5
             float drive:angular:physics:stiffness = 4.886922
-            uniform token drive:angular:physics:type = "acceleration"
+            uniform token drive:angular:physics:type = "force"
             uniform token physics:axis = "X"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5>
@@ -274,6 +308,7 @@ over "A1Z_G1Z"
         )
         {
             float drive:linear:physics:damping = 32
+            float drive:linear:physics:maxForce = 120
             float drive:linear:physics:stiffness = 280
             uniform token drive:linear:physics:type = "acceleration"
             uniform token physics:axis = "Y"
@@ -286,7 +321,9 @@ over "A1Z_G1Z"
             quatf physics:localRot0 = (1, 0, 0, 0)
             quatf physics:localRot1 = (1, 0, 0, 0)
             float physics:lowerLimit = 0
-            float physics:upperLimit = 0
+            float physics:upperLimit = 0.048
+            custom float urdf:limit:effort = 120
+            custom float urdf:limit:velocity = 0.35
         }
 
         def PhysicsPrismaticJoint "gripper_finger_rIght_joint" (
@@ -294,6 +331,7 @@ over "A1Z_G1Z"
         )
         {
             float drive:linear:physics:damping = 32
+            float drive:linear:physics:maxForce = 120
             float drive:linear:physics:stiffness = 280
             uniform token drive:linear:physics:type = "acceleration"
             uniform token physics:axis = "Y"
@@ -305,8 +343,10 @@ over "A1Z_G1Z"
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (1, 0, 0, 0)
             quatf physics:localRot1 = (1, 0, 0, 0)
-            float physics:lowerLimit = 0
+            float physics:lowerLimit = -0.048
             float physics:upperLimit = 0
+            custom float urdf:limit:effort = 120
+            custom float urdf:limit:velocity = 0.35
         }
 
         def PhysicsFixedJoint "root_joint"
@@ -334,4 +374,3 @@ over "A1Z_G1Z"
         }
     }
 }
-

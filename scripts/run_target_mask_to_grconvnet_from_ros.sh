@@ -34,9 +34,7 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$ROS_CONTAINER_NAME" 2>/dev/nul
   docker start "$ROS_CONTAINER_NAME" >/dev/null
 fi
 
-if [[ "$(docker inspect -f '{{.State.Running}}' "$VISION_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
-  docker start "$VISION_CONTAINER_NAME" >/dev/null
-fi
+"$ROOT_DIR/scripts/ensure_a1z_vision_container.sh"
 
 docker exec \
   -e HOME="/tmp/a1z-home-$(id -u)" \
@@ -65,6 +63,8 @@ docker exec \
     done
     exit 1
   '
+
+docker exec "$VISION_CONTAINER_NAME" test -f "$CAPTURE_DIR/color.png"
 
 docker exec \
   -u "${HOST_UID}:${HOST_GID}" \

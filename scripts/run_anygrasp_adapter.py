@@ -59,6 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retreat-offset-m", type=float, default=0.04)
     parser.add_argument("--table-height-m", type=float, default=0.0)
     parser.add_argument("--min-tool-height-above-table-m", type=float, default=0.005)
+    parser.add_argument(
+        "--disable-table-clearance",
+        action="store_true",
+        help="Skip base-frame table clearance filtering.",
+    )
     parser.add_argument("--max-approach-deviation-deg", type=float, default=85.0)
     parser.add_argument("--max-gripper-opening-m", type=float, default=0.096)
     parser.add_argument("--pregrasp-opening-margin-m", type=float, default=0.008)
@@ -227,6 +232,7 @@ def main() -> int:
         retreat_offset_m=args.retreat_offset_m,
         table_height_m=args.table_height_m,
         min_tool_height_above_table_m=args.min_tool_height_above_table_m,
+        enforce_table_clearance=not bool(args.disable_table_clearance),
         require_approach_downward=bool(args.require_approach_downward),
         max_approach_deviation_deg=args.max_approach_deviation_deg,
         max_gripper_opening_m=args.max_gripper_opening_m,

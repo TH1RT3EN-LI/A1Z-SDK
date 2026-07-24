@@ -9,7 +9,12 @@ ROS_CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:-a1z-ros2-humble}"
 ROS_IMAGE_TAG="${A1Z_ROS2_IMAGE_TAG:-a1z-ros2-humble:local}"
 DOCKERFILE_PATH="$ROOT_DIR/docker/ros2-humble/Dockerfile"
 
-docker build -t "$ROS_IMAGE_TAG" -f "$DOCKERFILE_PATH" "$ROOT_DIR"
+if [[ "${A1Z_ROS2_REBUILD_IMAGE:-0}" == "1" ]] || \
+   ! docker image inspect "$ROS_IMAGE_TAG" >/dev/null 2>&1; then
+  docker build -t "$ROS_IMAGE_TAG" -f "$DOCKERFILE_PATH" "$ROOT_DIR"
+else
+  echo "Reusing ROS 2 image: $ROS_IMAGE_TAG"
+fi
 
 if docker inspect "$ROS_CONTAINER_NAME" >/dev/null 2>&1; then
   echo "ROS 2 container already exists: $ROS_CONTAINER_NAME"
@@ -19,6 +24,8 @@ fi
 docker create \
   --name "$ROS_CONTAINER_NAME" \
   --network host \
+  -e "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-61}" \
+  -e "RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}" \
   -v "$ROOT_DIR:/workspace/A1Z" \
   -w /workspace/A1Z/ros2_ws \
   "$ROS_IMAGE_TAG" \

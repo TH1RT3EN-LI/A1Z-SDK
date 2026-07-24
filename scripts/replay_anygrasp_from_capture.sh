@@ -17,6 +17,7 @@ ANYGRASP_EXTRINSIC_CORRECTION_LABEL="${A1Z_ANYGRASP_EXTRINSIC_CORRECTION_LABEL:-
 ANYGRASP_EE_GRASP_ORIGIN="${A1Z_ANYGRASP_EE_GRASP_ORIGIN:-[0.0, 0.0, 0.0]}"
 ANYGRASP_EE_OPENING_AXIS="${A1Z_ANYGRASP_EE_OPENING_AXIS:-[0.0, 1.0, 0.0]}"
 ANYGRASP_EE_APPROACH_AXIS="${A1Z_ANYGRASP_EE_APPROACH_AXIS:-[1.0, 0.0, 0.0]}"
+ANYGRASP_DISABLE_TABLE_CLEARANCE="${A1Z_ANYGRASP_DISABLE_TABLE_CLEARANCE:-1}"
 REQUIRE_CURRENT_JOINTS=0
 
 POSITIONAL_ARGS=()
@@ -131,9 +132,7 @@ mkdir -p \
   "$HOST_OUTPUT_DIR/analysis" \
   "$HOST_OUTPUT_DIR/renders"
 
-if [[ "$(docker inspect -f '{{.State.Running}}' "$VISION_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
-  docker start "$VISION_CONTAINER_NAME" >/dev/null
-fi
+"$ROOT_DIR/scripts/ensure_a1z_vision_container.sh"
 
 "$ROOT_DIR/scripts/freeze_anygrasp_machine_fingerprint.sh" "${ANYGRASP_IFCONFIG_SNAPSHOT/#\/workspace\/A1Z/$ROOT_DIR}"
 
@@ -193,6 +192,7 @@ if [[ -f "$CAPTURE_DIR/extrinsic_camera_to_base.npy" ]]; then
     --ee-grasp-origin-xyz-m "$ANYGRASP_EE_GRASP_ORIGIN" \
     --ee-opening-axis-xyz "$ANYGRASP_EE_OPENING_AXIS" \
     --ee-approach-axis-xyz "$ANYGRASP_EE_APPROACH_AXIS" \
+    $(if [[ "$ANYGRASP_DISABLE_TABLE_CLEARANCE" == "1" ]]; then printf '%s' '--disable-table-clearance'; fi) \
     --backend anygrasp_replay
   then
     ADAPTER_STATUS=0
@@ -212,6 +212,7 @@ if [[ -f "$CAPTURE_DIR/extrinsic_camera_to_base.npy" ]]; then
     --ee-grasp-origin-xyz-m "$ANYGRASP_EE_GRASP_ORIGIN" \
     --ee-opening-axis-xyz "$ANYGRASP_EE_OPENING_AXIS" \
     --ee-approach-axis-xyz "$ANYGRASP_EE_APPROACH_AXIS" \
+    $(if [[ "$ANYGRASP_DISABLE_TABLE_CLEARANCE" == "1" ]]; then printf '%s' '--disable-table-clearance'; fi) \
     --backend anygrasp_best_direct_replay
   then
     BEST_DIRECT_STATUS=0

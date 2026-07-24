@@ -14,10 +14,6 @@ fi
 RUN_LOG_PATH="${A1Z_ROS2_MOTION_LOG_PATH:-/tmp/a1z_ros2_motion.log}"
 RUN_PID_PATH="${A1Z_ROS2_MOTION_PID_PATH:-/tmp/a1z_ros2_motion.pid}"
 
-if [[ "$(docker inspect -f '{{.State.Running}}' "$ROS_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
-  docker start "$ROS_CONTAINER_NAME" >/dev/null
-fi
-
 case "$ACTION" in
   run|start|stop|restart|status|wait) ;;
   *)
@@ -26,12 +22,42 @@ case "$ACTION" in
     ;;
 esac
 
+if ! docker inspect "$ROS_CONTAINER_NAME" >/dev/null 2>&1; then
+  case "$ACTION" in
+    stop)
+      exit 0
+      ;;
+    status)
+      echo "ROS 2 container does not exist: $ROS_CONTAINER_NAME" >&2
+      exit 1
+      ;;
+    *)
+      "$ROOT_DIR/scripts/create_a1z_ros2_container.sh"
+      ;;
+  esac
+fi
+
+if [[ "$(docker inspect -f '{{.State.Running}}' "$ROS_CONTAINER_NAME" 2>/dev/null || true)" != "true" ]]; then
+  case "$ACTION" in
+    stop)
+      exit 0
+      ;;
+    status)
+      echo "ROS 2 container is stopped: $ROS_CONTAINER_NAME" >&2
+      exit 1
+      ;;
+    *)
+      docker start "$ROS_CONTAINER_NAME" >/dev/null
+      ;;
+  esac
+fi
+
 if [[ "$ACTION" == "wait" ]]; then
   WAIT_SOURCE_FRAME="${A1Z_D405_COLOR_FRAME_ID:-d405_color_optical_frame}"
   WAIT_TARGET_FRAME="${A1Z_BASE_LINK_FRAME:-base_link}"
   deadline=$(( $(date +%s) + 30 ))
   while [[ $(date +%s) -lt $deadline ]]; do
-    if docker exec "$ROS_CONTAINER_NAME" bash -lc "
+    if docker exec -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-62}" "$ROS_CONTAINER_NAME" bash -lc "
       set +u
       source /opt/ros/humble/setup.bash
       set -u
@@ -102,11 +128,12 @@ fi
 
 docker exec \
   "${DOCKER_EXEC_ARGS[@]}" \
+  -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-62}" \
   -e A1Z_CONTROL_URDF="${A1Z_CONTROL_URDF:-/workspace/A1Z/build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_control.urdf}" \
   -e A1Z_SDK_DIR="${A1Z_SDK_DIR:-/workspace/A1Z/vendor/GALAXEA-A1Z}" \
   -e A1Z_REPO_ROOT="${A1Z_REPO_ROOT:-/workspace/A1Z}" \
   -e A1Z_TCP_HOST="${A1Z_TCP_HOST:-127.0.0.1}" \
-  -e A1Z_TCP_PORT="${A1Z_TCP_PORT:-18080}" \
+  -e A1Z_TCP_PORT="${A1Z_TCP_PORT:-37103}" \
   -e A1Z_BASE_LINK_FRAME="${A1Z_BASE_LINK_FRAME:-base_link}" \
   -e A1Z_ROBOT_BASE_FRAME="${A1Z_ROBOT_BASE_FRAME:-robot_base_frame}" \
   -e A1Z_TOOL_LINK_FRAME="${A1Z_TOOL_LINK_FRAME:-grasp_tcp}" \

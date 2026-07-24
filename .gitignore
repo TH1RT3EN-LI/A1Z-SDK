@@ -20,7 +20,7 @@ vendor/GALAXEA-A1Z/**/__pycache__/
 vendor/GALAXEA-A1Z/**/*.pyc
 vendor/vision/
 
-runtime/
+/runtime/
 
 # ROS 2 build logs.
 ros2_ws/log/**

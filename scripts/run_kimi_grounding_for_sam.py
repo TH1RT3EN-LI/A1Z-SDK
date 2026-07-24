@@ -297,7 +297,12 @@ def _capture_ros_image_png_bytes(
 ) -> tuple[bytes, dict[str, Any]]:
     import rclpy
     from rclpy.node import Node
-    from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+    from rclpy.qos import (
+        DurabilityPolicy,
+        HistoryPolicy,
+        QoSProfile,
+        ReliabilityPolicy,
+    )
     from sensor_msgs.msg import Image as RosImage
 
     from a1z_open_vocab.image_encoding import ros_image_to_png_bytes
@@ -309,7 +314,8 @@ def _capture_ros_image_png_bytes(
             qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
                 depth=1,
-                reliability=ReliabilityPolicy.RELIABLE,
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+                durability=DurabilityPolicy.VOLATILE,
             )
             self.subscription = self.create_subscription(
                 RosImage,

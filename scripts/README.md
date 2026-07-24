@@ -6,6 +6,21 @@
 
 这些是日常直接用的脚本。
 
+- `open_a1z_gui_console.sh`
+  - “启动完整项目”会等待宿主机 D405 ready，自动创建/启动项目 ROS
+    容器，并在 TF、彩色和深度图像消息均通过验证后报告就绪。
+  - 推荐的宿主机桌面入口。
+  - 启动本机 `isaac-sim.sh` 对应的完整 Isaac Sim App，不启用 WebRTC。
+  - 集成宿主机 Isaac 启停/A1Z TCP 状态、AnyGrasp 感知与执行、
+    physical grasp v2、常用机器人命令、项目终端和统一日志。
+  - EE 视口拖拽控制默认关闭，可在“启动与状态”页按下一次启动选择开启。
+  - 只管理它自己启动的进程；检测到外部 A1Z 服务时只附加，不接管。
+  - 使用说明见 `docs/A1Z_GUI_CONSOLE.md`。
+- `open_a1z_isaac_app.sh`
+  - GUI 使用的宿主机完整 Isaac Sim App 入口。
+  - 可通过 `--isaac-sim-root` 和 `--world-usd` 覆盖默认路径。
+  - 使用 `isaacsim.exp.full.kit`（由 `isaac-sim.sh` 选择），不包含
+    WebRTC 启动链。
 - `run_target_mask_to_anygrasp_pick_attempt.sh`
   - 当前推荐的一键抓取入口。
   - 流程是：
@@ -92,7 +107,9 @@
 - `create_a1z_ros2_container.sh`
   - 创建独立 ROS 2 Humble 容器，用于运行 `ros2_ws/`。
 - `create_a1z_vision_gpu_container.sh`
-  - 创建独立 GPU 视觉容器，用于运行 SAM / AnyGrasp。
+  - 创建独立 GPU 视觉容器，用于运行 SAM / AnyGrasp；已有容器会先校验当前工程挂载。
+- `ensure_a1z_vision_container.sh`
+  - 启动并校验视觉容器的 `/workspace/A1Z` 挂载。工程移动后若发现旧路径，会先保存环境快照和旧容器备份，再自动重建到当前工程，避免 ROS 抓图在视觉容器内不可见。
 - `run_a1z_ros2_motion_in_container.sh`
   - 在 ROS 2 容器里构建并启动 `a1z_motion`。
 - `setup_a1z_vision_in_container.sh`
@@ -331,7 +348,7 @@ runtime/logs/a1z-ee-drag-target.json
 最小运行形态：
 
 1. Isaac 容器已运行，并已启动 A1Z server
-2. `A1Z_TCP_PORT=18080` 可从 ROS 容器访问
+2. `A1Z_TCP_PORT=37103` 可从 ROS 容器访问
 3. 在 ROS 容器里执行：
 
 ```bash
@@ -347,3 +364,19 @@ ros2 launch a1z_motion a1z_motion.launch.py
 - `robot_state` 负责发布 `/joint_states` 和最小 TF 树
 - `motion_executor` 提供 `/a1z/move_ee` action
 - 当前阶段只做 IK + 关节约束检查，不做碰撞约束
+
+## 8. Isaac Sim 6 原生运行时验收
+
+以下脚本必须通过 Isaac Sim 6.0.1 的 `python.sh` 运行，不能用系统 Python
+替代。它会加载完整 world、初始化 Native API articulation、验证 60 Hz 物理
+回调和 live drive target，并采集两帧 320×240 D405 RGB-D：
+
+```bash
+/isaac-sim/python.sh scripts/validate_a1z_isaac6_runtime.py \
+  --stage build/scenes/A1Z_G1Z_world.usd \
+  --output runtime/a1z_isaac6_runtime_acceptance.json
+```
+
+版本迁移时保存的验收基线位于：
+
+- `docs/validation/A1Z_ISAAC6_RUNTIME_ACCEPTANCE.json`

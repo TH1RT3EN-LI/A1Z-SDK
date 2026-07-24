@@ -117,3 +117,12 @@ AnyGrasp runtime、Open3D 和 Torch 正常，后续如果你需要跑它那套�
 3. `./scripts/verify_a1z_vision_stack_in_container.sh`
 4. 拿到 AnyGrasp license 和 checkpoint 后，再次运行：
    - `./scripts/setup_anygrasp_sdk_in_container.sh`
+
+## 跨容器工作区约定
+
+ROS 容器和 GPU 视觉容器必须把同一个宿主机工程目录挂载到
+`/workspace/A1Z`。目标分割和 AnyGrasp 入口会先运行
+`scripts/ensure_a1z_vision_container.sh`：若工程移动后视觉容器仍指向旧目录，
+脚本会保存当前视觉环境快照和旧容器备份，再用当前工程目录重建同名容器。
+RGB-D 抓取结束后还会在视觉容器内显式检查 `color.png`，因此挂载错误会在
+目标分割前给出明确错误，而不会再表现为后续 `FileNotFoundError`。

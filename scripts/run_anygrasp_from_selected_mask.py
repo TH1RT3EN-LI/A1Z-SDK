@@ -65,6 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--disable-collision-detection", action="store_true")
     parser.add_argument("--dense-grasp", action="store_true")
     parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument(
+        "--minimum-point-count",
+        type=int,
+        default=256,
+        help="Reject undersized selected-mask point clouds before loading AnyGrasp.",
+    )
     return parser
 
 
@@ -122,6 +128,7 @@ def main() -> int:
         collision_detection=(not args.disable_collision_detection),
         dense_grasp=args.dense_grasp,
         top_k=args.top_k,
+        minimum_point_count=args.minimum_point_count,
     )
 
     pipeline_result = {
@@ -132,7 +139,16 @@ def main() -> int:
     pipeline_result_path = output_root / "pipeline_result.json"
     pipeline_result_path.write_text(json.dumps(pipeline_result, ensure_ascii=True, indent=2), encoding="utf-8")
     print(json.dumps(pipeline_result, ensure_ascii=True))
-    return 0 if anygrasp_result.ran else 1
+    return (
+        0
+        if (
+            anygrasp_result.ran
+            and anygrasp_result.grasp_count > 0
+            and bool(anygrasp_result.top_grasps)
+            and not anygrasp_result.error
+        )
+        else 1
+    )
 
 
 if __name__ == "__main__":

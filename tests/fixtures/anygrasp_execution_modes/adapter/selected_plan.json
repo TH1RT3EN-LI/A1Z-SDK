@@ -1,0 +1,23 @@
+{
+  "plan_id": "fixture-adapter-selected",
+  "task_id": "fixture",
+  "selected_grasp_candidate_id": "fixture-0",
+  "backend": "fixture",
+  "frame_id": "base_link",
+  "joint_trajectory_segments": [
+    {
+      "segment_type": "move_to_pregrasp",
+      "target_joint_rad": [0.0, 0.1, -0.2, 0.1, 0.0, 0.0],
+      "timeout_s": 5.0
+    }
+  ],
+  "gripper_commands": {
+    "open_before_grasp": 1.0,
+    "close_after_approach": 0.0
+  },
+  "execution_policy": {
+    "grasp_mode": "raw_gripper"
+  },
+  "schema_name": "ExecutablePlan",
+  "schema_version": "v1"
+}

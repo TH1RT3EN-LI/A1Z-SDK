@@ -57,6 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-preview-masks", type=int, default=24)
     parser.add_argument("--max-area-ratio", type=float, default=0.7)
     parser.add_argument("--max-boundary-touches", type=int, default=2)
+    parser.add_argument("--minimum-selected-mask-area-px", type=int, default=256)
+    parser.add_argument(
+        "--disable-small-mask-refinement",
+        action="store_true",
+        help="Do not retry SAM with denser sampling when the selected mask is too small.",
+    )
     return parser
 
 
@@ -89,9 +95,15 @@ def main() -> int:
         max_preview_masks=args.max_preview_masks,
         max_area_ratio=args.max_area_ratio,
         max_boundary_touches=args.max_boundary_touches,
+        minimum_selected_mask_area_px=args.minimum_selected_mask_area_px,
+        refine_small_masks=(not args.disable_small_mask_refinement),
     )
     print(json.dumps(result.to_dict(), ensure_ascii=True))
-    return 0
+    return (
+        0
+        if result.target_found and bool(result.mask_quality["usable_for_grasp"])
+        else 1
+    )
 
 
 if __name__ == "__main__":

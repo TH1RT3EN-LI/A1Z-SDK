@@ -7,6 +7,7 @@ from typing import Optional
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Header
 
@@ -61,10 +62,17 @@ class A1ZD405BridgeNode(Node):
             tcp_port=self._cfg.tcp_port,
         )
         ns = self._cfg.namespace
-        self._color_pub = self.create_publisher(Image, f"{ns}/color/image_raw", 10)
-        self._color_info_pub = self.create_publisher(CameraInfo, f"{ns}/color/camera_info", 10)
-        self._depth_pub = self.create_publisher(Image, f"{ns}/depth/image_rect", 10)
-        self._depth_info_pub = self.create_publisher(CameraInfo, f"{ns}/depth/camera_info", 10)
+        sensor_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        self._color_pub = self.create_publisher(Image, f"{ns}/color/image_raw", sensor_qos)
+        self._color_info_pub = self.create_publisher(CameraInfo, f"{ns}/color/camera_info", sensor_qos)
+        self._depth_pub = self.create_publisher(Image, f"{ns}/depth/image_rect", sensor_qos)
+        self._depth_info_pub = self.create_publisher(CameraInfo, f"{ns}/depth/camera_info", sensor_qos)
+        self._last_source_timestamp_ns: int | None = None
 
         period_s = 1.0 / max(1.0, self._cfg.poll_hz)
         self._timer = self.create_timer(period_s, self._poll_and_publish)
@@ -76,7 +84,17 @@ class A1ZD405BridgeNode(Node):
         if not rclpy.ok():
             return
         try:
-            payload = self._client.call("camera_capture")
+            # Isaac continuously captures at the sensor's own render cadence.
+            # Consume the newest complete RGB-D pair without blocking this ROS
+            # timer while Kit waits for an additional render generation.
+            payload = self._client.call("camera_capture", {"fresh": False})
+            source_timestamp_ns = int(payload["timestamp_ns"])
+            if (
+                self._last_source_timestamp_ns is not None
+                and source_timestamp_ns <= self._last_source_timestamp_ns
+            ):
+                return
+            self._last_source_timestamp_ns = source_timestamp_ns
 
             rgb = decode_array(payload["rgb"]).astype(np.uint8, copy=False)
             depth = decode_array(payload["depth"]).astype(np.float32, copy=False)

@@ -1,7 +1,8 @@
 """A1Z robot arm control server.
 
-Binds a Unix socket at /tmp/a1z.sock and dispatches JSON commands to a live
-ArmRobot instance.  Start via tools/a1zctl; communicate via the same script.
+Binds the configured TCP listener and, when enabled, an optional Unix socket,
+then dispatches JSON commands to a live ArmRobot instance. Start via
+``tools/a1zctl`` and communicate through the same script.
 
 Protocol
 --------
@@ -12,12 +13,13 @@ newline-terminated JSON response:
   Response: {"ok": true,  "data": {...}}
          or {"ok": false, "error": "<message>"}
 
-Commands: status | move | command | gripper | dance | stop | info |
-camera_status | camera_capture | camera_extrinsic
+Commands include status, movement, camera capture, and the physical grasp v2
+close/status/release contract.
 """
 
 import json
 import os
+import select
 import signal
 import socket
 import threading
@@ -27,11 +29,12 @@ from typing import Optional
 import numpy as np
 
 from a1z_ext.config import (
+    get_arm_motion_speed_limits,
     get_default_backend,
     get_default_can_channel,
     get_socket_path,
     get_tcp_host,
-    get_tcp_port,
+    validate_arm_motion_speed,
 )
 from a1z_ext.robots.get_robot import create_a1z_robot
 
@@ -85,7 +88,10 @@ class RobotServer:
         self._with_gripper = with_gripper
         self._camera_session = camera_session
         self._lock = threading.Lock()
+        self._camera_lock = threading.Lock()
         self._shutdown = threading.Event()
+        self._listener_ready = threading.Event()
+        self._listener_startup_error: Optional[BaseException] = None
 
     # ------------------------------------------------------------------
     # Command handlers
@@ -105,7 +111,8 @@ class RobotServer:
         return {"ok": True, "data": data}
 
     def _cmd_move(self, args: dict) -> dict:
-        speed = float(args.get("speed", 0.5))
+        speed_limits = get_arm_motion_speed_limits()
+        speed = validate_arm_motion_speed(args.get("speed", speed_limits.default))
         if "preset" in args:
             name = args["preset"]
             if name not in PRESETS:
@@ -205,6 +212,47 @@ class RobotServer:
         )
         return {"ok": True, "data": dict(data)}
 
+    def _cmd_grasp_close_v2(self, args: dict) -> dict:
+        if not self._with_gripper:
+            return {"ok": False, "error": "Server was started without --with-gripper"}
+        if not hasattr(self._robot, "grasp_close_physical"):
+            return {"ok": False, "error": "Active backend does not support physical grasp contract v2"}
+        minimum_force = args.get("minimum_normal_force_n")
+        preload_delta = args.get("preload_delta_m")
+        controller_profile = args.get("controller_profile")
+        if controller_profile is not None and not isinstance(controller_profile, dict):
+            return {"ok": False, "error": "controller_profile must be a JSON object"}
+        data = self._robot.grasp_close_physical(
+            timeout_s=float(args.get("timeout_s", 15.0)),
+            minimum_normal_force_n=(None if minimum_force is None else float(minimum_force)),
+            preload_delta_m=(None if preload_delta is None else float(preload_delta)),
+            controller_profile=controller_profile,
+        )
+        return {"ok": True, "data": dict(data)}
+
+    def _cmd_grasp_release_v2(self, args: dict) -> dict:
+        if not self._with_gripper:
+            return {"ok": False, "error": "Server was started without --with-gripper"}
+        if not hasattr(self._robot, "release_physical_grasp"):
+            return {"ok": False, "error": "Active backend does not support physical grasp contract v2"}
+        data = self._robot.release_physical_grasp(
+            timeout_s=float(args.get("timeout_s", 3.0)),
+        )
+        return {"ok": True, "data": dict(data)}
+
+    def _cmd_grasp_status_v2(self, _args: dict) -> dict:
+        if not hasattr(self._robot, "get_physical_grasp_status"):
+            return {
+                "ok": True,
+                "data": {
+                    "contract_version": 2,
+                    "mode": "physical",
+                    "success": False,
+                    "phase": "unsupported",
+                },
+            }
+        return {"ok": True, "data": dict(self._robot.get_physical_grasp_status())}
+
     def _cmd_contact_report(self, args: dict) -> dict:
         if not hasattr(self._robot, "get_sim_contact_report"):
             return {"ok": True, "data": {"unsupported": True}}
@@ -273,6 +321,12 @@ class RobotServer:
         if info.get("arm_max_velocity") is not None:
             arm_max_velocity = np.asarray(info["arm_max_velocity"], dtype=np.float64).reshape(-1)[:6]
             data["arm_max_velocity_rad_s"] = [round(float(v), 3) for v in arm_max_velocity]
+        speed_limits = get_arm_motion_speed_limits()
+        data["arm_motion_speed_rad_s"] = {
+            "minimum": speed_limits.minimum,
+            "default": speed_limits.default,
+            "maximum": speed_limits.maximum,
+        }
         if info.get("with_gripper"):
             data["gripper_range"] = [0.0, 1.0]
         if info.get("articulation_root_prim"):
@@ -283,28 +337,99 @@ class RobotServer:
         if info.get("arm_joint_indices") is not None:
             arm_joint_indices = np.asarray(info["arm_joint_indices"], dtype=np.int64).reshape(-1)
             data["arm_joint_indices"] = arm_joint_indices.tolist()
+        gripper_joint_indices = None
         if info.get("gripper_joint_indices") is not None:
-            data["gripper_joint_indices"] = (
-                np.asarray(info["gripper_joint_indices"], dtype=np.int64).reshape(-1).tolist()
-            )
+            gripper_joint_indices = np.asarray(
+                info["gripper_joint_indices"], dtype=np.int64
+            ).reshape(-1)
+            data["gripper_joint_indices"] = gripper_joint_indices.tolist()
         if info.get("gripper_target_value") is not None:
             data["gripper_target_value"] = round(float(info["gripper_target_value"]), 4)
         if info.get("gripper_target_dofs") is not None:
             gripper_target_dofs = np.asarray(info["gripper_target_dofs"], dtype=np.float64).reshape(-1)
             data["gripper_target_dofs"] = [round(float(v), 6) for v in gripper_target_dofs]
+        if info.get("gripper_command_dofs") is not None:
+            gripper_command_dofs = np.asarray(
+                info["gripper_command_dofs"], dtype=np.float64
+            ).reshape(-1)
+            data["gripper_command_dofs"] = [
+                round(float(v), 6) for v in gripper_command_dofs
+            ]
         if info.get("gripper_current_dofs") is not None:
             gripper_current_dofs = np.asarray(info["gripper_current_dofs"], dtype=np.float64).reshape(-1)
             data["gripper_current_dofs"] = [round(float(v), 6) for v in gripper_current_dofs]
         if info.get("actual_kp") is not None:
-            actual_kp = np.asarray(info["actual_kp"], dtype=np.float64).reshape(-1)
+            actual_kp_all = np.asarray(info["actual_kp"], dtype=np.float64).reshape(-1)
+            if gripper_joint_indices is not None and gripper_joint_indices.size:
+                data["gripper_actual_kp"] = [
+                    round(float(v), 3) for v in actual_kp_all[gripper_joint_indices]
+                ]
+            actual_kp = actual_kp_all
             if arm_joint_indices is not None and arm_joint_indices.size:
                 actual_kp = actual_kp[arm_joint_indices]
             data["actual_kp"] = [round(float(v), 3) for v in actual_kp[:6]]
         if info.get("actual_kd") is not None:
-            actual_kd = np.asarray(info["actual_kd"], dtype=np.float64).reshape(-1)
+            actual_kd_all = np.asarray(info["actual_kd"], dtype=np.float64).reshape(-1)
+            if gripper_joint_indices is not None and gripper_joint_indices.size:
+                data["gripper_actual_kd"] = [
+                    round(float(v), 3) for v in actual_kd_all[gripper_joint_indices]
+                ]
+            actual_kd = actual_kd_all
             if arm_joint_indices is not None and arm_joint_indices.size:
                 actual_kd = actual_kd[arm_joint_indices]
             data["actual_kd"] = [round(float(v), 3) for v in actual_kd[:6]]
+        if info.get("actual_max_effort") is not None:
+            actual_max_effort_all = np.asarray(
+                info["actual_max_effort"], dtype=np.float64
+            ).reshape(-1)
+            if gripper_joint_indices is not None and gripper_joint_indices.size:
+                data["gripper_actual_max_effort"] = [
+                    round(float(v), 3)
+                    for v in actual_max_effort_all[gripper_joint_indices]
+                ]
+            actual_max_effort = actual_max_effort_all
+            if arm_joint_indices is not None and arm_joint_indices.size:
+                actual_max_effort = actual_max_effort[arm_joint_indices]
+            data["actual_max_effort_nm"] = [
+                round(float(v), 3) for v in actual_max_effort[:6]
+            ]
+        if info.get("actual_position_targets") is not None:
+            actual_position_targets_all = np.asarray(
+                info["actual_position_targets"], dtype=np.float64
+            ).reshape(-1)
+            if gripper_joint_indices is not None and gripper_joint_indices.size:
+                data["gripper_actual_position_targets_m"] = [
+                    round(float(v), 6)
+                    for v in actual_position_targets_all[gripper_joint_indices]
+                ]
+            actual_position_targets = actual_position_targets_all
+            if arm_joint_indices is not None and arm_joint_indices.size:
+                actual_position_targets = actual_position_targets[arm_joint_indices]
+            data["actual_position_targets_deg"] = [
+                round(float(v), 2)
+                for v in np.rad2deg(actual_position_targets[:6])
+            ]
+        if info.get("active_physics_engine"):
+            data["active_physics_engine"] = str(info["active_physics_engine"])
+        if info.get("configured_arm_drive_type"):
+            data["configured_arm_drive_type"] = str(info["configured_arm_drive_type"])
+        if info.get("gravity_model_available") is not None:
+            data["gravity_model_available"] = bool(info["gravity_model_available"])
+        if info.get("position_hold_gravity_compensation_enabled") is not None:
+            data["position_hold_gravity_compensation_enabled"] = bool(
+                info["position_hold_gravity_compensation_enabled"]
+            )
+        if info.get("position_hold_gravity_compensation_active") is not None:
+            data["position_hold_gravity_compensation_active"] = bool(
+                info["position_hold_gravity_compensation_active"]
+            )
+        if info.get("position_hold_feedforward_limit_nm") is not None:
+            position_hold_feedforward_limit = np.asarray(
+                info["position_hold_feedforward_limit_nm"], dtype=np.float64
+            ).reshape(-1)
+            data["position_hold_feedforward_limit_nm"] = [
+                round(float(v), 3) for v in position_hold_feedforward_limit[:6]
+            ]
         if info.get("controller_kp") is not None:
             controller_kp = np.asarray(info["controller_kp"], dtype=np.float64).reshape(-1)
             data["controller_kp"] = [round(float(v), 3) for v in controller_kp[:6]]
@@ -344,10 +469,11 @@ class RobotServer:
             return {"ok": False, "error": "D405 camera session is not available."}
         return {"ok": True, "data": self._camera_session.health()}
 
-    def _cmd_camera_capture(self, _args: dict) -> dict:
+    def _cmd_camera_capture(self, args: dict) -> dict:
         if self._camera_session is None:
             return {"ok": False, "error": "D405 camera session is not available."}
-        return {"ok": True, "data": self._camera_session.latest_payload()}
+        fresh = bool(args.get("fresh", True))
+        return {"ok": True, "data": self._camera_session.latest_payload(fresh=fresh)}
 
     def _cmd_camera_extrinsic(self, _args: dict) -> dict:
         if self._camera_session is None:
@@ -368,6 +494,9 @@ class RobotServer:
         "grasp_release": _cmd_grasp_release,
         "grasp_status": _cmd_grasp_status,
         "grasp_contacts": _cmd_grasp_contacts,
+        "grasp_close_v2": _cmd_grasp_close_v2,
+        "grasp_release_v2": _cmd_grasp_release_v2,
+        "grasp_status_v2": _cmd_grasp_status_v2,
         "contact_report": _cmd_contact_report,
         "prim_debug": _cmd_prim_debug,
         "dance":   _cmd_dance,
@@ -377,6 +506,22 @@ class RobotServer:
         "camera_capture": _cmd_camera_capture,
         "camera_extrinsic": _cmd_camera_extrinsic,
     }
+    _CAMERA_READ_COMMANDS = frozenset(
+        {"camera_status", "camera_capture", "camera_extrinsic"}
+    )
+
+    def _dispatch_request(self, cmd: str, args: dict) -> dict:
+        handler = self._HANDLERS.get(cmd)
+        if handler is None:
+            return {"ok": False, "error": f"Unknown command '{cmd}'"}
+        if cmd in self._CAMERA_READ_COMMANDS:
+            # A fresh frame can wait for Kit and then spend tens of milliseconds
+            # encoding. Keep camera requests serialized without holding the arm
+            # command lock for that entire interval.
+            with self._camera_lock:
+                return handler(self, args)
+        with self._lock:
+            return handler(self, args)
 
     def _handle_connection(self, conn: socket.socket) -> None:
         try:
@@ -389,12 +534,7 @@ class RobotServer:
             req = json.loads(data.split(b"\n", 1)[0].decode())
             cmd = req.get("cmd", "")
             args = req.get("args", {})
-            handler = self._HANDLERS.get(cmd)
-            if handler is None:
-                result = {"ok": False, "error": f"Unknown command '{cmd}'"}
-            else:
-                with self._lock:
-                    result = handler(self, args)
+            result = self._dispatch_request(cmd, args)
         except Exception as exc:
             result = {"ok": False, "error": str(exc)}
         try:
@@ -404,23 +544,48 @@ class RobotServer:
         finally:
             conn.close()
 
+    def wait_until_ready(self, timeout_s: float = 5.0) -> None:
+        if not self._listener_ready.wait(timeout=max(0.0, float(timeout_s))):
+            raise TimeoutError("Timed out waiting for A1Z robot server listeners.")
+        if self._listener_startup_error is not None:
+            raise RuntimeError("A1Z robot server listeners failed to start") from self._listener_startup_error
+
     def run(
         self,
         socket_path: Optional[str] = None,
         tcp_host: Optional[str] = None,
         tcp_port: Optional[int] = None,
     ) -> None:
-        listeners: list[socket.socket] = []
-        unix_socket_path = socket_path or get_socket_path()
-        if os.path.exists(unix_socket_path):
-            os.unlink(unix_socket_path)
+        try:
+            self._run_listeners(
+                socket_path=socket_path,
+                tcp_host=tcp_host,
+                tcp_port=tcp_port,
+            )
+        except BaseException as exc:
+            if not self._listener_ready.is_set():
+                self._listener_startup_error = exc
+                self._listener_ready.set()
+            raise
 
-        unix_srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        unix_srv.bind(unix_socket_path)
-        unix_srv.listen(8)
-        unix_srv.settimeout(1.0)
-        listeners.append(unix_srv)
-        print(f"[a1z] Listening on unix://{unix_socket_path}")
+    def _run_listeners(
+        self,
+        socket_path: Optional[str] = None,
+        tcp_host: Optional[str] = None,
+        tcp_port: Optional[int] = None,
+    ) -> None:
+        listeners: list[socket.socket] = []
+        unix_socket_path = get_socket_path() if socket_path is None else str(socket_path).strip()
+        if unix_socket_path:
+            if os.path.exists(unix_socket_path):
+                os.unlink(unix_socket_path)
+
+            unix_srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            unix_srv.bind(unix_socket_path)
+            unix_srv.listen(8)
+            unix_srv.setblocking(False)
+            listeners.append(unix_srv)
+            print(f"[a1z] Listening on unix://{unix_socket_path}")
 
         if tcp_port is not None and int(tcp_port) > 0:
             resolved_host = tcp_host or get_tcp_host()
@@ -429,17 +594,28 @@ class RobotServer:
             tcp_srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             tcp_srv.bind((resolved_host, resolved_port))
             tcp_srv.listen(8)
-            tcp_srv.settimeout(1.0)
+            tcp_srv.setblocking(False)
             listeners.append(tcp_srv)
             print(f"[a1z] Listening on tcp://{resolved_host}:{resolved_port}")
 
+        if not listeners:
+            raise RuntimeError("No A1Z control listener is configured.")
+        self._listener_ready.set()
         try:
             while not self._shutdown.is_set():
-                for srv in listeners:
+                try:
+                    ready_listeners, _, _ = select.select(listeners, [], [], 0.25)
+                except (OSError, ValueError):
+                    if self._shutdown.is_set():
+                        break
+                    raise
+                for srv in ready_listeners:
                     try:
                         conn, _ = srv.accept()
-                    except socket.timeout:
+                    except BlockingIOError:
                         continue
+                    conn.setblocking(True)
+                    conn.settimeout(120.0)
                     t = threading.Thread(
                         target=self._handle_connection, args=(conn,), daemon=True
                     )
@@ -450,7 +626,7 @@ class RobotServer:
                     srv.close()
                 except OSError:
                     pass
-            if os.path.exists(unix_socket_path):
+            if unix_socket_path and os.path.exists(unix_socket_path):
                 os.unlink(unix_socket_path)
 
 
@@ -466,7 +642,7 @@ def serve(
     socket_path: Optional[str] = None,
     tcp_host: Optional[str] = None,
     tcp_port: Optional[int] = None,
-    control_freq_hz: int = 250,
+    control_freq_hz: int = 60,
     articulation_root_prim: Optional[str] = None,
 ) -> None:
     """Start the robot server in the foreground."""

@@ -66,7 +66,7 @@ def load_motion_config() -> MotionConfig:
         control_urdf=control_urdf,
         sdk_root=Path(os.environ.get("A1Z_SDK_DIR", repo_root / "vendor" / "GALAXEA-A1Z")),
         tcp_host=os.environ.get("A1Z_TCP_HOST", "127.0.0.1"),
-        tcp_port=int(os.environ.get("A1Z_TCP_PORT", "18080")),
+        tcp_port=int(os.environ.get("A1Z_TCP_PORT", "37103")),
         base_link_frame=os.environ.get("A1Z_BASE_LINK_FRAME", "base_link"),
         robot_base_frame=os.environ.get("A1Z_ROBOT_BASE_FRAME", "robot_base_frame"),
         tool_link_frame=os.environ.get("A1Z_TOOL_LINK_FRAME", "grasp_tcp"),

@@ -45,18 +45,11 @@ def parse_args():
     return args
 
 
-simulation_app = SimulationApp({"headless": True})
+simulation_app = SimulationApp({"headless": True, "width": 320, "height": 240})
 
-import omni.kit.commands  # noqa: E402
 import omni.usd  # noqa: E402
-from isaacsim.core.utils.stage import save_stage  # noqa: E402
+from isaacsim.asset.importer.urdf import URDFImporter, URDFImporterConfig  # noqa: E402
 from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade  # noqa: E402
-
-try:
-    from isaacsim.asset.importer.urdf import URDFImporter, URDFImporterConfig  # type: ignore[attr-defined]  # noqa: E402
-except ImportError:
-    URDFImporter = None  # type: ignore[assignment]
-    URDFImporterConfig = None  # type: ignore[assignment]
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SDK_DIR = os.path.join(ROOT_DIR, "vendor", "GALAXEA-A1Z")
@@ -340,6 +333,7 @@ def _set_joint_drive(
     stiffness: float,
     damping: float,
     max_force: float | None = None,
+    effort_type: str = "acceleration",
 ):
     prim = stage.GetPrimAtPath(joint_path)
     if not prim.IsValid():
@@ -349,9 +343,14 @@ def _set_joint_drive(
     if not drive:
         drive = UsdPhysics.DriveAPI.Apply(prim, drive_type)
 
-    drive.CreateTypeAttr().Set("acceleration")
+    drive.CreateTypeAttr().Set(effort_type)
     drive.CreateTargetPositionAttr().Set(0.0)
     drive.CreateTargetVelocityAttr().Set(0.0)
+    if drive_type == "angular":
+        # Runtime/controller gains are per radian; USD angular DriveAPI
+        # stiffness and damping are stored per degree.
+        stiffness = math.radians(float(stiffness))
+        damping = math.radians(float(damping))
     drive.CreateStiffnessAttr().Set(float(stiffness))
     drive.CreateDampingAttr().Set(float(damping))
     if max_force is not None:
@@ -498,6 +497,7 @@ def patch_imported_joint_drives(stage, root_prim_path: str):
             stiffness=stiffness,
             damping=ARM_JOINT_DRIVE_DAMPING[joint_name],
             max_force=ARM_JOINT_MAX_FORCE[joint_name],
+            effort_type=str(ISAAC_CFG.get("arm_drive_type", "force")),
         )
 
     if WITH_GRIPPER:
@@ -758,7 +758,36 @@ def patch_imported_gripper_collision_meshes(stage, root_prim_path: str) -> None:
         print("Warning: no gripper collision mesh prims were found to patch on the imported robot stage.")
         return
 
+    _apply_gripper_pad_physics_material(
+        stage,
+        patched_prims,
+        f"{root_prim_path}/PhysicsMaterials/A1ZGripperPad",
+    )
     print(f"Patched gripper collision meshes: {', '.join(patched_prims)}")
+
+
+def _apply_gripper_pad_physics_material(
+    stage,
+    collision_prim_paths: list[str],
+    material_path: str,
+) -> None:
+    UsdGeom.Scope.Define(stage, str(Sdf.Path(material_path).GetParentPath()))
+    material = UsdShade.Material.Define(stage, material_path)
+    material_api = UsdPhysics.MaterialAPI.Apply(material.GetPrim())
+    material_api.CreateStaticFrictionAttr().Set(2.0)
+    material_api.CreateDynamicFrictionAttr().Set(1.5)
+    material_api.CreateRestitutionAttr().Set(0.0)
+    physx_material_api = PhysxSchema.PhysxMaterialAPI.Apply(material.GetPrim())
+    physx_material_api.CreateFrictionCombineModeAttr().Set("max")
+    physx_material_api.CreateRestitutionCombineModeAttr().Set("min")
+    for prim_path in collision_prim_paths:
+        prim = stage.GetPrimAtPath(prim_path)
+        if not prim.IsValid():
+            raise RuntimeError(f"Invalid gripper collision prim while binding friction: {prim_path}")
+        UsdShade.MaterialBindingAPI.Apply(prim)
+        prim.CreateRelationship("material:binding:physics", custom=False).SetTargets(
+            [Sdf.Path(material_path)]
+        )
 
 
 def patch_imported_gripper_visual_instanceability(base_usd_path: str) -> bool:
@@ -855,8 +884,13 @@ def patch_imported_gripper_collision_meshes_in_physics_layer(robot_usd_path: str
             f"under the expected physics USD subtrees: {prim_roots}"
         )
         stage.GetRootLayer().Save()
-        return True
+        return False
 
+    _apply_gripper_pad_physics_material(
+        stage,
+        patched_prims,
+        "/PhysicsMaterials/A1ZGripperPad",
+    )
     stage.GetRootLayer().Save()
     print(
         "Patched gripper physics in physics USD: "
@@ -952,8 +986,8 @@ def configure_world_stage(stage):
 
     ground = UsdGeom.Cube.Define(stage, Sdf.Path("/World/GroundPlane"))
     ground.CreateSizeAttr(1.0)
-    ground.AddScaleOp().Set(Gf.Vec3f(4.0, 4.0, 0.02))
     ground.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, -0.01))
+    ground.AddScaleOp().Set(Gf.Vec3f(4.0, 4.0, 0.02))
     UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
     ground_visual_prim = _create_ground_visual(stage)
     _configure_ground_material(stage, ground_visual_prim)
@@ -974,60 +1008,33 @@ def import_robot_asset(urdf_path, robot_usd_path):
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
     UsdGeom.SetStageMetersPerUnit(stage, 1.0)
 
-    if URDFImporter is not None and URDFImporterConfig is not None:
-        importer = URDFImporter()
-        importer.config = URDFImporterConfig(
+    importer = URDFImporter(
+        URDFImporterConfig(
             urdf_path=urdf_path,
             usd_path=os.path.dirname(robot_usd_path),
             merge_fixed_joints=False,
             merge_mesh=False,
             fix_base=True,
-            joint_drive_type="acceleration",
+            robot_type="Manipulator",
+            joint_drive_type=str(ISAAC_CFG.get("arm_drive_type", "force")),
             joint_target_type="position",
             override_joint_stiffness=float(max(ISAAC_CFG["position_hold_kp"])),
             override_joint_damping=float(max(ISAAC_CFG["position_hold_kd"])),
             run_asset_transformer=True,
             run_multi_physics_conversion=True,
         )
-        imported_usd_path = importer.import_urdf()
-        update_app(20)
+    )
+    imported_usd_path = importer.import_urdf()
+    update_app(20)
 
-        if not imported_usd_path or not os.path.isfile(imported_usd_path):
-            raise RuntimeError(f"Failed to import URDF: {urdf_path}")
+    if not imported_usd_path or not os.path.isfile(imported_usd_path):
+        raise RuntimeError(f"Failed to import URDF with the Isaac Sim 6 importer: {urdf_path}")
 
-        if os.path.abspath(imported_usd_path) != os.path.abspath(robot_usd_path):
-            relocate_robot_root_usd(imported_usd_path, robot_usd_path)
+    if os.path.abspath(imported_usd_path) != os.path.abspath(robot_usd_path):
+        relocate_robot_root_usd(imported_usd_path, robot_usd_path)
 
-        robot_prim_path = "/A1Z_G1Z"
-        payload_locator_path = imported_usd_path
-    else:
-        status, import_config = omni.kit.commands.execute("URDFCreateImportConfig")
-        if not status:
-            raise RuntimeError("Failed to create URDF import config.")
-
-        import_config.merge_fixed_joints = False
-        import_config.convex_decomp = False
-        import_config.import_inertia_tensor = True
-        import_config.fix_base = True
-        import_config.make_default_prim = True
-        import_config.create_physics_scene = False
-        import_config.distance_scale = 1.0
-        import_config.override_joint_dynamics = True
-        import_config.default_drive_strength = float(max(ISAAC_CFG["position_hold_kp"]))
-        import_config.default_position_drive_damping = float(max(ISAAC_CFG["position_hold_kd"]))
-
-        status, robot_prim_path = omni.kit.commands.execute(
-            "URDFParseAndImportFile",
-            urdf_path=urdf_path,
-            import_config=import_config,
-            dest_path=robot_usd_path,
-            get_articulation_root=True,
-        )
-        update_app(20)
-        if not status or not os.path.isfile(robot_usd_path):
-            raise RuntimeError(f"Failed to import URDF: {urdf_path}")
-        imported_usd_path = robot_usd_path
-        payload_locator_path = robot_usd_path
+    robot_prim_path = "/A1Z_G1Z"
+    payload_locator_path = imported_usd_path
 
     materials_usd_path = resolve_imported_payload_usd_path(
         payload_locator_path,
@@ -1058,7 +1065,8 @@ def build_world(robot_usd_path, world_usd_path, robot_prim_path):
     robot_prim.GetReferences().AddReference(robot_usd_path)
     update_app(10)
 
-    save_stage(world_usd_path, save_and_reload_in_place=False)
+    if not stage.GetRootLayer().Export(world_usd_path):
+        raise RuntimeError(f"Failed to export generated world stage: {world_usd_path}")
     update_app(5)
 
 

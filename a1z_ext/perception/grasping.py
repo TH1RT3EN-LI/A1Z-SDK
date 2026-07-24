@@ -421,12 +421,46 @@ def run_anygrasp_detection(
     collision_detection: bool = True,
     dense_grasp: bool = False,
     top_k: int = 20,
+    minimum_point_count: int = 256,
 ) -> AnyGraspDetectionResult:
     import sys
 
     output_root = Path(output_dir).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     result_path = output_root / "anygrasp_result.json"
+
+    points = np.asarray(points)
+    colors = np.asarray(colors)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(f"points must have shape (N, 3), got {points.shape}")
+    if colors.shape != points.shape:
+        raise ValueError(
+            f"colors must have the same shape as points: colors={colors.shape} points={points.shape}"
+        )
+    point_count = int(points.shape[0])
+    required_points = max(1, int(minimum_point_count))
+    if point_count < required_points:
+        result = AnyGraspDetectionResult(
+            ran=False,
+            grasp_count=0,
+            top_k=int(top_k),
+            lims=[float(v) for v in lims],
+            preflight={
+                "ready": False,
+                "skipped": "insufficient_masked_point_cloud",
+            },
+            top_grasps=[],
+            result_json_path=str(result_path),
+            error=(
+                "insufficient masked point cloud: "
+                f"{point_count} points, minimum {required_points}"
+            ),
+        )
+        result_path.write_text(
+            json.dumps(result.to_dict(), ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+        return result
 
     preflight = check_anygrasp_runtime(
         sdk_dir=sdk_dir,
@@ -477,9 +511,25 @@ def run_anygrasp_detection(
             collision_detection=bool(collision_detection),
         )
 
-        grasp_count = int(len(gg))
-        if grasp_count > 0:
-            gg = gg.nms().sort_by_score()
+        grasp_count = 0 if gg is None else int(len(gg))
+        if grasp_count <= 0:
+            result = AnyGraspDetectionResult(
+                ran=True,
+                grasp_count=0,
+                top_k=int(top_k),
+                lims=[float(v) for v in lims],
+                preflight=preflight.to_dict(),
+                top_grasps=[],
+                result_json_path=str(result_path),
+                error="no grasp detected for selected target mask",
+            )
+            result_path.write_text(
+                json.dumps(result.to_dict(), ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+            return result
+
+        gg = gg.nms().sort_by_score()
         take = min(int(top_k), int(len(gg)))
         top_grasps = [_serialize_grasp(gg[idx], rank=idx) for idx in range(take)]
         result = AnyGraspDetectionResult(
