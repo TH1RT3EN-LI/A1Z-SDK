@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from copy import deepcopy
 import json
 import os
@@ -14,7 +15,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 ROBOT_PACKAGE_DIR = ROOT_DIR / "build" / "robot_packages" / "A1Z_G1Z"
 ROBOT_URDF_DIR = ROBOT_PACKAGE_DIR / "urdf"
 ROBOT_MESH_DIR = ROBOT_PACKAGE_DIR / "meshes"
-DEFAULT_ENV_FILE = ROOT_DIR / "config" / "a1z_container.env"
+DEFAULT_ENV_FILE = ROOT_DIR / "config" / "sim.env"
 VENDOR_SOURCE_URDF = ROOT_DIR / "vendor" / "GALAXEA-A1Z" / "a1z" / "robot_models" / "a1z" / "A1Z_G1Z.urdf"
 SOURCE_URDF = ROBOT_URDF_DIR / "A1Z_G1Z.urdf"
 ISAAC_URDF = ROBOT_URDF_DIR / "A1Z_G1Z_isaac.urdf"
@@ -218,8 +219,8 @@ def _env_bool(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be a boolean-like value, got: {raw}")
 
 
-def _load_project_env_defaults() -> None:
-    env_path = Path(os.environ.get("A1Z_CONTAINER_ENV_FILE", str(DEFAULT_ENV_FILE))).expanduser()
+def _load_project_env_defaults(env_path: Path) -> None:
+    env_path = env_path.expanduser()
     if not env_path.is_file():
         return
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
@@ -496,7 +497,10 @@ def sync_d405_mesh() -> None:
 
 
 def main() -> None:
-    _load_project_env_defaults()
+    parser = argparse.ArgumentParser(description="Generate A1Z control and Isaac URDFs.")
+    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    args = parser.parse_args()
+    _load_project_env_defaults(args.env_file)
     sync_d405_mesh()
     prepare_robot_package_urdfs()
     print(f"Prepared: {ISAAC_URDF}")

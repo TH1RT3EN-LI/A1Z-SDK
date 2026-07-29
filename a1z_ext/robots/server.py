@@ -13,8 +13,8 @@ newline-terminated JSON response:
   Response: {"ok": true,  "data": {...}}
          or {"ok": false, "error": "<message>"}
 
-Commands include status, movement, camera capture, and the physical grasp v2
-close/status/release contract.
+Commands include status, movement, camera capture, and a backend-neutral
+grasp close/status/release contract.
 """
 
 import json
@@ -108,6 +108,8 @@ class RobotServer:
         if self._with_gripper:
             gpos = self._robot.get_gripper_pos()
             data["gripper"] = round(gpos, 3) if gpos is not None else None
+        if hasattr(self._robot, "is_estopped"):
+            data["estopped"] = bool(self._robot.is_estopped)
         return {"ok": True, "data": data}
 
     def _cmd_move(self, args: dict) -> dict:
@@ -162,113 +164,42 @@ class RobotServer:
         self._robot.command_gripper(value)
         return {"ok": True, "data": {"gripper": value}}
 
-    def _cmd_grasp_attach(self, args: dict) -> dict:
+    def _cmd_grasp_close(self, args: dict) -> dict:
         if not self._with_gripper:
             return {"ok": False, "error": "Server was started without --with-gripper"}
-        if not hasattr(self._robot, "grasp_close_and_attach"):
-            return {"ok": False, "error": "Active backend does not support grasp_attach"}
-        data = self._robot.grasp_close_and_attach(
-            str(args.get("target_prim_path", "") or ""),
-            timeout_s=float(args.get("timeout_s", 2.0)),
-            contact_window_s=float(args.get("contact_window_s", 0.15)),
-            require_bilateral_contact=bool(args.get("require_bilateral_contact", True)),
-        )
-        return {"ok": True, "data": dict(data)}
-
-    def _cmd_grasp_link(self, args: dict) -> dict:
-        if not self._with_gripper:
-            return {"ok": False, "error": "Server was started without --with-gripper"}
-        if not hasattr(self._robot, "grasp_link_current_contact"):
-            return {"ok": False, "error": "Active backend does not support grasp_link"}
-        data = self._robot.grasp_link_current_contact(
-            str(args.get("target_prim_path", "") or ""),
-            require_bilateral_contact=bool(args.get("require_bilateral_contact", True)),
+        if not hasattr(self._robot, "grasp_close"):
+            return {"ok": False, "error": "Active backend does not support grasp_close"}
+        data = self._robot.grasp_close(
+            timeout_s=float(args.get("timeout_s", 15.0)),
         )
         return {"ok": True, "data": dict(data)}
 
     def _cmd_grasp_release(self, args: dict) -> dict:
         if not self._with_gripper:
             return {"ok": False, "error": "Server was started without --with-gripper"}
-        if not hasattr(self._robot, "release_attached_object"):
+        if not hasattr(self._robot, "grasp_release"):
             return {"ok": False, "error": "Active backend does not support grasp_release"}
-        data = self._robot.release_attached_object(
-            open_gripper=bool(args.get("open_gripper", True)),
-            timeout_s=float(args.get("timeout_s", 2.0)),
-        )
-        return {"ok": True, "data": dict(data)}
-
-    def _cmd_grasp_status(self, _args: dict) -> dict:
-        if not hasattr(self._robot, "get_sim_grasp_status"):
-            return {"ok": True, "data": {"has_attached_object": False, "grasp_state": "unsupported"}}
-        data = self._robot.get_sim_grasp_status()
-        return {"ok": True, "data": dict(data)}
-
-    def _cmd_grasp_contacts(self, args: dict) -> dict:
-        if not hasattr(self._robot, "get_sim_grasp_contacts"):
-            return {"ok": True, "data": {"unsupported": True}}
-        data = self._robot.get_sim_grasp_contacts(
-            target_prim_path=str(args.get("target_prim_path", "") or ""),
-            require_bilateral_contact=bool(args.get("require_bilateral_contact", True)),
-        )
-        return {"ok": True, "data": dict(data)}
-
-    def _cmd_grasp_close_v2(self, args: dict) -> dict:
-        if not self._with_gripper:
-            return {"ok": False, "error": "Server was started without --with-gripper"}
-        if not hasattr(self._robot, "grasp_close_physical"):
-            return {"ok": False, "error": "Active backend does not support physical grasp contract v2"}
-        minimum_force = args.get("minimum_normal_force_n")
-        preload_delta = args.get("preload_delta_m")
-        controller_profile = args.get("controller_profile")
-        if controller_profile is not None and not isinstance(controller_profile, dict):
-            return {"ok": False, "error": "controller_profile must be a JSON object"}
-        data = self._robot.grasp_close_physical(
-            timeout_s=float(args.get("timeout_s", 15.0)),
-            minimum_normal_force_n=(None if minimum_force is None else float(minimum_force)),
-            preload_delta_m=(None if preload_delta is None else float(preload_delta)),
-            controller_profile=controller_profile,
-        )
-        return {"ok": True, "data": dict(data)}
-
-    def _cmd_grasp_release_v2(self, args: dict) -> dict:
-        if not self._with_gripper:
-            return {"ok": False, "error": "Server was started without --with-gripper"}
-        if not hasattr(self._robot, "release_physical_grasp"):
-            return {"ok": False, "error": "Active backend does not support physical grasp contract v2"}
-        data = self._robot.release_physical_grasp(
+        data = self._robot.grasp_release(
             timeout_s=float(args.get("timeout_s", 3.0)),
         )
         return {"ok": True, "data": dict(data)}
 
-    def _cmd_grasp_status_v2(self, _args: dict) -> dict:
-        if not hasattr(self._robot, "get_physical_grasp_status"):
-            return {
-                "ok": True,
-                "data": {
-                    "contract_version": 2,
-                    "mode": "physical",
-                    "success": False,
-                    "phase": "unsupported",
-                },
-            }
-        return {"ok": True, "data": dict(self._robot.get_physical_grasp_status())}
+    def _cmd_grasp_status(self, _args: dict) -> dict:
+        if not hasattr(self._robot, "get_grasp_status"):
+            return {"ok": False, "error": "Active backend does not support grasp_status"}
+        return {"ok": True, "data": dict(self._robot.get_grasp_status())}
 
-    def _cmd_contact_report(self, args: dict) -> dict:
-        if not hasattr(self._robot, "get_sim_contact_report"):
-            return {"ok": True, "data": {"unsupported": True}}
-        data = self._robot.get_sim_contact_report(
-            prim_path=str(args.get("prim_path", "") or ""),
-            limit=int(args.get("limit", 200)),
-        )
-        return {"ok": True, "data": dict(data)}
+    def _cmd_estop(self, _args: dict) -> dict:
+        if not hasattr(self._robot, "estop"):
+            return {"ok": False, "error": "Active backend does not support estop"}
+        self._robot.estop()
+        return {"ok": True, "data": {"estopped": True}}
 
-    def _cmd_prim_debug(self, args: dict) -> dict:
-        if not hasattr(self._robot, "get_sim_prim_debug"):
-            return {"ok": True, "data": {"unsupported": True}}
-        data = self._robot.get_sim_prim_debug(
-            prim_path=str(args.get("prim_path", "") or ""),
-        )
-        return {"ok": True, "data": dict(data)}
+    def _cmd_estop_release(self, _args: dict) -> dict:
+        if not hasattr(self._robot, "release"):
+            return {"ok": False, "error": "Active backend does not support estop release"}
+        self._robot.release()
+        return {"ok": True, "data": {"estopped": False}}
 
     def _cmd_dance(self, args: dict) -> dict:
         moves_list = args.get("moves", DEFAULT_DANCE_ORDER)
@@ -489,16 +420,11 @@ class RobotServer:
         "move":    _cmd_move,
         "command": _cmd_command,
         "gripper": _cmd_gripper,
-        "grasp_attach": _cmd_grasp_attach,
-        "grasp_link": _cmd_grasp_link,
+        "grasp_close": _cmd_grasp_close,
         "grasp_release": _cmd_grasp_release,
         "grasp_status": _cmd_grasp_status,
-        "grasp_contacts": _cmd_grasp_contacts,
-        "grasp_close_v2": _cmd_grasp_close_v2,
-        "grasp_release_v2": _cmd_grasp_release_v2,
-        "grasp_status_v2": _cmd_grasp_status_v2,
-        "contact_report": _cmd_contact_report,
-        "prim_debug": _cmd_prim_debug,
+        "estop": _cmd_estop,
+        "estop_release": _cmd_estop_release,
         "dance":   _cmd_dance,
         "stop":    _cmd_stop,
         "info":    _cmd_info,
@@ -643,6 +569,9 @@ def serve(
     tcp_host: Optional[str] = None,
     tcp_port: Optional[int] = None,
     control_freq_hz: int = 60,
+    min_freq_hz: float = 80.0,
+    gripper_max_torque: float = 0.5,
+    gripper_empty_close_threshold: float = 0.04,
     articulation_root_prim: Optional[str] = None,
 ) -> None:
     """Start the robot server in the foreground."""
@@ -658,6 +587,9 @@ def serve(
         with_gripper=with_gripper,
         gravity_comp_factor=1.0,
         control_freq_hz=control_freq_hz,
+        min_freq_hz=min_freq_hz,
+        gripper_max_torque=gripper_max_torque,
+        gripper_empty_close_threshold=gripper_empty_close_threshold,
         articulation_root_prim=articulation_root_prim,
     )
 

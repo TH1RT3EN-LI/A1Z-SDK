@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+source "$ROOT_DIR/scripts/load_a1z_env.sh"
 
 ROS_CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:-a1z-ros2-humble}"
 OUT_DIR="${1:-$ROOT_DIR/runtime/d405_depth_point_verify_$(date +%Y%m%d_%H%M%S)}"
@@ -18,8 +18,8 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$ROS_CONTAINER_NAME" 2>/dev/nul
   docker start "$ROS_CONTAINER_NAME" >/dev/null
 fi
 
-bash "$ROOT_DIR/scripts/run_a1z_ros2_motion_in_container.sh" restart
-bash "$ROOT_DIR/scripts/run_a1z_ros2_motion_in_container.sh" wait
+bash "$ROOT_DIR/scripts/run_a1z_ros2_stack_in_container.sh" restart
+bash "$ROOT_DIR/scripts/run_a1z_ros2_stack_in_container.sh" wait
 
 docker exec \
   -e A1Z_REPO_ROOT="/workspace/A1Z" \
@@ -30,7 +30,7 @@ docker exec \
     source /opt/ros/humble/setup.bash
     source /workspace/A1Z/ros2_ws/install/setup.bash
     set -u
-    python3 /workspace/A1Z/scripts/capture_ros_rgbd.py \
+    python3 /workspace/A1Z/scripts/capture_rgbd.py \
       --target-frame-id '$TARGET_FRAME_ID' \
       --fail-if-tf-unavailable \
       --output-dir '$CONTAINER_OUT_DIR/capture'

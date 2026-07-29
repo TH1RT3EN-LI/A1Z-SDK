@@ -53,15 +53,16 @@ def get_a1z_robot(
     default_kp: Optional[np.ndarray] = None,
     default_kd: Optional[np.ndarray] = None,
     with_gripper: bool = False,
-    gripper_max_torque: float = 2.0,
+    gripper_max_torque: float = 0.5,
+    gripper_empty_close_threshold: float = 0.04,
 ):
     """Create and return a configured SocketCAN-backed A1Z ArmRobot."""
     import can
-    from a1z_ext.robots.gripper import GRIPPER_CAN_ID, GRIPPER_MOTOR_RANGES, Gripper
+    from a1z.robots.gripper import GRIPPER_CAN_ID, GRIPPER_MOTOR_RANGES, Gripper
 
     from a1z.motor_drivers.motor_a_driver import MotorA, MotorARanges
     from a1z.motor_drivers.motor_b_driver import MotorB, MotorBRanges, MixedMotorChain
-    from a1z.robots.arm_robot import ArmRobot
+    from a1z_ext.robots.socketcan_robot import SocketCANArmRobot
     urdf = urdf_path or _DEFAULT_URDF_PATH
     motor_a_ranges = MotorARanges(**_CONTROL_DEFAULTS["motor_a_ranges"])
     motor_b_ranges_default = MotorBRanges(**_CONTROL_DEFAULTS["motor_b_default_ranges"])
@@ -102,7 +103,7 @@ def get_a1z_robot(
         gripper_motor = MotorB(motor_id=GRIPPER_CAN_ID, bus=bus, ranges=GRIPPER_MOTOR_RANGES)
         gripper = Gripper(gripper_motor, max_torque=gripper_max_torque)
 
-    return ArmRobot(
+    return SocketCANArmRobot(
         motor_chain=motor_chain,
         bus=bus,
         gravity_model=gravity_model,
@@ -120,6 +121,8 @@ def get_a1z_robot(
         control_freq_hz=control_freq_hz,
         min_freq_hz=min_freq_hz,
         motor_a_kt=_MOTOR_A_KT,
+        gripper_max_torque_nm=gripper_max_torque,
+        empty_close_threshold=gripper_empty_close_threshold,
     )
 
 
@@ -187,7 +190,8 @@ def create_a1z_robot(
     default_kp: Optional[np.ndarray] = None,
     default_kd: Optional[np.ndarray] = None,
     with_gripper: bool = False,
-    gripper_max_torque: float = 2.0,
+    gripper_max_torque: float = 0.5,
+    gripper_empty_close_threshold: float = 0.04,
     articulation_root_prim: Optional[str] = None,
 ) -> Robot:
     """Create the requested A1Z backend."""
@@ -203,6 +207,7 @@ def create_a1z_robot(
             default_kd=default_kd,
             with_gripper=with_gripper,
             gripper_max_torque=gripper_max_torque,
+            gripper_empty_close_threshold=gripper_empty_close_threshold,
         )
     if backend == "mock":
         return get_a1z_mock_robot(

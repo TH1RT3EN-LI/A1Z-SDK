@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+source "$ROOT_DIR/scripts/load_a1z_env.sh"
 
 BASE_IMAGE="${A1Z_ROS2_IMAGE_TAG:-a1z-ros2-humble:local}"
 RVIZ_IMAGE="${A1Z_RVIZ_IMAGE_TAG:-a1z-ros2-humble-rviz:local}"

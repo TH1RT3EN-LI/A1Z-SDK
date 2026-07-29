@@ -1,82 +1,50 @@
 #!/usr/bin/env python3
-"""a1zctl — CLI client for the A1Z robot arm server.
+"""Control a simulated or physical A1Z through one backend-neutral protocol."""
 
-Start the server first, then send commands from any terminal (including OpenClaw).
-
-Usage
------
-  # Terminal 1 — keep running:
-  python3 tools/a1zctl serve [--backend socketcan|mock|isaacsim] [--can can0] [--with-gripper] [--gravity-mode]
-
-  # Terminal 2 (or OpenClaw):
-  python3 tools/a1zctl status
-  python3 tools/a1zctl move 0,60,-60,0,0,0
-  python3 tools/a1zctl command 0,60,-60,0,0,0 --gripper 0.5
-  python3 tools/a1zctl move --preset home
-  python3 tools/a1zctl gripper 0.5
-  python3 tools/a1zctl dance --moves salute,wave,bow
-  python3 tools/a1zctl info
-  python3 tools/a1zctl stop
-"""
+from __future__ import annotations
 
 import argparse
 import json
 import os
 import sys
 
-# Allow running from any directory without installing the package.
 REPO_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 SDK_ROOT = os.path.join(REPO_ROOT, "vendor", "GALAXEA-A1Z")
-sys.path.insert(0, REPO_ROOT)
-sys.path.insert(0, SDK_ROOT)
+sys.path[:0] = [REPO_ROOT, SDK_ROOT]
 
-from a1z_ext.config import (
+from a1z_ext.config import (  # noqa: E402
     get_arm_motion_speed_limits,
+    get_control_frequency_hz,
     get_default_backend,
     get_default_can_channel,
+    get_gripper_max_torque_nm,
+    get_gripper_empty_close_threshold,
+    get_min_control_frequency_hz,
     get_socket_path,
     get_tcp_host,
     get_tcp_port,
     validate_arm_motion_speed,
-)  # noqa: E402
+)
 from a1z_ext.control_client import send_control_request  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# Socket helpers
-# ---------------------------------------------------------------------------
-
-def _send(cmd: str, args: dict | None = None) -> dict:
-    """Send one command to the server and return the parsed response."""
-    try:
-        data = send_control_request(
-            cmd,
-            args,
-            socket_path=get_socket_path(),
-            tcp_host=get_tcp_host(),
-            tcp_port=get_tcp_port(),
-            timeout_s=120.0,
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
-    return {"ok": True, "data": data}
-
-
-def _ok_or_exit(resp: dict) -> dict:
-    if not resp.get("ok"):
-        print(f"[a1zctl] Error: {resp.get('error', 'unknown error')}")
-        sys.exit(1)
-    return resp.get("data", {})
+def _send(command: str, payload: dict | None = None) -> dict:
+    return send_control_request(
+        command,
+        payload,
+        socket_path=get_socket_path(),
+        tcp_host=get_tcp_host(),
+        tcp_port=get_tcp_port(),
+        timeout_s=120.0,
+    )
 
 
 def _emit(args: argparse.Namespace, data: dict) -> None:
     if args.json:
-        print(json.dumps(data))
+        print(json.dumps(data, ensure_ascii=False))
+    else:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
 
-
-# ---------------------------------------------------------------------------
-# Sub-command implementations
-# ---------------------------------------------------------------------------
 
 def cmd_serve(args: argparse.Namespace) -> None:
     from a1z_ext.robots.server import serve
@@ -90,518 +58,167 @@ def cmd_serve(args: argparse.Namespace) -> None:
         tcp_host=args.tcp_host,
         tcp_port=args.tcp_port,
         control_freq_hz=args.control_freq,
+        min_freq_hz=args.min_control_freq,
+        gripper_max_torque=args.gripper_max_torque,
+        gripper_empty_close_threshold=args.gripper_empty_close_threshold,
         articulation_root_prim=args.articulation_root,
     )
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    data = _ok_or_exit(_send("status"))
-    if args.json:
-        _emit(args, data)
-        return
-    pos = data["pos_deg"]
-    vel = data["vel_rad_s"]
-    trq = data["torque_nm"]
-    joint_names = ["J1", "J2", "J3", "J4", "J5", "J6"]
-    print(f"{'Joint':<6}  {'pos(deg)':>9}  {'vel(rad/s)':>10}  {'torque(Nm)':>10}")
-    print("-" * 42)
-    for i, name in enumerate(joint_names):
-        print(f"{name:<6}  {pos[i]:>9.2f}  {vel[i]:>10.3f}  {trq[i]:>10.3f}")
-    if "gripper" in data:
-        gval = data["gripper"]
-        gstr = f"{gval:.3f}" if gval is not None else "N/A"
-        print(f"\nGripper: {gstr}  (0.0=closed, 1.0=open)")
-
-
-def cmd_move(args: argparse.Namespace) -> None:
-    req_args: dict = {"speed": args.speed}
-    if args.preset:
-        req_args["preset"] = args.preset
-    elif args.joints:
-        try:
-            vals = [float(v) for v in args.joints.split(",")]
-        except ValueError:
-            print("[a1zctl] joints must be 6 comma-separated numbers, e.g. 0,60,-60,0,0,0")
-            sys.exit(1)
-        if len(vals) != 6:
-            print("[a1zctl] joints must have exactly 6 values")
-            sys.exit(1)
-        req_args["joints"] = vals
-    else:
-        print("[a1zctl] move requires --preset or a joints string, e.g.:  move 0,60,-60,0,0,0")
-        sys.exit(1)
-
-    data = _ok_or_exit(_send("move", req_args))
-    if args.json:
-        _emit(args, data)
-        return
-    print("[a1zctl] Moving...")
-    pos = data.get("pos_deg", [])
-    if pos:
-        print(f"[a1zctl] Arrived: {[round(v, 1) for v in pos]}")
-
-
-def cmd_command(args: argparse.Namespace) -> None:
-    try:
-        vals = [float(v) for v in args.joints.split(",")]
-    except ValueError:
-        print("[a1zctl] joints must be 6 comma-separated numbers, e.g. 0,60,-60,0,0,0")
-        sys.exit(1)
-    if len(vals) != 6:
-        print("[a1zctl] joints must have exactly 6 values")
-        sys.exit(1)
-
-    req_args: dict = {"joints": vals}
-    if args.gripper is not None:
-        req_args["gripper"] = args.gripper
-
-    data = _ok_or_exit(_send("command", req_args))
-    if args.json:
-        _emit(args, data)
-        return
-    target = data.get("target_deg", vals)
-    print(f"[a1zctl] Target set: {[round(v, 1) for v in target]}")
-    if "gripper" in data:
-        print(f"[a1zctl] Gripper target: {data['gripper']:.2f}")
-
-
-def cmd_gripper(args: argparse.Namespace) -> None:
-    data = _ok_or_exit(_send("gripper", {"value": args.value}))
-    if args.json:
-        _emit(args, data)
-        return
-    print(f"[a1zctl] Gripper set to {data['gripper']:.2f}")
-
-
-def cmd_grasp_attach(args: argparse.Namespace) -> None:
-    req_args = {
-        "target_prim_path": args.target_prim_path,
-        "timeout_s": args.timeout_s,
-        "contact_window_s": args.contact_window_s,
-        "require_bilateral_contact": not args.allow_single_finger_contact,
-    }
-    data = _ok_or_exit(_send("grasp_attach", req_args))
-    if args.json:
-        _emit(args, data)
-        return
-    print(f"[a1zctl] grasp_attach success={bool(data.get('success', False))}")
-    if data.get("failure_reason"):
-        print(f"[a1zctl] failure_reason: {data['failure_reason']}")
-    attached_object_path = data.get("attached_object_path")
-    if attached_object_path:
-        print(f"[a1zctl] attached_object_path: {attached_object_path}")
-    attachment_joint_path = data.get("attachment_joint_path")
-    if attachment_joint_path:
-        print(f"[a1zctl] attachment_joint_path: {attachment_joint_path}")
-
-
-def cmd_grasp_link(args: argparse.Namespace) -> None:
-    req_args = {
-        "target_prim_path": args.target_prim_path,
-        "require_bilateral_contact": not args.allow_single_finger_contact,
-    }
-    data = _ok_or_exit(_send("grasp_link", req_args))
-    if args.json:
-        _emit(args, data)
-        return
-    print(f"[a1zctl] grasp_link success={bool(data.get('success', False))}")
-    if data.get("failure_reason"):
-        print(f"[a1zctl] failure_reason: {data['failure_reason']}")
-    attached_object_path = data.get("attached_object_path")
-    if attached_object_path:
-        print(f"[a1zctl] attached_object_path: {attached_object_path}")
-    attachment_joint_path = data.get("attachment_joint_path")
-    if attachment_joint_path:
-        print(f"[a1zctl] attachment_joint_path: {attachment_joint_path}")
-
-
-def cmd_grasp_release(args: argparse.Namespace) -> None:
-    data = _ok_or_exit(
-        _send(
-            "grasp_release",
-            {
-                "open_gripper": not args.keep_gripper_closed,
-                "timeout_s": args.timeout_s,
-            },
-        )
-    )
-    if args.json:
-        _emit(args, data)
-        return
-    print(f"[a1zctl] grasp_release success={bool(data.get('success', False))}")
-    print(f"[a1zctl] released={bool(data.get('released', False))}")
-
-
-def _print_physical_grasp_result(data: dict) -> None:
-    print(
-        "[a1zctl] physical grasp "
-        f"phase={data.get('phase', 'unknown')} success={bool(data.get('success', False))}"
-    )
-    if data.get("target_body_path"):
-        print(f"[a1zctl] target_body_path: {data['target_body_path']}")
-    print(
-        "[a1zctl] "
-        f"bilateral_contact={bool(data.get('bilateral_contact', False))} "
-        f"stable_frames={int(data.get('stable_contact_frames', 0))} "
-        f"constraint_delta={int(data.get('constraint_count_delta', 0))}"
-    )
-    left_force = data.get("left_normal_force_n")
-    right_force = data.get("right_normal_force_n")
-    if left_force is not None or right_force is not None:
-        print(f"[a1zctl] normal_force_n: left={left_force} right={right_force}")
-    if data.get("force_control_active"):
-        print(
-            "[a1zctl] force_control "
-            f"filtered_weak_n={data.get('filtered_weak_normal_force_n')} "
-            f"target_n={data.get('target_normal_force_n')} "
-            f"target_reached={bool(data.get('force_target_reached', False))} "
-            f"resistance_confirmed={bool(data.get('resistance_confirmed', False))}"
-        )
-    if data.get("failure_reason"):
-        print(f"[a1zctl] failure_reason: {data['failure_reason']}")
-
-
-def cmd_grasp_close_physical(args: argparse.Namespace) -> None:
-    controller_profile = None
-    if args.controller_profile:
-        try:
-            with open(args.controller_profile, "r", encoding="utf-8") as stream:
-                controller_profile = json.load(stream)
-        except (OSError, json.JSONDecodeError) as exc:
-            print(f"[a1zctl] Could not load controller profile: {exc}")
-            sys.exit(1)
-        if not isinstance(controller_profile, dict):
-            print("[a1zctl] Controller profile must contain a JSON object")
-            sys.exit(1)
-    data = _ok_or_exit(
-        _send(
-            "grasp_close_v2",
-            {
-                "timeout_s": args.timeout_s,
-                "minimum_normal_force_n": args.minimum_normal_force_n,
-                "preload_delta_m": args.preload_delta_m,
-                "controller_profile": controller_profile,
-            },
-        )
-    )
-    if args.json:
-        _emit(args, data)
-        return
-    _print_physical_grasp_result(data)
-
-
-def cmd_grasp_release_physical(args: argparse.Namespace) -> None:
-    data = _ok_or_exit(_send("grasp_release_v2", {"timeout_s": args.timeout_s}))
-    if args.json:
-        _emit(args, data)
-        return
-    _print_physical_grasp_result(data)
-
-
-def cmd_grasp_status_physical(args: argparse.Namespace) -> None:
-    data = _ok_or_exit(_send("grasp_status_v2"))
-    if args.json:
-        _emit(args, data)
-        return
-    _print_physical_grasp_result(data)
-
-
-def cmd_dance(args: argparse.Namespace) -> None:
-    req_args: dict = {"speed": args.speed}
-    if args.moves:
-        req_args["moves"] = [m.strip() for m in args.moves.split(",") if m.strip()]
-    data = _ok_or_exit(_send("dance", req_args))
-    if args.json:
-        _emit(args, data)
-        return
-    print("[a1zctl] Running dance sequence...")
-    print(f"[a1zctl] Dance complete: {', '.join(data['moves'])}")
-
-
-def cmd_stop(args: argparse.Namespace) -> None:
-    data = _ok_or_exit(_send("stop"))
-    if args.json:
-        _emit(args, data)
-        return
-    print(f"[a1zctl] {data.get('message', 'Done.')}")
+    _emit(args, _send("status"))
 
 
 def cmd_info(args: argparse.Namespace) -> None:
-    data = _ok_or_exit(_send("info"))
-    if args.json:
-        _emit(args, data)
-        return
-    print("Backend:     ", data.get("backend", "socketcan"))
-    if "articulation_root_prim" in data:
-        print("Articulation:", data["articulation_root_prim"])
-    if "dof_names" in data:
-        print("DOF names:   ", ", ".join(data["dof_names"]))
-    print("Presets:     ", ", ".join(data["presets"]))
-    print("Dance moves: ", ", ".join(data["dance_moves"]))
-    print("Joint limits (degrees, software command):")
-    for joint, (lo, hi) in data["joint_limits_deg"].items():
-        print(f"  {joint}: [{lo}, {hi}]")
-    if "hard_joint_limits_deg" in data:
-        print("Hard limits (degrees, simulation/physical):")
-        for joint, (lo, hi) in data["hard_joint_limits_deg"].items():
-            print(f"  {joint}: [{lo}, {hi}]")
-    if "arm_max_velocity_rad_s" in data:
-        print("Max velocity (rad/s):")
-        for idx, value in enumerate(data["arm_max_velocity_rad_s"], start=1):
-            print(f"  J{idx}: {value}")
-    if "gripper_range" in data:
-        print(f"Gripper:     normalized {data['gripper_range']}")
+    _emit(args, _send("info"))
 
 
-# ---------------------------------------------------------------------------
-# Argument parser
-# ---------------------------------------------------------------------------
+def cmd_move(args: argparse.Namespace) -> None:
+    payload: dict = {"speed": args.speed}
+    if args.preset:
+        payload["preset"] = args.preset
+    elif args.joints:
+        values = [float(value) for value in args.joints.split(",")]
+        if len(values) != 6:
+            raise ValueError("joints must contain 6 comma-separated degree values")
+        payload["joints"] = values
+    else:
+        raise ValueError("move requires joints or --preset")
+    _emit(args, _send("move", payload))
+
+
+def cmd_command(args: argparse.Namespace) -> None:
+    values = [float(value) for value in args.joints.split(",")]
+    if len(values) != 6:
+        raise ValueError("joints must contain 6 comma-separated degree values")
+    payload: dict = {"joints": values}
+    if args.gripper is not None:
+        payload["gripper"] = args.gripper
+    _emit(args, _send("command", payload))
+
+
+def cmd_gripper(args: argparse.Namespace) -> None:
+    _emit(args, _send("gripper", {"value": args.value}))
+
+
+def cmd_grasp_close(args: argparse.Namespace) -> None:
+    _emit(args, _send("grasp_close", {"timeout_s": args.timeout_s}))
+
+
+def cmd_grasp_status(args: argparse.Namespace) -> None:
+    _emit(args, _send("grasp_status"))
+
+
+def cmd_grasp_release(args: argparse.Namespace) -> None:
+    _emit(args, _send("grasp_release", {"timeout_s": args.timeout_s}))
+
+
+def cmd_estop(args: argparse.Namespace) -> None:
+    _emit(args, _send("estop"))
+
+
+def cmd_estop_release(args: argparse.Namespace) -> None:
+    _emit(args, _send("estop_release"))
+
+
+def cmd_stop(args: argparse.Namespace) -> None:
+    _emit(args, _send("stop"))
+
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        prog="a1zctl",
-        description="A1Z robot arm CLI — controls a running a1zctl serve daemon.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python3 tools/a1zctl serve --with-gripper
-  python3 tools/a1zctl serve --backend mock --with-gripper
-  python3 tools/a1zctl serve --backend isaacsim --with-gripper --control-freq 60
-  python3 tools/a1zctl status
-  python3 tools/a1zctl move 0,60,-60,0,0,0
-  python3 tools/a1zctl command 0,60,-60,0,0,0 --gripper 0.5
-  python3 tools/a1zctl move --preset home
-  python3 tools/a1zctl gripper 0.5
-  python3 tools/a1zctl grasp-attach --target-prim-path /World/TrashSet/mock_target
-  python3 tools/a1zctl grasp-release
-  python3 tools/a1zctl grasp-close-physical
-  python3 tools/a1zctl grasp-status-physical
-  python3 tools/a1zctl grasp-release-physical
-  python3 tools/a1zctl dance --moves salute,wave,bow --speed 0.7
-  python3 tools/a1zctl stop
-        """,
-    )
-    p.add_argument("--json", action="store_true", help="Print command result as JSON")
-    sub = p.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true")
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    # serve
-    sp = sub.add_parser("serve", help="Start the robot server (blocking)")
-    default_backend = get_default_backend()
-    default_can = get_default_can_channel()
-    sp.add_argument(
+    serve_parser = sub.add_parser("serve", help="Start the control server")
+    serve_parser.add_argument(
         "--backend",
-        default=default_backend,
         choices=["socketcan", "mock", "isaacsim"],
-        help=f"Control backend (default: {default_backend})",
+        default=get_default_backend(),
     )
-    sp.add_argument("--can", default=default_can, help=f"SocketCAN channel (default: {default_can})")
-    sp.add_argument(
-        "--socket-path",
-        default=get_socket_path(),
-        help=f"Unix socket path (default: {get_socket_path()})",
+    serve_parser.add_argument("--can", default=get_default_can_channel())
+    serve_parser.add_argument("--socket-path", default=get_socket_path())
+    serve_parser.add_argument("--tcp-host", default=get_tcp_host())
+    serve_parser.add_argument("--tcp-port", type=int, default=get_tcp_port())
+    serve_parser.add_argument(
+        "--with-gripper",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("A1Z_WITH_GRIPPER", "0") == "1",
     )
-    sp.add_argument(
-        "--tcp-host",
-        default=get_tcp_host(),
-        help=f"Optional TCP bind host for cross-container clients (default: {get_tcp_host()})",
+    serve_parser.add_argument("--gravity-mode", action="store_true")
+    serve_parser.add_argument(
+        "--control-freq", type=int, default=get_control_frequency_hz()
     )
-    sp.add_argument(
-        "--tcp-port",
-        type=int,
-        default=get_tcp_port(),
-        help=f"Optional TCP bind port for cross-container clients; set <=0 to disable (default: {get_tcp_port()})",
+    serve_parser.add_argument(
+        "--min-control-freq", type=float, default=get_min_control_frequency_hz()
     )
-    sp.add_argument("--with-gripper", action="store_true", help="Enable gripper motor")
-    sp.add_argument(
-        "--gravity-mode",
-        action="store_true",
-        help="Experimental zero-gravity effort mode; Isaac Sim position hold remains the stable default",
+    serve_parser.add_argument(
+        "--gripper-max-torque", type=float, default=get_gripper_max_torque_nm()
     )
-    sp.add_argument(
-        "--control-freq",
-        type=int,
-        default=60,
-        help="Backend control/update frequency in Hz (default: 60)",
+    serve_parser.add_argument(
+        "--gripper-empty-close-threshold",
+        type=float,
+        default=get_gripper_empty_close_threshold(),
     )
-    sp.add_argument(
-        "--articulation-root",
-        default=None,
-        help="Isaac articulation root prim, used only with --backend isaacsim",
-    )
+    serve_parser.add_argument("--articulation-root", default=None)
 
-    # status
-    sub.add_parser("status", help="Print current joint positions, velocities, torques")
+    sub.add_parser("status", help="Read joint state")
+    sub.add_parser("info", help="Read backend capabilities")
 
-    # move
-    mp = sub.add_parser(
-        "move",
-        help="Move to joint angles or a named preset",
-        description=(
-            "Move to absolute joint angles (degrees) or a named preset.\n\n"
-            "  a1zctl move 0,60,-60,0,0,0\n"
-            "  a1zctl move --preset home"
-        ),
-    )
-    mp.add_argument("joints", nargs="?", default=None,
-                    help="6 joint angles in degrees, comma-separated (e.g. 0,60,-60,0,0,0)")
-    mp.add_argument("--preset", default=None,
-                    help="Named preset: home | ready | salute | wave_l | wave_r | reach | bow ...")
+    move_parser = sub.add_parser("move", help="Move to six joint angles in degrees")
+    move_parser.add_argument("joints", nargs="?")
+    move_parser.add_argument("--preset")
     speed_limits = get_arm_motion_speed_limits()
-    mp.add_argument(
+    move_parser.add_argument(
         "--speed",
         type=validate_arm_motion_speed,
         default=speed_limits.default,
-        help=(
-            "Movement speed rad/s "
-            f"({speed_limits.minimum:g}–{speed_limits.maximum:g}, "
-            f"default: {speed_limits.default:g})"
-        ),
     )
 
-    cp = sub.add_parser("command", help="Send an immediate joint target without waiting for motion completion")
-    cp.add_argument("joints", help="6 joint angles in degrees, comma-separated (e.g. 0,60,-60,0,0,0)")
-    cp.add_argument("--gripper", type=float, default=None, help="Optional gripper target in [0.0, 1.0]")
+    command_parser = sub.add_parser("command", help="Send a joint target")
+    command_parser.add_argument("joints")
+    command_parser.add_argument("--gripper", type=float)
 
-    # gripper
-    gp = sub.add_parser("gripper", help="Set gripper opening (0.0=closed, 1.0=open)")
-    gp.add_argument("value", type=float, help="Opening in [0.0, 1.0]")
+    gripper_parser = sub.add_parser("gripper", help="Set opening: 0 closed, 1 open")
+    gripper_parser.add_argument("value", type=float)
 
-    gap = sub.add_parser(
-        "grasp-attach",
-        help="Close the gripper, detect contact, and create a simulated attachment",
-    )
-    gap.add_argument(
-        "--target-prim-path",
-        default="",
-        help="Optional target prim path to prefer during contact selection",
-    )
-    gap.add_argument(
-        "--timeout-s",
-        type=float,
-        default=2.0,
-        help="Soft-close timeout in seconds before the search-close fallback (default: 2.0)",
-    )
-    gap.add_argument(
-        "--contact-window-s",
-        type=float,
-        default=0.15,
-        help="Contact aggregation window in seconds (default: 0.15)",
-    )
-    gap.add_argument(
-        "--allow-single-finger-contact",
-        action="store_true",
-        help="Allow attachment without bilateral finger contact",
-    )
-
-    glp = sub.add_parser(
-        "grasp-link",
-        help="Create a simulated attachment from the current contact state without moving the gripper",
-    )
-    glp.add_argument(
-        "--target-prim-path",
-        default="",
-        help="Optional target prim path to prefer during contact selection",
-    )
-    glp.add_argument(
-        "--allow-single-finger-contact",
-        action="store_true",
-        help="Allow attachment without bilateral finger contact",
-    )
-
-    grp = sub.add_parser("grasp-release", help="Release a simulated attachment")
-    grp.add_argument(
-        "--keep-gripper-closed",
-        action="store_true",
-        help="Detach without commanding the gripper back open",
-    )
-    grp.add_argument(
-        "--timeout-s",
-        type=float,
-        default=2.0,
-        help="Release timeout in seconds (default: 2.0)",
-    )
-
-    gcp = sub.add_parser(
-        "grasp-close-physical",
-        help="Close slowly and auto-detect the rigid body contacted by both fingers (contract v2)",
-    )
-    gcp.add_argument(
-        "--timeout-s",
-        type=float,
-        default=15.0,
-        help="Total precheck/close/search/preload/hold timeout in seconds (default: 15.0)",
-    )
-    gcp.add_argument(
-        "--minimum-normal-force-n",
-        type=float,
-        default=None,
-        help="Optional calibrated minimum normal force required on each finger",
-    )
-    gcp.add_argument(
-        "--preload-delta-m",
-        type=float,
-        default=None,
-        help="Override additional jaw-width closure after bilateral contact",
-    )
-    gcp.add_argument(
-        "--controller-profile",
-        default=None,
-        help="Versioned controller profile JSON; supplies gains, contact policy, preload, and timeouts",
-    )
-
-    grpv2 = sub.add_parser(
-        "grasp-release-physical",
-        help="Open the jaws and complete physical grasp contract v2 release",
-    )
-    grpv2.add_argument(
-        "--timeout-s",
-        type=float,
-        default=3.0,
-        help="Release timeout in seconds (default: 3.0)",
-    )
-
-    sub.add_parser(
-        "grasp-status-physical",
-        help="Show bilateral contact, force, width, and constraint audit for contract v2",
-    )
-
-    # dance
-    dp = sub.add_parser("dance", help="Run a dance sequence")
-    dp.add_argument("--moves", default=None,
-                    help="Comma-separated move names (default: salute,wave,nod,reach,bow)")
-    dp.add_argument("--speed", type=float, default=0.6, help="Base speed rad/s (default: 0.6)")
-
-    # stop
-    sub.add_parser("stop", help="Stop the robot server gracefully")
-
-    # info
-    sub.add_parser("info", help="List available presets, dance moves, and joint limits")
-
-    return p
+    close_parser = sub.add_parser("grasp-close", help="Close and verify object capture")
+    close_parser.add_argument("--timeout-s", type=float, default=15.0)
+    sub.add_parser("grasp-status", help="Read common grasp state")
+    release_parser = sub.add_parser("grasp-release", help="Open the gripper")
+    release_parser.add_argument("--timeout-s", type=float, default=3.0)
+    sub.add_parser("estop", help="Latch the physical SDK soft emergency stop")
+    sub.add_parser("estop-release", help="Release the physical SDK estop latch")
+    sub.add_parser("stop", help="Stop the server")
+    return parser
 
 
-_COMMANDS = {
-    "serve":   cmd_serve,
-    "status":  cmd_status,
-    "move":    cmd_move,
+COMMANDS = {
+    "serve": cmd_serve,
+    "status": cmd_status,
+    "info": cmd_info,
+    "move": cmd_move,
     "command": cmd_command,
     "gripper": cmd_gripper,
-    "grasp-attach": cmd_grasp_attach,
-    "grasp-link": cmd_grasp_link,
+    "grasp-close": cmd_grasp_close,
+    "grasp-status": cmd_grasp_status,
     "grasp-release": cmd_grasp_release,
-    "grasp-close-physical": cmd_grasp_close_physical,
-    "grasp-release-physical": cmd_grasp_release_physical,
-    "grasp-status-physical": cmd_grasp_status_physical,
-    "dance":   cmd_dance,
-    "stop":    cmd_stop,
-    "info":    cmd_info,
+    "estop": cmd_estop,
+    "estop-release": cmd_estop_release,
+    "stop": cmd_stop,
 }
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-    _COMMANDS[args.command](args)
+    args = build_parser().parse_args()
+    try:
+        COMMANDS[args.command](args)
+    except Exception as exc:
+        if args.json:
+            print(json.dumps({"error": str(exc)}, ensure_ascii=False))
+        else:
+            print(f"a1zctl: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":

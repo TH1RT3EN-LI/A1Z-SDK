@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+source "$ROOT_DIR/scripts/load_a1z_env.sh"
 
 SERVER_IP="${A1Z_SERVER_IP:-10.66.0.11}"
 CLIENT_APP="${A1Z_WEBRTC_CLIENT_APP:-}"

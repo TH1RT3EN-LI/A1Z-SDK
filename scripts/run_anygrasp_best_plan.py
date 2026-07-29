@@ -57,20 +57,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extrinsic-correction-label", default=ANYGRASP_ACTIVE_EXTRINSIC_CORRECTION_LABEL, help="Additional correction applied inside extrinsic_camera_to_base before projecting grasps into base frame.")
     parser.add_argument("--task-id", default="anygrasp-best-pick")
     parser.add_argument("--object-id", default="target-object")
-    parser.add_argument("--target-prim-path", default="", help="Optional Isaac stage prim path for the intended grasp target.")
-    parser.add_argument("--grasp-mode", default="sim_contact_attach", help="Execution grasp mode. Use sim_contact_attach for Isaac attach flow.")
-    parser.add_argument(
-        "--require-bilateral-contact",
-        action="store_true",
-        default=True,
-        help="Require both fingers to contact the chosen target before attach.",
-    )
-    parser.add_argument(
-        "--allow-single-sided-contact",
-        dest="require_bilateral_contact",
-        action="store_false",
-        help="Allow attach when only one finger contact is available.",
-    )
     parser.add_argument("--backend", default="anygrasp_best_direct")
     parser.add_argument("--output-dir", default=str(REPO_ROOT / "runtime" / "anygrasp_best_direct"))
     parser.add_argument("--frame-id", default="robot_base_frame")
@@ -449,9 +435,9 @@ def main() -> int:
         safety_summary=dict(safety_summary),
         candidate_rank=int(args.grasp_rank),
         execution_policy={
-            "grasp_mode": str(args.grasp_mode),
-            "target_prim_path": str(args.target_prim_path or ""),
-            "require_bilateral_contact": bool(args.require_bilateral_contact),
+            "grasp_timeout_s": 15.0,
+            "release_timeout_s": 3.0,
+            "release_after_retreat": False,
         },
         source_model="anygrasp_best_direct",
     )

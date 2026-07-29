@@ -1,4 +1,4 @@
-"""ROS 2 publisher node for Isaac-backed D405 camera streams."""
+"""Isaac-specific adapter publishing the shared ROS RGB-D topic contract."""
 
 from __future__ import annotations
 

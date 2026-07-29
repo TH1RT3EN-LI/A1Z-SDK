@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+source "$ROOT_DIR/scripts/load_a1z_env.sh"
 CONTAINER_NAME="${ISAAC_SIM_CONTAINER_NAME:-isaac-sim-5-1-dev}"
 VENV_DIR="${A1Z_SDK_VENV_DIR:-/home/ubuntu/.venvs/a1z-sdk}"
 SDK_DIR="${A1Z_SDK_DIR:-/workspace/A1Z/vendor/GALAXEA-A1Z}"

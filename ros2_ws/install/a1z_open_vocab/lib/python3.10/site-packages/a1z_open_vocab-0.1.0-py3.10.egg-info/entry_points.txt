@@ -1,3 +1,0 @@
-[console_scripts]
-vision_request = a1z_open_vocab.vision_request_node:main
-

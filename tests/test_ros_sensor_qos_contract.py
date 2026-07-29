@@ -12,7 +12,6 @@ class RosSensorQosContractTest(unittest.TestCase):
         paths = (
             ROOT / "a1z_ext" / "runtime" / "frame_sources" / "ros_rgbd.py",
             ROOT / "a1z_ext" / "runtime" / "image_input.py",
-            ROOT / "scripts" / "run_kimi_grounding_for_sam.py",
         )
         for path in paths:
             with self.subTest(path=path):

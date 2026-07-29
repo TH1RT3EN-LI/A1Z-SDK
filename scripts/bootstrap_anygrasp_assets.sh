@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+source "$ROOT_DIR/scripts/load_a1z_env.sh"
 
 SDK_DIR="${1:-$ROOT_DIR/vendor/vision/anygrasp_sdk}"
 RUNTIME_MODELS_DIR="${2:-$ROOT_DIR/runtime/models/anygrasp}"

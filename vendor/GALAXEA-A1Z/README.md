@@ -4,6 +4,10 @@
 
 # A1Z — 6-DOF 机械臂 Python SDK（带G1Z夹爪）
 
+<p align="center">
+  <img src="docs/images/A1Z_G1Z.png" alt="A1Z 机械臂（带 G1Z 夹爪）" width="500"/>
+</p>
+
 A1Z 六轴机械臂的 Python 控制 SDK，提供 CAN 总线电机驱动、基于 Pinocchio 的重力补偿、正/逆运动学，以及零力示教和位置保持等功能。
 
 ## 项目结构
@@ -115,6 +119,8 @@ python examples/position_hold.py --q_target_deg 0,30,-20,-15,0,0 --speed 0.5
 python examples/gripper_hybrid_test.py --can can0
 ```
 
+> ⚠️ **如果上述命令报错或机械臂无反应**，请跳转到 [CAN 通信故障排查](#can-通信故障排查)。
+
 ### 零力示教与回放
 
 `teach_and_play.py` 分为两个子命令：`record`（录制）和 `play`（回放）。
@@ -186,6 +192,60 @@ python3 tools/a1zctl dance --moves salute,wave,nod
 python3 tools/a1zctl info                # 查看所有预置位与限位
 python3 tools/a1zctl stop               # 停止服务端
 ```
+
+## CAN 通信故障排查
+
+如果运行 `python examples/gravity_comp.py --gravity_factor 0.3` 报错或机械臂无反应，最常见原因是部分较老或特定版本的 Linux 内核，其内置的 socketcan / `gs_usb` 驱动与本 CAN 盒存在兼容性问题。
+
+### 1. 检查硬件接线
+
+- CAN 盒（USB-CANFD 适配器）已插入电脑并牢固接触
+- CAN 总线两端接线正确、无松动
+- 机械臂电源已上电
+- CAN 盒的终端电阻正确安装（参见上文"配置 CAN 总线"）
+
+### 2. 检查内核版本并修复（推荐直接执行）
+
+查看当前内核版本：
+
+```bash
+uname -r
+```
+
+- **方案 A**：升级 Linux 内核到 **6.8.0-124** 或更新版本（如果您有其他工作依赖当前内核，建议按照方案 B 操作）
+- **方案 B**：按官方文档给内核 / 驱动打补丁 —— 详见 [Galaxea 内核补丁指引](https://galaxea-ai.feishu.cn/docx/XF2ed4pmhoervNxODlfc11Gvnbb?from=from_copylink)
+
+### 3. 手动确认是否为内核兼容问题（可选）
+
+如果不确定问题是否出在内核，或按上一步升级 / 打补丁后仍无法通信，可以手动向 J6 电机发送 CAN 指令来复现。
+
+打开两个终端：**终端 A** 用 `candump can0` 监听总线收发；**终端 B** 依次向 J6 电机发送使能 / 运动 / 失能指令，观察终端 A 是否有反馈帧、J6 是否实际转动。
+
+终端 A：
+
+```bash
+candump can0
+```
+
+终端 B：
+
+```bash
+# 1. 使能 J6
+cansend can0 006#FFFFFFFFFFFFFFFC
+
+# 2. 正向低速 0.5 rad/s
+cansend can0 006#8000844000199800
+
+# 3. 反向低速 -0.5 rad/s
+cansend can0 006#80007BB000199800
+
+# 4. 失能 J6
+cansend can0 006#FFFFFFFFFFFFFFFD
+```
+
+预期表现：使能命令下发后，J6 应有反馈帧回到 `candump`；正 / 反向运动命令下发后，J6 应实际低速转动。
+
+**判断依据**：如果使能命令完全没有反馈，关闭机械臂电源后重新上电 —— 若上电瞬间可以看到大约 **2 帧 CAN 数据**返回（电机上电反馈），但之后发送使能命令仍无回帧，基本可以确认是内核 / socketcan 兼容性问题，回到第 2 步执行方案 A 或 B。
 
 ## API 参考
 
@@ -440,6 +500,10 @@ self._command.kd = self._default_kd.copy()  # [1,  1,  1,  0.5, 0.5, 0.5]
 
 # A1Z — 6-DOF Robotic Arm Python SDK (with G1Z Gripper)
 
+<p align="center">
+  <img src="docs/images/A1Z_G1Z.png" alt="A1Z robotic arm with G1Z gripper" width="500"/>
+</p>
+
 A Python control SDK for the A1Z six-axis robotic arm, providing CAN-bus motor drivers, Pinocchio-based gravity compensation, forward/inverse kinematics, zero-force teaching, position hold, and G1Z gripper control.
 
 ## Project Structure
@@ -549,6 +613,8 @@ python examples/position_hold.py --q_target_deg 0,30,-20,-15,0,0 --speed 0.5
 python examples/gripper_hybrid_test.py --can can0
 ```
 
+> ⚠️ **If the commands above error out or the arm does not respond**, jump to [CAN Communication Troubleshooting](#can-communication-troubleshooting).
+
 ### Zero-Force Teaching and Playback
 
 `teach_and_play.py` has two sub-commands: `record` and `play`.
@@ -620,6 +686,60 @@ python3 tools/a1zctl dance --moves salute,wave,nod
 python3 tools/a1zctl info                # list all presets and limits
 python3 tools/a1zctl stop               # stop the server
 ```
+
+## CAN Communication Troubleshooting
+
+If `python examples/gravity_comp.py --gravity_factor 0.3` errors out or the arm does not respond, the most common cause is a compatibility issue between the built-in SocketCAN / `gs_usb` driver in some older or specific Linux kernel versions and this CAN adapter.
+
+### 1. Check the wiring
+
+- The USB-CANFD adapter is plugged in and seated firmly
+- Both ends of the CAN bus are wired correctly and not loose
+- The arm is powered on
+- The CAN termination resistor is installed correctly (see "Configure the CAN Bus" above)
+
+### 2. Check the kernel version and fix (recommended path)
+
+Check your current kernel version:
+
+```bash
+uname -r
+```
+
+- **Option A**: upgrade the Linux kernel to **6.8.0-124** or newer (if you have other work that depends on the current kernel, prefer Option B)
+- **Option B**: patch the kernel / driver as described in the [Galaxea kernel patch guide](https://galaxea-ai.feishu.cn/docx/XF2ed4pmhoervNxODlfc11Gvnbb?from=from_copylink)
+
+### 3. Manually confirm the kernel compatibility issue (optional)
+
+If you are not sure the kernel is the culprit, or CAN still does not work after step 2, manually reproduce the issue by sending CAN commands to the J6 motor.
+
+Open two terminals. **Terminal A** monitors bus traffic with `candump can0`; **Terminal B** sends the enable / motion / disable commands to J6 in sequence. Watch Terminal A for feedback frames and check whether J6 actually rotates.
+
+Terminal A:
+
+```bash
+candump can0
+```
+
+Terminal B:
+
+```bash
+# 1. Enable J6
+cansend can0 006#FFFFFFFFFFFFFFFC
+
+# 2. Forward at 0.5 rad/s
+cansend can0 006#8000844000199800
+
+# 3. Reverse at -0.5 rad/s
+cansend can0 006#80007BB000199800
+
+# 4. Disable J6
+cansend can0 006#FFFFFFFFFFFFFFFD
+```
+
+Expected behavior: after the enable command, J6 should emit a feedback frame visible in `candump`; after forward / reverse, J6 should physically rotate at low speed.
+
+**Diagnosis**: if the enable command produces no feedback at all, power-cycle the arm — if you see roughly **2 CAN frames** returned during power-on (the motor's boot-up feedback) but the enable command still produces nothing, this confirms a kernel / SocketCAN compatibility issue. Go back to step 2 and apply Option A or B.
 
 ## API Reference
 

@@ -1,4 +1,0 @@
-[console_scripts]
-motion_executor = a1z_motion.motion_executor:main
-robot_state = a1z_motion.robot_state:main
-

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+source "$ROOT_DIR/scripts/load_a1z_env.sh"
 
 OUTPUT_PATH="${1:-${A1Z_ANYGRASP_IFCONFIG_SNAPSHOT:-$ROOT_DIR/runtime/anygrasp/ifconfig.snapshot}}"
 OUTPUT_DIR="$(dirname "$OUTPUT_PATH")"

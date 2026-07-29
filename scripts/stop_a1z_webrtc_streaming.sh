@@ -3,9 +3,9 @@
 set -euo pipefail
 
 ROOT_DIR="${A1Z_WORKSPACE_CONTAINER:-/workspace/A1Z}"
-if [[ -f "$ROOT_DIR/scripts/load_a1z_container_env.sh" ]]; then
+if [[ -f "$ROOT_DIR/scripts/load_a1z_env.sh" ]]; then
   # shellcheck disable=SC1091
-  source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+  source "$ROOT_DIR/scripts/load_a1z_env.sh"
 fi
 
 PID_FILE="$ROOT_DIR/runtime/logs/isaac-sim-streaming.pid"

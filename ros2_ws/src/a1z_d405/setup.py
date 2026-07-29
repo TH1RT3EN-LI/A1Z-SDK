@@ -16,12 +16,12 @@ setup(
     zip_safe=True,
     maintainer="A1Z",
     maintainer_email="devnull@example.com",
-    description="ROS 2 D405 bridge for A1Z Isaac-backed RGB-D streams.",
+    description="Isaac-to-ROS D405 device adapter for A1Z.",
     license="MIT",
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "d405_bridge = a1z_d405.publisher:main",
+            "isaac_d405_bridge = a1z_d405.publisher:main",
         ],
     },
 )

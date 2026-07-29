@@ -1,6 +1,0 @@
-{
-  "package_name": "a1z_msgs",
-  "non_idl_tuples": [
-    "/workspace/A1Z/ros2_ws/src/a1z_msgs:action/MoveEndEffector.action"
-  ]
-}

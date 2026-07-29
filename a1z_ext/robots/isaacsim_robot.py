@@ -903,6 +903,39 @@ class IsaacSimArmRobot:
             }
         return self._run_on_main_thread(lambda: self._physical_grasp_status_payload(operation))
 
+    def grasp_close(self, *, timeout_s: float = 15.0) -> Dict[str, Any]:
+        """Backend-neutral grasp entry point used by task execution."""
+        data = dict(self.grasp_close_physical(timeout_s=timeout_s))
+        data.update(
+            {
+                "backend": "isaacsim",
+                "object_detected": bool(data.get("success")),
+            }
+        )
+        return data
+
+    def grasp_release(self, *, timeout_s: float = 3.0) -> Dict[str, Any]:
+        """Backend-neutral release entry point used by task execution."""
+        data = dict(self.release_physical_grasp(timeout_s=timeout_s))
+        data.update(
+            {
+                "backend": "isaacsim",
+                "object_detected": False,
+            }
+        )
+        return data
+
+    def get_grasp_status(self) -> Dict[str, Any]:
+        """Return the common grasp status without exposing a simulator command."""
+        data = dict(self.get_physical_grasp_status())
+        data.update(
+            {
+                "backend": "isaacsim",
+                "object_detected": bool(data.get("success")) and data.get("phase") == "holding",
+            }
+        )
+        return data
+
     def get_sim_grasp_contacts(
         self,
         *,

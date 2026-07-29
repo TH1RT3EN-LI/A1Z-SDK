@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+source "$ROOT_DIR/scripts/load_a1z_env.sh"
 
 export A1Z_ISAAC_STARTUP_SCRIPT="${A1Z_ISAAC_STARTUP_SCRIPT:-/workspace/A1Z/scripts/open_a1z_world_with_a1z_sdk.py}"
 export A1Z_EE_DRAG_TARGET_ENABLED=1

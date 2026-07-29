@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+source "$ROOT_DIR/scripts/load_a1z_env.sh"
 
 MODEL_ROOT="${A1Z_VISION_MODEL_ROOT:-/workspace/A1Z/runtime/models}"
 MODEL_ROOT="${MODEL_ROOT/\/workspace\/A1Z/$ROOT_DIR}"

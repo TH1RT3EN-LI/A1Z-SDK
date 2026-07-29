@@ -67,6 +67,22 @@ def get_default_backend() -> str:
     return os.environ.get("A1Z_BACKEND", get_control_defaults()["default_backend"])
 
 
+def get_control_frequency_hz() -> int:
+    return int(os.environ.get("A1Z_CONTROL_FREQ_HZ", "250"))
+
+
+def get_min_control_frequency_hz() -> float:
+    return float(os.environ.get("A1Z_MIN_CONTROL_FREQ_HZ", "80"))
+
+
+def get_gripper_max_torque_nm() -> float:
+    return float(os.environ.get("A1Z_GRIPPER_MAX_TORQUE", "0.5"))
+
+
+def get_gripper_empty_close_threshold() -> float:
+    return float(os.environ.get("A1Z_GRIPPER_EMPTY_CLOSE_THRESHOLD", "0.04"))
+
+
 def get_arm_motion_speed_limits() -> ArmMotionSpeedLimits:
     values = get_control_defaults()["arm_motion_speed_rad_s"]
     limits = ArmMotionSpeedLimits(

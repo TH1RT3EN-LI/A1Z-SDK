@@ -780,9 +780,9 @@ class ContactGraspNetA1ZAdapter:
                 safety_summary=dict(candidate.safety_summary),
                 candidate_rank=int(candidate.rank),
                 execution_policy={
-                    "grasp_mode": "sim_contact_attach",
-                    "target_prim_path": str(candidate.metadata.get("target_prim_path", "") or ""),
-                    "require_bilateral_contact": bool(candidate.metadata.get("require_bilateral_contact", True)),
+                    "grasp_timeout_s": 15.0,
+                    "release_timeout_s": 3.0,
+                    "release_after_retreat": False,
                 },
                 source_model=source_model,
                 )

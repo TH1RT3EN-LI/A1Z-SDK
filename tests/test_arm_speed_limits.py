@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest import TestCase
 
 from a1z_ext.config import get_arm_motion_speed_limits, validate_arm_motion_speed
-from a1z_ext.gui_console import AnyGraspOptions, build_anygrasp_command
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,26 +25,6 @@ class ArmSpeedLimitTests(TestCase):
                 with self.assertRaisesRegex(ValueError, r"\[0.05, 1.5\]"):
                     validate_arm_motion_speed(speed)
 
-    def test_anygrasp_uses_new_default_and_validates_boundaries(self) -> None:
-        command = build_anygrasp_command(
-            ROOT,
-            AnyGraspOptions(
-                instruction="抓取目标",
-                host_output_dir=ROOT / "runtime" / "speed-test",
-            ),
-        )
-        speed_index = command.index("--arm-speed") + 1
-        self.assertEqual(command[speed_index], "0.5")
-        with self.assertRaises(ValueError):
-            build_anygrasp_command(
-                ROOT,
-                AnyGraspOptions(
-                    instruction="抓取目标",
-                    host_output_dir=ROOT / "runtime" / "speed-test-invalid",
-                    arm_speed=2.0,
-                ),
-            )
-
     def test_all_motion_entry_points_use_the_shared_policy(self) -> None:
         isaac_source = (
             ROOT / "a1z_ext" / "robots" / "isaacsim_robot.py"
@@ -56,11 +35,10 @@ class ArmSpeedLimitTests(TestCase):
         executor_source = (
             ROOT / "scripts" / "execute_a1z_plan.py"
         ).read_text(encoding="utf-8")
-        gui_source = (
-            ROOT / "scripts" / "a1z_gui_console.py"
+        pipeline_source = (
+            ROOT / "scripts" / "run_pick_pipeline.py"
         ).read_text(encoding="utf-8")
         self.assertIn("self._arm_motion_speed_limits.validate(speed)", isaac_source)
         self.assertIn("validate_arm_motion_speed(", server_source)
         self.assertIn("type=validate_arm_motion_speed", executor_source)
-        self.assertIn("ttk.Spinbox(", gui_source)
-        self.assertIn("ARM_SPEED_LIMITS.maximum", gui_source)
+        self.assertIn('"--arm-speed"', pipeline_source)

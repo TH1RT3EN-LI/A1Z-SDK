@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -47,81 +47,13 @@ class MockArmRobot:
         self._eff = np.zeros(num_joints, dtype=np.float64)
         self._gripper_pos: Optional[float] = 1.0 if with_gripper else None
         self._recording = RecordingSession()
-        self._sim_grasp_state: Dict[str, Any] = {
-            "has_attached_object": False,
-            "attached_object_path": None,
-            "attachment_joint_path": None,
-            "target_prim_path": None,
-            "target_body_path": None,
-            "carrier_body_path": "/World/mock/gripper_carrier",
-            "target_world_translation_m": None,
-            "carrier_world_translation_m": [0.0, 0.0, 0.0],
-            "target_to_carrier_translation_m": None,
-            "target_physics_state": {
-                "rigid_body_enabled": True,
-                "kinematic_enabled": False,
-                "gravity_disabled": False,
-            },
-            "initial_target_physics_state": {
-                "rigid_body_enabled": True,
-                "kinematic_enabled": False,
-                "gravity_disabled": False,
-            },
-            "target_physics_state_mutated": False,
-            "grasp_state": "idle",
-            "last_contact_time": None,
-            "last_failure_reason": None,
-        }
-        self._physical_grasp_state: Dict[str, Any] = self._idle_physical_grasp_state()
-
-    @staticmethod
-    def _idle_physical_grasp_state() -> Dict[str, Any]:
-        return {
-            "contract_version": 2,
-            "mode": "physical",
-            "simulated": True,
+        self._grasp_status: Dict[str, Any] = {
+            "backend": "mock",
             "success": False,
             "phase": "idle",
-            "target_body_path": None,
-            "bilateral_contact": False,
-            "stable_contact_frames": 0,
-            "contact_loss_frames": 0,
-            "contact_width_m": None,
-            "hold_width_m": None,
-            "measured_width_m": 0.096,
-            "left_normal_force_n": None,
-            "right_normal_force_n": None,
-            "filtered_left_normal_force_n": None,
-            "filtered_right_normal_force_n": None,
-            "filtered_weak_normal_force_n": None,
-            "target_normal_force_n": None,
-            "maximum_normal_force_n": None,
-            "force_control_active": False,
-            "force_target_reached": False,
-            "force_stable_frames": 0,
-            "force_loss_frames": 0,
-            "resistance_confirmed": False,
-            "resistance_signals": {
-                "contact_force_resistance": False,
-                "joint_load_resistance": False,
-                "projected_joint_force_n": None,
-                "free_motion_baseline_n": None,
-                "effort_residual_n": None,
-                "command_lag_m": None,
-            },
-            "left_body_paths": [],
-            "right_body_paths": [],
-            "support_body_paths": [],
-            "left_support_body_paths": [],
-            "right_support_body_paths": [],
-            "support_contact_present": False,
-            "constraint_count_delta": 0,
-            "new_constraint_paths": [],
-            "attachment_joint_path": None,
-            "attached_object_path": None,
+            "object_detected": False,
+            "gripper_position": self._gripper_pos,
             "failure_reason": None,
-            "command": None,
-            "elapsed_s": 0.0,
         }
 
     def num_dofs(self) -> int:
@@ -229,344 +161,41 @@ class MockArmRobot:
         with self._lock:
             return self._gripper_pos
 
-    def grasp_close_physical(
-        self,
-        *,
-        timeout_s: float = 15.0,
-        minimum_normal_force_n: Optional[float] = None,
-        preload_delta_m: Optional[float] = None,
-        controller_profile: Optional[Mapping[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        del timeout_s
-        target = "/World/Mock/AutoDetectedObject"
-        if minimum_normal_force_n is not None and float(minimum_normal_force_n) < 0.0:
-            raise ValueError("minimum_normal_force_n cannot be negative")
-        profile = None if controller_profile is None else dict(controller_profile)
-        profile_preload = (
-            float(profile["preload"]["delta_m"])
-            if profile is not None
-            else 0.001
-        )
-        profile_maximum_preload = (
-            float(profile["preload"]["maximum_delta_m"])
-            if profile is not None
-            else 0.004
-        )
-        preload = profile_preload if preload_delta_m is None else float(preload_delta_m)
-        force_control = (
-            {}
-            if profile is None
-            else dict(profile.get("force_control", {}) or {})
-        )
-        target_force = (
-            0.75
-            if force_control.get("target_normal_force_n") is None
-            else float(force_control["target_normal_force_n"])
-        )
-        maximum_force = (
-            3.0
-            if force_control.get("maximum_normal_force_n") is None
-            else float(force_control["maximum_normal_force_n"])
-        )
-        if not 0.0 <= preload <= profile_maximum_preload:
-            raise ValueError(
-                f"preload_delta_m must be within [0.0, {profile_maximum_preload}]"
-            )
+    def grasp_close(self, *, timeout_s: float = 15.0) -> Dict[str, Any]:
+        if timeout_s <= 0.0:
+            raise ValueError("timeout_s must be positive")
         self.command_gripper(0.5)
-        state = {
-            **self._idle_physical_grasp_state(),
-            "success": True,
+        status = {
+            "backend": "mock",
             "phase": "holding",
-            "controller_profile_id": (
-                None if profile is None else profile.get("controller_profile_id")
-            ),
-            "calibration_status": (
-                "mock" if profile is None else profile.get("calibration_status")
-            ),
-            "target_body_path": target,
-            "target_discovery_mode": True,
-            "candidate_body_path": target,
-            "bilateral_contact": True,
-            "stable_contact_frames": 5,
-            "contact_width_m": 0.048,
-            "hold_width_m": 0.048 - preload,
-            "measured_width_m": 0.048 - preload,
-            "left_normal_force_n": minimum_normal_force_n,
-            "right_normal_force_n": minimum_normal_force_n,
-            "filtered_left_normal_force_n": target_force,
-            "filtered_right_normal_force_n": target_force,
-            "filtered_weak_normal_force_n": target_force,
-            "target_normal_force_n": target_force,
-            "maximum_normal_force_n": maximum_force,
-            "force_control_active": True,
-            "force_target_reached": True,
-            "force_stable_frames": int(force_control.get("confirm_frames", 5)),
-            "resistance_confirmed": True,
-            "resistance_signals": {
-                "contact_force_resistance": True,
-                "joint_load_resistance": False,
-                "projected_joint_force_n": None,
-                "free_motion_baseline_n": None,
-                "effort_residual_n": None,
-                "command_lag_m": None,
-            },
-            "left_body_paths": [target],
-            "right_body_paths": [target],
-            "command": {
-                "drive_profile": "hold",
-                "target_width_m": 0.048 - preload,
-                "reason": "mock_physical_contact_holding",
-            },
+            "success": True,
+            "object_detected": True,
+            "gripper_position": 0.5,
+            "failure_reason": None,
         }
         with self._lock:
-            self._physical_grasp_state = state
-        return dict(state)
+            self._grasp_status = status
+        return dict(status)
 
-    def release_physical_grasp(self, *, timeout_s: float = 3.0) -> Dict[str, Any]:
-        del timeout_s
+    def grasp_release(self, *, timeout_s: float = 3.0) -> Dict[str, Any]:
+        if timeout_s <= 0.0:
+            raise ValueError("timeout_s must be positive")
         self.command_gripper(1.0)
-        with self._lock:
-            target = self._physical_grasp_state.get("target_body_path")
-            state = {
-                **self._idle_physical_grasp_state(),
-                "success": True,
-                "phase": "released",
-                "target_body_path": target,
-                "measured_width_m": 0.096,
-            }
-            self._physical_grasp_state = state
-        return dict(state)
-
-    def get_physical_grasp_status(self) -> Dict[str, Any]:
-        with self._lock:
-            return dict(self._physical_grasp_state)
-
-    def grasp_close_and_attach(
-        self,
-        target_prim_path: str = "",
-        *,
-        timeout_s: float = 2.0,
-        contact_window_s: float = 0.15,
-        require_bilateral_contact: bool = True,
-    ) -> Dict[str, Any]:
-        del timeout_s, contact_window_s, require_bilateral_contact
-        with self._lock:
-            attached_object_path = str(self._sim_grasp_state.get("attached_object_path") or "")
-            current_target_path = str(self._sim_grasp_state.get("target_body_path") or "")
-        requested_target_path = str(target_prim_path or "")
-        if attached_object_path:
-            if not requested_target_path or requested_target_path == attached_object_path or requested_target_path == current_target_path:
-                return {
-                    "success": True,
-                    "target_prim_path": requested_target_path,
-                    "target_body_path": current_target_path or attached_object_path or None,
-                    "attached_object_path": attached_object_path,
-                    "attachment_joint_path": None,
-                    "contact_summary": {
-                        "mode": "mock_already_attached",
-                        "simulated": True,
-                        "target_body_path": current_target_path or attached_object_path or None,
-                        "chosen_body_path": attached_object_path,
-                        "selected_body_contact_ready": True,
-                        "ground_contact_present": False,
-                    },
-                    "failure_reason": None,
-                    "timing": {},
-                }
-            raise RuntimeError(
-                f"Already attached to {attached_object_path}; release before attaching a different target."
-            )
-        self.command_gripper(0.0)
-        attached_object_path = str(target_prim_path or "")
-        now = time.time()
-        with self._lock:
-            self._sim_grasp_state = {
-                "has_attached_object": bool(attached_object_path),
-                "attached_object_path": attached_object_path or None,
-                "attachment_joint_path": None,
-                "target_prim_path": attached_object_path or None,
-                "target_body_path": attached_object_path or None,
-                "grasp_state": "attached" if attached_object_path else "failed",
-                "last_contact_time": now if attached_object_path else None,
-                "last_failure_reason": None if attached_object_path else "mock_attach_missing_target",
-            }
-        return {
+        status = {
+            "backend": "mock",
+            "phase": "released",
             "success": True,
-            "target_prim_path": str(target_prim_path or ""),
-            "target_body_path": str(target_prim_path or "") or None,
-            "attached_object_path": attached_object_path or None,
-            "attachment_joint_path": None,
-            "contact_summary": {
-                "mode": "mock",
-                "simulated": True,
-                "target_body_path": str(target_prim_path or "") or None,
-                "chosen_body_path": str(target_prim_path or "") or None,
-                "selected_body_contact_ready": bool(attached_object_path),
-                "ground_contact_present": False,
-            },
-            "failure_reason": None,
-            "timing": {},
-        }
-
-    def release_attached_object(
-        self,
-        *,
-        open_gripper: bool = True,
-        timeout_s: float = 2.0,
-    ) -> Dict[str, Any]:
-        del timeout_s
-        if open_gripper:
-            self.command_gripper(1.0)
-        with self._lock:
-            previous_attached_object_path = self._sim_grasp_state.get("attached_object_path")
-            previous_attachment_joint_path = self._sim_grasp_state.get("attachment_joint_path")
-        with self._lock:
-            self._sim_grasp_state = {
-                "has_attached_object": False,
-                "attached_object_path": None,
-                "attachment_joint_path": None,
-                "target_prim_path": self._sim_grasp_state.get("target_prim_path"),
-                "target_body_path": self._sim_grasp_state.get("target_body_path"),
-                "grasp_state": "idle",
-                "last_contact_time": self._sim_grasp_state.get("last_contact_time"),
-                "last_failure_reason": None,
-            }
-        return {
-            "success": True,
-            "released": True,
-            "attached_object_path": previous_attached_object_path,
-            "attachment_joint_path": previous_attachment_joint_path,
+            "object_detected": False,
+            "gripper_position": 1.0,
             "failure_reason": None,
         }
+        with self._lock:
+            self._grasp_status = status
+        return dict(status)
 
-    def grasp_link_current_contact(
-        self,
-        target_prim_path: str = "",
-        *,
-        require_bilateral_contact: bool = True,
-    ) -> Dict[str, Any]:
-        del require_bilateral_contact
-        attached_object_path = str(target_prim_path or "")
+    def get_grasp_status(self) -> Dict[str, Any]:
         with self._lock:
-            existing_attached_object_path = str(self._sim_grasp_state.get("attached_object_path") or "")
-            current_target_path = str(self._sim_grasp_state.get("target_body_path") or "")
-        if existing_attached_object_path:
-            if (
-                not attached_object_path
-                or attached_object_path == existing_attached_object_path
-                or attached_object_path == current_target_path
-            ):
-                return {
-                    "success": True,
-                    "target_prim_path": attached_object_path,
-                    "target_body_path": current_target_path or existing_attached_object_path or None,
-                    "attached_object_path": existing_attached_object_path,
-                    "attachment_joint_path": None,
-                    "contact_summary": {
-                        "mode": "mock_already_attached",
-                        "simulated": True,
-                        "target_body_path": current_target_path or existing_attached_object_path or None,
-                        "chosen_body_path": existing_attached_object_path,
-                        "selected_body_contact_ready": True,
-                        "ground_contact_present": False,
-                    },
-                    "failure_reason": None,
-                    "timing": {},
-                }
-            raise RuntimeError(
-                f"Already attached to {existing_attached_object_path}; release before attaching a different target."
-            )
-        now = time.time()
-        with self._lock:
-            self._sim_grasp_state = {
-                "has_attached_object": bool(attached_object_path),
-                "attached_object_path": attached_object_path or None,
-                "attachment_joint_path": None,
-                "target_prim_path": attached_object_path or None,
-                "target_body_path": attached_object_path or None,
-                "grasp_state": "attached" if attached_object_path else "failed",
-                "last_contact_time": now if attached_object_path else None,
-                "last_failure_reason": None if attached_object_path else "mock_attach_missing_target",
-            }
-        return {
-            "success": True,
-            "target_prim_path": attached_object_path,
-            "target_body_path": attached_object_path or None,
-            "attached_object_path": attached_object_path or None,
-            "attachment_joint_path": None,
-            "contact_summary": {
-                "mode": "mock_link_only",
-                "simulated": True,
-                "target_body_path": attached_object_path or None,
-                "chosen_body_path": attached_object_path or None,
-                "selected_body_contact_ready": bool(attached_object_path),
-                "ground_contact_present": False,
-            },
-            "failure_reason": None if attached_object_path else "grasp_contact_not_found",
-            "timing": {},
-        }
-
-    def get_sim_grasp_status(self) -> Dict[str, Any]:
-        with self._lock:
-            return dict(self._sim_grasp_state)
-
-    def get_sim_grasp_contacts(
-        self,
-        *,
-        target_prim_path: str = "",
-        require_bilateral_contact: bool = True,
-    ) -> Dict[str, Any]:
-        del require_bilateral_contact
-        with self._lock:
-            return {
-                "left_raw_contacts": [],
-                "right_raw_contacts": [],
-                "left_contacts": [],
-                "right_contacts": [],
-                "left_contact_details": [],
-                "right_contact_details": [],
-                "target_body_path": str(target_prim_path or "") or None,
-                "chosen_body_path": None,
-                "require_bilateral_contact": True,
-                "left_has_ground_contact": False,
-                "right_has_ground_contact": False,
-                "left_has_target_contact": False,
-                "right_has_target_contact": False,
-                "selected_body_contact_ready": False,
-                "shared_contact_candidates": [],
-                "ground_contact_present": False,
-                "left_has_chosen_contact": False,
-                "right_has_chosen_contact": False,
-                "left_has_selected_body_contact": False,
-                "right_has_selected_body_contact": False,
-                "snapshot_ok": False,
-                "snapshot_body_path": None,
-                "target_prim_path": str(target_prim_path or "") or None,
-                "gripper_open_value": self._gripper_pos,
-                "grasp_state": str(self._sim_grasp_state.get("grasp_state", "")),
-                "attached_object_path": self._sim_grasp_state.get("attached_object_path"),
-                "attachment_joint_path": self._sim_grasp_state.get("attachment_joint_path"),
-                "mode": "mock",
-            }
-
-    def get_sim_contact_report(
-        self,
-        *,
-        prim_path: str = "",
-        limit: int = 200,
-    ) -> Dict[str, Any]:
-        del limit
-        with self._lock:
-            return {
-                "prim_path": str(prim_path or "") or None,
-                "resolved_body_path": str(prim_path or "") or None,
-                "match_count": 0,
-                "returned_count": 0,
-                "counterpart_body_paths": [],
-                "records": [],
-                "grasp_state": str(self._sim_grasp_state.get("grasp_state", "")),
-                "mode": "mock",
-            }
+            return dict(self._grasp_status)
 
     def command_joint_pos(self, pos: np.ndarray) -> None:
         if not self._running:

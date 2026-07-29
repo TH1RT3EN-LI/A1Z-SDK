@@ -1,45 +1,47 @@
+# A1Z startup
+
+The repository has two explicit device profiles:
+
+- `sim`: Isaac Sim arm and Isaac D405 adapter.
+- `real`: SocketCAN arm and Intel RealSense D405.
+
+Task logic is identical in both profiles. The physical profile is never
+selected implicitly.
+
+## Simulation
+
+Start the existing Isaac application/control server, then:
+
+```bash
 cd /home/th1rt3en/dev/forge/A1Z
-./scripts/open_a1z_webrtc_host.sh --restart --no-client
+A1Z_PROFILE=sim ./scripts/run_a1z_ros2_stack_in_container.sh start
+python3 scripts/run_pick_pipeline.py --profile sim "抓取红色杯子"
+```
 
----
+Add `--execute --dry-run` to validate the execution stage without commands, or
+`--execute` only after the plan has been reviewed.
 
+## Physical robot
 
+Run the read-only preflight first:
+
+```bash
 cd /home/th1rt3en/dev/forge/A1Z
-A1Z_TCP_HOST=127.0.0.1 ./scripts/run_a1z_ros2_motion_in_container.sh
+A1Z_PROFILE=real ./scripts/verify_a1z_socketcan_preflight_in_container.sh
+```
 
+Start the physical control server in a dedicated terminal:
 
----
+```bash
+A1Z_PROFILE=real ./scripts/a1zctl_in_container.sh serve
+```
 
+Then plan from live D405 data:
 
-cd /home/th1rt3en/dev/forge/A1Z
+```bash
+python3 scripts/run_pick_pipeline.py --profile real "抓取红色杯子"
+```
 
-./scripts/stop_a1z_webrtc_streaming_host.sh || true
-
-docker exec a1z-ros2-humble bash -lc '
-set +e
-for pattern in \
-  "/opt/ros/humble/bin/ros2 launch a1z_motion a1z_motion.launch.py" \
-  "/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/d405_bridge" \
-  "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state" \
-  "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor" \
-  "/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/a1z_open_vocab/vision_request"
-do
-  ps -eo pid=,args= | grep -F "$pattern" | grep -v grep | awk "{print \$1}" | xargs -r kill
-done
-
-sleep 2
-
-for pattern in \
-  "/opt/ros/humble/bin/ros2 launch a1z_motion a1z_motion.launch.py" \
-  "/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/d405_bridge" \
-  "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state" \
-  "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor" \
-  "/workspace/A1Z/ros2_ws/install/a1z_open_vocab/lib/a1z_open_vocab/vision_request"
-do
-  ps -eo pid=,args= | grep -F "$pattern" | grep -v grep | awk "{print \$1}" | xargs -r kill -9
-done
-
-pkill -f "ros2 daemon" 2>/dev/null || true
-' || true
-
-docker stop a1z-ros2-humble gracious_fermi isaac-sim-5-1-dev || true
+The pipeline plans only by default. Use `--execute --dry-run` for a
+non-actuating execution check. Use `--execute` only with the workspace clear,
+an emergency stop available, and a human watching the arm.

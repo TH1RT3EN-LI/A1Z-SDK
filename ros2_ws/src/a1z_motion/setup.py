@@ -11,7 +11,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
-        (f"share/{package_name}/launch", ["launch/a1z_motion.launch.py"]),
+        (f"share/{package_name}/launch", ["launch/a1z_stack.launch.py"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

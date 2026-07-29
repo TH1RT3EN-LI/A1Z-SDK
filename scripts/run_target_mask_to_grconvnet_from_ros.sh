@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT_DIR/scripts/load_a1z_container_env.sh"
+source "$ROOT_DIR/scripts/load_a1z_env.sh"
 
 ROS_CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:-a1z-ros2-humble}"
 VISION_CONTAINER_NAME="${A1Z_VISION_CONTAINER_NAME:-a1z-vision-gpu}"
@@ -48,7 +48,7 @@ docker exec \
     source /workspace/A1Z/ros2_ws/install/setup.bash
     set -u
     for attempt in $(seq 1 "'"$ROS_CAPTURE_RETRIES"'"); do
-      if python3 /workspace/A1Z/scripts/capture_ros_rgbd.py \
+      if python3 /workspace/A1Z/scripts/capture_rgbd.py \
         --target-frame-id robot_base_frame \
         --timeout-s "'"$ROS_CAPTURE_TIMEOUT_S"'" \
         --fail-if-tf-unavailable \
