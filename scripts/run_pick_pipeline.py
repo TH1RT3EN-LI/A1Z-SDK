@@ -22,6 +22,7 @@ from a1z_ext.remote_gpu.ssh_client import (  # noqa: E402
     preflight_remote_gpu,
     run_remote_vision_pipeline,
 )
+from a1z_ext.control_client import send_control_request  # noqa: E402
 
 
 def _q(value: object) -> str:
@@ -80,7 +81,16 @@ def _docker_exec(
     forwarded: Sequence[str] = (),
     timeout_s: float | None = None,
 ) -> None:
-    command = ["docker", "exec", "-u", f"{os.getuid()}:{os.getgid()}"]
+    host_uid = os.getuid()
+    host_gid = os.getgid()
+    command = [
+        "docker",
+        "exec",
+        "-u",
+        f"{host_uid}:{host_gid}",
+        "-e",
+        f"HOME=/tmp/a1z-home-{host_uid}",
+    ]
     for name in forwarded:
         if name in env:
             command.extend(["-e", f"{name}={env[name]}"])
@@ -177,6 +187,29 @@ def main() -> int:
         stages.append({"name": name, "status": "passed"})
 
     try:
+        expected_backend = "socketcan" if args.profile == "real" else "isaacsim"
+        info = send_control_request(
+            "info",
+            socket_path=env.get("A1Z_SOCKET_PATH", ""),
+            tcp_host=env.get("A1Z_TCP_HOST", "127.0.0.1"),
+            tcp_port=int(env.get("A1Z_TCP_PORT", "0")),
+            timeout_s=10.0,
+        )
+        actual_backend = str(info.get("backend", ""))
+        if actual_backend != expected_backend:
+            raise RuntimeError(
+                "control backend identity mismatch: "
+                f"profile={args.profile} expects {expected_backend}, "
+                f"endpoint reports {actual_backend or 'unknown'}"
+            )
+        stages.append(
+            {
+                "name": "control_backend_identity",
+                "status": "passed",
+                "backend": actual_backend,
+                "tcp_port": int(env.get("A1Z_TCP_PORT", "0")),
+            }
+        )
         stage(
             "control_server",
             [str(ROOT / "scripts" / "a1zctl_in_container.sh"), "--json", "status"],
@@ -215,9 +248,11 @@ def main() -> int:
         _docker_exec(
             ros_container,
             (
-                "set -euo pipefail; "
+                "set -eo pipefail; "
+                "set +u; "
                 "source /opt/ros/humble/setup.bash; "
                 "source /workspace/A1Z/ros2_ws/install/setup.bash; "
+                "set -u; "
                 "python3 /workspace/A1Z/scripts/capture_rgbd.py "
                 f"--color-topic {_q(env['A1Z_RGBD_COLOR_TOPIC'])} "
                 f"--depth-topic {_q(env['A1Z_RGBD_DEPTH_TOPIC'])} "
@@ -364,6 +399,8 @@ def main() -> int:
                 "--pre-open",
                 "--arm-speed",
                 str(args.arm_speed or env["A1Z_EXEC_ARM_SPEED"]),
+                "--expected-backend",
+                expected_backend,
             ]
             if args.dry_run:
                 execution_command.append("--dry-run")

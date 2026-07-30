@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from a1z_ext.config.d405 import load_d405_config
+
 
 def _env_flag(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
@@ -19,16 +21,6 @@ def _env_int(name: str, default: int) -> int:
     return int(raw)
 
 
-def _env_vec3(name: str, default: tuple[float, float, float]) -> tuple[float, float, float]:
-    raw = os.environ.get(name)
-    if not raw:
-        return default
-    parts = [p.strip() for p in raw.replace(",", " ").split()]
-    if len(parts) != 3:
-        raise ValueError(f"{name} must contain exactly 3 numbers, got: {raw}")
-    return float(parts[0]), float(parts[1]), float(parts[2])
-
-
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
@@ -41,12 +33,23 @@ def _default_status_path() -> str:
     return str(_repo_root() / "runtime" / "logs" / "d405-link-camera.status")
 
 
-DEFAULT_D405_STAGE_RECTIFY_RPY_DEG = (0.0, 0.0, 0.0)
-DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M = (0.0, 0.0, 0.0)
-DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_RPY_DEG = (51.0, 0.0, -90.0)
-DEFAULT_D405_COMPUTE_INSTALL_RPY_DEG = (0.0, 31.0, 0.0)
-DEFAULT_D405_COMPUTE_RECTIFY_RPY_DEG = (0.0, 0.0, 0.0)
-DEFAULT_D405_COMPUTE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M = (0.0, 0.0, 0.0)
+_D405_CONFIG = load_d405_config()
+_STAGE_FRAMES = dict(_D405_CONFIG["stage_frames"])
+_COMPUTE_FRAMES = dict(_D405_CONFIG["compute_frames"])
+
+DEFAULT_D405_STAGE_RECTIFY_RPY_DEG = tuple(_STAGE_FRAMES["rectify_rpy_deg"])
+DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M = tuple(
+    _STAGE_FRAMES["rectified_to_optical_offset_xyz_m"]
+)
+DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_RPY_DEG = tuple(
+    _STAGE_FRAMES["rectified_to_optical_rpy_deg"]
+)
+DEFAULT_D405_COMPUTE_INSTALL_RPY_DEG = tuple(_COMPUTE_FRAMES["install_rpy_deg"])
+DEFAULT_D405_COMPUTE_RECTIFY_RPY_DEG = tuple(_COMPUTE_FRAMES["rectify_rpy_deg"])
+DEFAULT_D405_COMPUTE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M = tuple(
+    _COMPUTE_FRAMES["rectified_to_optical_offset_xyz_m"]
+)
+DEFAULT_D405_BODY_VISUAL_RPY_DEG = tuple(_D405_CONFIG["body_visual_rpy_deg"])
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,7 @@ class D405AssetSettings:
     rectify_rpy_deg: tuple[float, float, float] = DEFAULT_D405_STAGE_RECTIFY_RPY_DEG
     rectified_to_optical_offset_xyz_m: tuple[float, float, float] = DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M
     rectified_to_optical_rpy_deg: tuple[float, float, float] = DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_RPY_DEG
-    body_visual_rpy_deg: tuple[float, float, float] = (129.0, 0.0, 90.0)
+    body_visual_rpy_deg: tuple[float, float, float] = DEFAULT_D405_BODY_VISUAL_RPY_DEG
     center_on_axis: bool = True
     center_mesh_y: bool = True
     camera_prims_enabled: bool = True
@@ -74,16 +77,10 @@ class D405AssetSettings:
             fallback_parent_prim=os.environ.get("A1Z_D405_FALLBACK_PARENT_PRIM", "/World"),
             mount_name=os.environ.get("A1Z_D405_MOUNT_NAME", "D405_LinkCamera"),
             mesh_path=os.environ.get("A1Z_D405_MESH_PATH", _default_d405_mesh_path()),
-            rectify_rpy_deg=_env_vec3("A1Z_D405_STAGE_RECTIFY_RPY_DEG", DEFAULT_D405_STAGE_RECTIFY_RPY_DEG),
-            rectified_to_optical_offset_xyz_m=_env_vec3(
-                "A1Z_D405_STAGE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M",
-                DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M,
-            ),
-            rectified_to_optical_rpy_deg=_env_vec3(
-                "A1Z_D405_STAGE_RECTIFIED_TO_OPTICAL_RPY_DEG",
-                DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_RPY_DEG,
-            ),
-            body_visual_rpy_deg=_env_vec3("A1Z_D405_BODY_VISUAL_RPY_DEG", (129.0, 0.0, 90.0)),
+            rectify_rpy_deg=DEFAULT_D405_STAGE_RECTIFY_RPY_DEG,
+            rectified_to_optical_offset_xyz_m=DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M,
+            rectified_to_optical_rpy_deg=DEFAULT_D405_STAGE_RECTIFIED_TO_OPTICAL_RPY_DEG,
+            body_visual_rpy_deg=DEFAULT_D405_BODY_VISUAL_RPY_DEG,
             center_on_axis=_env_flag("A1Z_D405_CENTER_ON_AXIS", True),
             center_mesh_y=_env_flag("A1Z_D405_CENTER_MESH_Y", True),
             camera_prims_enabled=_env_flag("A1Z_D405_CAMERA_PRIMS_ENABLED", True),
@@ -101,12 +98,9 @@ class D405ComputeSettings:
     @classmethod
     def from_env(cls) -> "D405ComputeSettings":
         return cls(
-            install_rpy_deg=_env_vec3("A1Z_D405_COMPUTE_INSTALL_RPY_DEG", DEFAULT_D405_COMPUTE_INSTALL_RPY_DEG),
-            rectify_rpy_deg=_env_vec3("A1Z_D405_COMPUTE_RECTIFY_RPY_DEG", DEFAULT_D405_COMPUTE_RECTIFY_RPY_DEG),
-            rectified_to_optical_offset_xyz_m=_env_vec3(
-                "A1Z_D405_COMPUTE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M",
-                DEFAULT_D405_COMPUTE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M,
-            ),
+            install_rpy_deg=DEFAULT_D405_COMPUTE_INSTALL_RPY_DEG,
+            rectify_rpy_deg=DEFAULT_D405_COMPUTE_RECTIFY_RPY_DEG,
+            rectified_to_optical_offset_xyz_m=DEFAULT_D405_COMPUTE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M,
         )
 
 

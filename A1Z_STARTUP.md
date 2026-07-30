@@ -8,6 +8,27 @@ The repository has two explicit device profiles:
 Task logic is identical in both profiles. The physical profile is never
 selected implicitly.
 
+## Qt GUI Console
+
+Start the console from the repository root:
+
+```bash
+./scripts/run_a1z_console.sh --profile sim
+./scripts/run_a1z_console.sh --profile real
+```
+
+The first launch installs an isolated Qt/PySide runtime below
+`runtime/a1z-console-python`. The GUI uses separate endpoints for simulation
+(`37103`) and hardware (`37104`), verifies the reported backend before every
+motion transaction, and never retries a motion request.
+
+Run the read-only profile checks independently with:
+
+```bash
+python3 scripts/a1z_console_preflight.py --profile sim
+python3 scripts/a1z_console_preflight.py --profile real
+```
+
 ## Simulation
 
 Start the existing Isaac application/control server, then:

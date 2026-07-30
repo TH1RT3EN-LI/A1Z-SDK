@@ -5,13 +5,21 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 import json
+import math
 import os
 import shutil
+import sys
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from a1z_ext.config.d405 import load_d405_config
+
+
 ROBOT_PACKAGE_DIR = ROOT_DIR / "build" / "robot_packages" / "A1Z_G1Z"
 ROBOT_URDF_DIR = ROBOT_PACKAGE_DIR / "urdf"
 ROBOT_MESH_DIR = ROBOT_PACKAGE_DIR / "meshes"
@@ -22,9 +30,11 @@ ISAAC_URDF = ROBOT_URDF_DIR / "A1Z_G1Z_isaac.urdf"
 CONTROL_URDF = ROBOT_URDF_DIR / "A1Z_G1Z_control.urdf"
 ASSET_D405_MESH = ROOT_DIR / "assets" / "realsense_d405" / "d405.stl"
 PACKAGE_D405_MESH = ROBOT_MESH_DIR / "d405.stl"
-DEFAULT_D405_STAGE_MOUNT_OFFSET_XYZ_M = (0.08, 0.0, 0.08623718)
-DEFAULT_D405_STAGE_MOUNT_RPY_DEG = (0.0, 0.0, 0.0)
-DEFAULT_D405_MASS_KG = 0.001
+CAMERA_BRACKET_CONFIG = ROOT_DIR / "config" / "camera_bracket.json"
+ASSET_CAMERA_BRACKET_MESH = (
+    ROOT_DIR / "assets" / "camera_bracket" / "camera_bracket.stl"
+)
+PACKAGE_CAMERA_BRACKET_MESH = ROBOT_MESH_DIR / "camera_bracket.stl"
 D405_BASE_MASS_KG = 0.072
 DEFAULT_GRIPPER_FINGER_MASS_KG = 0.02
 D405_BASE_INERTIA = (
@@ -36,6 +46,8 @@ D405_BASE_INERTIA = (
     0.003879257,
 )
 D405_GUNMETAL_RGBA = (0.16, 0.16, 0.15, 1.0)
+ROBOT_DARK_RGBA = (0.32, 0.32, 0.33, 1.0)
+ROBOT_LIGHT_RGBA = (0.72, 0.74, 0.75, 1.0)
 
 CONTROL_DEFAULTS = json.loads((ROOT_DIR / "a1z_ext" / "config" / "control_defaults.json").read_text(encoding="utf-8"))
 ARM_JOINT_NAMES = CONTROL_DEFAULTS["isaacsim"]["arm_joint_names"]
@@ -108,7 +120,7 @@ D405_LINK_XML = """
   <visual>
     <origin xyz="0 0 0" rpy="{visual_roll} {visual_pitch} {visual_yaw}" />
     <geometry>
-      <mesh filename="package://A1Z_G1Z/meshes/d405.stl" scale="0.001 0.001 0.001" />
+      <mesh filename="package://A1Z_G1Z/meshes/d405.stl" scale="{scale_x} {scale_y} {scale_z}" />
     </geometry>
     <material name="">
       <color rgba="0.16 0.16 0.15 1" />
@@ -129,7 +141,7 @@ D405_COLLISION_XML = """
 D405_JOINT_XML = """
 <joint name="d405_mount_joint" type="fixed">
   <origin xyz="{mount_x} {mount_y} {mount_z}" rpy="{mount_roll} {mount_pitch} {mount_yaw}" />
-  <parent link="arm_link6" />
+  <parent link="{parent_link}" />
   <child link="d405_link" />
 </joint>
 """.strip()
@@ -155,6 +167,33 @@ GRASP_TCP_JOINT_XML = """
   <origin xyz="{tcp_x} {tcp_y} {tcp_z}" rpy="0 0 0" />
   <parent link="arm_link6" />
   <child link="grasp_tcp" />
+</joint>
+""".strip()
+
+CAMERA_BRACKET_LINK_XML = """
+<link name="camera_bracket_link">
+  <inertial>
+    <origin xyz="{com_x} {com_y} {com_z}" rpy="0 0 0" />
+    <mass value="{mass_kg}" />
+    <inertia ixx="{ixx}" ixy="{ixy}" ixz="{ixz}" iyy="{iyy}" iyz="{iyz}" izz="{izz}" />
+  </inertial>
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <geometry>
+      <mesh filename="package://A1Z_G1Z/meshes/camera_bracket.stl" scale="{scale_x} {scale_y} {scale_z}" />
+    </geometry>
+    <material name="camera_bracket_material">
+      <color rgba="{color_r} {color_g} {color_b} {color_a}" />
+    </material>
+  </visual>
+</link>
+""".strip()
+
+CAMERA_BRACKET_JOINT_XML = """
+<joint name="camera_bracket_mount_joint" type="fixed">
+  <origin xyz="{mount_x} {mount_y} {mount_z}" rpy="{mount_roll} {mount_pitch} {mount_yaw}" />
+  <parent link="{parent_link}" />
+  <child link="camera_bracket_link" />
 </joint>
 """.strip()
 
@@ -188,6 +227,43 @@ def _deg_to_rad(value_deg: float) -> float:
 
 def _float_string(value: float) -> str:
     return f"{float(value):.6f}".rstrip("0").rstrip(".")
+
+
+def _precise_float_string(value: float) -> str:
+    """Keep small mass-property terms that six-decimal pose formatting loses."""
+    return f"{float(value):.12g}"
+
+
+def _isaac_orient_to_urdf_rpy_rad(
+    orient_deg: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Convert Isaac's Orient editor angles to equivalent URDF fixed-axis RPY."""
+
+    half_angles = [math.radians(value) * 0.5 for value in orient_deg]
+    qx = (math.cos(half_angles[0]), math.sin(half_angles[0]), 0.0, 0.0)
+    qy = (math.cos(half_angles[1]), 0.0, math.sin(half_angles[1]), 0.0)
+    qz = (math.cos(half_angles[2]), 0.0, 0.0, math.sin(half_angles[2]))
+
+    def multiply(
+        left: tuple[float, float, float, float],
+        right: tuple[float, float, float, float],
+    ) -> tuple[float, float, float, float]:
+        lw, lx, ly, lz = left
+        rw, rx, ry, rz = right
+        return (
+            lw * rw - lx * rx - ly * ry - lz * rz,
+            lw * rx + lx * rw + ly * rz - lz * ry,
+            lw * ry - lx * rz + ly * rw + lz * rx,
+            lw * rz + lx * ry - ly * rx + lz * rw,
+        )
+
+    # Isaac's GfQuatEulerAttributeModel composes Orient as Rz * Ry * Rx in
+    # Gf's row-vector convention, equivalent to qx * qy * qz here.
+    w, x, y, z = multiply(multiply(qx, qy), qz)
+    roll = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
+    pitch = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x))))
+    yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    return tuple(0.0 if abs(value) < 1.0e-12 else value for value in (roll, pitch, yaw))
 
 
 def _env_vec3(name: str, default: tuple[float, float, float]) -> tuple[float, float, float]:
@@ -244,6 +320,16 @@ def _set_visual_material_rgba(visual: ET.Element, rgba: tuple[float, float, floa
     color.set("rgba", " ".join(_float_string(value) for value in rgba))
 
 
+def _apply_robot_visual_palette(root: ET.Element) -> None:
+    for link in root.findall("link"):
+        link_name = link.get("name", "")
+        if link_name in {"d405_link", "camera_bracket_link"}:
+            continue
+        rgba = ROBOT_LIGHT_RGBA if link_name == "arm_link3" else ROBOT_DARK_RGBA
+        for visual in link.findall("visual"):
+            _set_visual_material_rgba(visual, rgba)
+
+
 def _upsert_d405(root: ET.Element) -> None:
     for tag, name in (
         ("link", "d405_link"),
@@ -256,30 +342,40 @@ def _upsert_d405(root: ET.Element) -> None:
             _, element = match
             root.remove(element)
 
-    if not _env_bool("A1Z_D405_ENABLED", True):
+    config = load_d405_config()
+    if not bool(config["enabled"]) or not _env_bool("A1Z_D405_ENABLED", True):
         return
+
+    parent_link = str(config["parent_link"])
+    if _find_named_child(root, "link", parent_link) is None:
+        raise ValueError(f"D405 parent link does not exist: {parent_link}")
 
     gripper_link = _find_named_child(root, "link", "gripper_finger_left_link")
     insert_index = gripper_link[0] if gripper_link is not None else len(root)
-    d405_mass_kg = max(_env_float("A1Z_D405_MASS_KG", DEFAULT_D405_MASS_KG), 1e-6)
+    d405_mass_kg = float(config["mass_kg"])
     inertia_scale = d405_mass_kg / D405_BASE_MASS_KG
     ixx, ixy, ixz, iyy, iyz, izz = (value * inertia_scale for value in D405_BASE_INERTIA)
-    visual_roll_deg, visual_pitch_deg, visual_yaw_deg = _env_vec3(
-        "A1Z_D405_BODY_VISUAL_RPY_DEG",
-        (0.0, 0.0, 0.0),
+    visual_roll_deg, visual_pitch_deg, visual_yaw_deg = (
+        float(value) for value in config["body_visual_rpy_deg"]
+    )
+    scale_x, scale_y, scale_z = (
+        float(value) for value in config["mesh_scale"]
     )
     d405_link = ET.fromstring(
         D405_LINK_XML.format(
-            mass_kg=_float_string(d405_mass_kg),
-            ixx=_float_string(ixx),
-            ixy=_float_string(ixy),
-            ixz=_float_string(ixz),
-            iyy=_float_string(iyy),
-            iyz=_float_string(iyz),
-            izz=_float_string(izz),
+            mass_kg=_precise_float_string(d405_mass_kg),
+            ixx=_precise_float_string(ixx),
+            ixy=_precise_float_string(ixy),
+            ixz=_precise_float_string(ixz),
+            iyy=_precise_float_string(iyy),
+            iyz=_precise_float_string(iyz),
+            izz=_precise_float_string(izz),
             visual_roll=_deg_to_rad_string(visual_roll_deg),
             visual_pitch=_deg_to_rad_string(visual_pitch_deg),
             visual_yaw=_deg_to_rad_string(visual_yaw_deg),
+            scale_x=_precise_float_string(scale_x),
+            scale_y=_precise_float_string(scale_y),
+            scale_z=_precise_float_string(scale_z),
         )
     )
     if _env_bool("A1Z_D405_COLLISION_ENABLED", False):
@@ -288,28 +384,27 @@ def _upsert_d405(root: ET.Element) -> None:
         insert_index,
         d405_link,
     )
-    mount_x, mount_y, mount_z = _env_vec3(
-        "A1Z_D405_STAGE_MOUNT_OFFSET_XYZ_M",
-        DEFAULT_D405_STAGE_MOUNT_OFFSET_XYZ_M,
+    mount_x, mount_y, mount_z = (
+        float(value) for value in config["mount_offset_xyz_m"]
     )
-    mount_roll_deg, mount_pitch_deg, mount_yaw_deg = _env_vec3(
-        "A1Z_D405_STAGE_MOUNT_RPY_DEG",
-        DEFAULT_D405_STAGE_MOUNT_RPY_DEG,
+    mount_roll_deg, mount_pitch_deg, mount_yaw_deg = (
+        float(value) for value in config["mount_rpy_deg"]
     )
-    rectify_roll_deg, rectify_pitch_deg, rectify_yaw_deg = _env_vec3(
-        "A1Z_D405_STAGE_RECTIFY_RPY_DEG",
-        (0.0, 0.0, 0.0),
+    stage_frames = dict(config["stage_frames"])
+    rectify_roll_deg, rectify_pitch_deg, rectify_yaw_deg = (
+        float(value) for value in stage_frames["rectify_rpy_deg"]
     )
     root.insert(
         insert_index + 1,
         ET.fromstring(
             D405_JOINT_XML.format(
-                mount_x=_float_string(mount_x),
-                mount_y=_float_string(mount_y),
-                mount_z=_float_string(mount_z),
-                mount_roll=_deg_to_rad_string(mount_roll_deg),
-                mount_pitch=_deg_to_rad_string(mount_pitch_deg),
-                mount_yaw=_deg_to_rad_string(mount_yaw_deg),
+                mount_x=_precise_float_string(mount_x),
+                mount_y=_precise_float_string(mount_y),
+                mount_z=_precise_float_string(mount_z),
+                mount_roll=_precise_float_string(_deg_to_rad(mount_roll_deg)),
+                mount_pitch=_precise_float_string(_deg_to_rad(mount_pitch_deg)),
+                mount_yaw=_precise_float_string(_deg_to_rad(mount_yaw_deg)),
+                parent_link=parent_link,
             )
         ),
     )
@@ -343,6 +438,138 @@ def _upsert_grasp_tcp(root: ET.Element) -> None:
                 tcp_x=_float_string(0.08),
                 tcp_y=_float_string(0.0),
                 tcp_z=_float_string(0.0),
+            )
+        ),
+    )
+
+
+def _load_camera_bracket_config() -> dict[str, object]:
+    if not CAMERA_BRACKET_CONFIG.is_file():
+        raise FileNotFoundError(
+            f"Camera bracket config not found: {CAMERA_BRACKET_CONFIG}"
+        )
+    payload = json.loads(CAMERA_BRACKET_CONFIG.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("camera_bracket.json must contain a JSON object")
+
+    for key, count in (
+        ("mount_offset_xyz_m", 3),
+        ("mount_orient_deg", 3),
+        ("mesh_scale", 3),
+        ("material_rgba", 4),
+        ("center_of_mass_xyz_m", 3),
+    ):
+        values = payload.get(key)
+        if (
+            not isinstance(values, list)
+            or len(values) != count
+            or any(not isinstance(value, (int, float)) for value in values)
+        ):
+            raise ValueError(f"camera_bracket.json {key} must contain {count} numbers")
+    parent_link = payload.get("parent_link")
+    if not isinstance(parent_link, str) or not parent_link:
+        raise ValueError("camera_bracket.json parent_link must be a non-empty string")
+    if not isinstance(payload.get("enabled"), bool):
+        raise ValueError("camera_bracket.json enabled must be a boolean")
+    mass_kg = payload.get("mass_kg")
+    if not isinstance(mass_kg, (int, float)) or float(mass_kg) <= 0.0:
+        raise ValueError("camera_bracket.json mass_kg must be a positive number")
+    inertia = payload.get("inertia_kg_m2")
+    inertia_keys = ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+    if (
+        not isinstance(inertia, dict)
+        or any(
+            not isinstance(inertia.get(key), (int, float))
+            for key in inertia_keys
+        )
+        or any(float(inertia[key]) <= 0.0 for key in ("ixx", "iyy", "izz"))
+    ):
+        raise ValueError(
+            "camera_bracket.json inertia_kg_m2 must contain a valid inertia tensor"
+        )
+    return payload
+
+
+def _upsert_camera_bracket(root: ET.Element) -> None:
+    for tag, name in (
+        ("link", "camera_bracket_link"),
+        ("joint", "camera_bracket_mount_joint"),
+    ):
+        match = _find_named_child(root, tag, name)
+        if match is not None:
+            _, element = match
+            root.remove(element)
+
+    config = _load_camera_bracket_config()
+    if not config["enabled"]:
+        return
+
+    parent_link = str(config["parent_link"])
+    if _find_named_child(root, "link", parent_link) is None:
+        raise ValueError(f"camera bracket parent link does not exist: {parent_link}")
+
+    mount_x, mount_y, mount_z = (
+        float(value) for value in config["mount_offset_xyz_m"]
+    )
+    mount_roll, mount_pitch, mount_yaw = _isaac_orient_to_urdf_rpy_rad(
+        tuple(float(value) for value in config["mount_orient_deg"])
+    )
+    scale_x, scale_y, scale_z = (
+        float(value) for value in config["mesh_scale"]
+    )
+    color_r, color_g, color_b, color_a = (
+        float(value) for value in config["material_rgba"]
+    )
+    mass_kg = float(config["mass_kg"])
+    com_x, com_y, com_z = (
+        float(value) for value in config["center_of_mass_xyz_m"]
+    )
+    inertia = {
+        key: float(value)
+        for key, value in dict(config["inertia_kg_m2"]).items()
+    }
+    if any(value <= 0.0 for value in (scale_x, scale_y, scale_z)):
+        raise ValueError("camera bracket mesh_scale values must be positive")
+    if any(value < 0.0 or value > 1.0 for value in (color_r, color_g, color_b, color_a)):
+        raise ValueError("camera bracket material_rgba values must be between 0 and 1")
+
+    left_finger = _find_named_child(root, "link", "gripper_finger_left_link")
+    insert_index = left_finger[0] if left_finger is not None else len(root)
+    root.insert(
+        insert_index,
+        ET.fromstring(
+            CAMERA_BRACKET_LINK_XML.format(
+                mass_kg=_precise_float_string(mass_kg),
+                com_x=_precise_float_string(com_x),
+                com_y=_precise_float_string(com_y),
+                com_z=_precise_float_string(com_z),
+                ixx=_precise_float_string(inertia["ixx"]),
+                ixy=_precise_float_string(inertia["ixy"]),
+                ixz=_precise_float_string(inertia["ixz"]),
+                iyy=_precise_float_string(inertia["iyy"]),
+                iyz=_precise_float_string(inertia["iyz"]),
+                izz=_precise_float_string(inertia["izz"]),
+                scale_x=_float_string(scale_x),
+                scale_y=_float_string(scale_y),
+                scale_z=_float_string(scale_z),
+                color_r=_float_string(color_r),
+                color_g=_float_string(color_g),
+                color_b=_float_string(color_b),
+                color_a=_float_string(color_a),
+            )
+        ),
+    )
+    root.insert(
+        insert_index + 1,
+        ET.fromstring(
+            CAMERA_BRACKET_JOINT_XML.format(
+                mount_x=_float_string(mount_x),
+                mount_y=_float_string(mount_y),
+                mount_z=_float_string(mount_z),
+                mount_roll=_precise_float_string(mount_roll),
+                mount_pitch=_precise_float_string(mount_pitch),
+                mount_yaw=_precise_float_string(mount_yaw),
+                parent_link=parent_link,
             )
         ),
     )
@@ -463,14 +690,19 @@ def _remove_gripper_subtree(root: ET.Element) -> None:
 
 
 def _build_variant(*, fixed_gripper: bool, limit_kind: str) -> ET.ElementTree:
-    base_tree = _parse_urdf(SOURCE_URDF)
+    # The vendored SDK model is the canonical input.  A1Z_G1Z.urdf in the
+    # generated package is a legacy, human-readable snapshot whose display
+    # palette must not be overwritten every time derived variants are rebuilt.
+    base_tree = _parse_urdf(VENDOR_SOURCE_URDF)
     variant_root = deepcopy(base_tree.getroot())
+    _apply_robot_visual_palette(variant_root)
     _apply_arm_joint_limits(variant_root, limit_kind=limit_kind)
     _override_link_inertial(variant_root, "arm_link3", LINK3_INERTIA_OVERRIDE)
     _override_link_inertial(variant_root, "arm_link4", LINK4_INERTIA_OVERRIDE)
     _override_link_inertial(variant_root, "arm_link5", LINK5_INERTIA_OVERRIDE)
     _override_link_inertial(variant_root, "arm_link6", LINK6_INERTIA_OVERRIDE)
     _upsert_grasp_tcp(variant_root)
+    _upsert_camera_bracket(variant_root)
     _upsert_d405(variant_root)
     if _env_bool("A1Z_WITH_GRIPPER", True):
         finger_mass_kg = _env_float("A1Z_GRIPPER_FINGER_MASS_KG", DEFAULT_GRIPPER_FINGER_MASS_KG)
@@ -484,7 +716,6 @@ def _build_variant(*, fixed_gripper: bool, limit_kind: str) -> ET.ElementTree:
 
 def prepare_robot_package_urdfs() -> None:
     ROBOT_URDF_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(VENDOR_SOURCE_URDF, SOURCE_URDF)
     _write_tree(ISAAC_URDF, _build_variant(fixed_gripper=False, limit_kind="hard"))
     _write_tree(CONTROL_URDF, _build_variant(fixed_gripper=True, limit_kind="soft"))
 
@@ -496,16 +727,27 @@ def sync_d405_mesh() -> None:
     shutil.copy2(ASSET_D405_MESH, PACKAGE_D405_MESH)
 
 
+def sync_camera_bracket_mesh() -> None:
+    if not ASSET_CAMERA_BRACKET_MESH.is_file():
+        raise FileNotFoundError(
+            f"Camera bracket mesh not found: {ASSET_CAMERA_BRACKET_MESH}"
+        )
+    ROBOT_MESH_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ASSET_CAMERA_BRACKET_MESH, PACKAGE_CAMERA_BRACKET_MESH)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate A1Z control and Isaac URDFs.")
     parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
     args = parser.parse_args()
     _load_project_env_defaults(args.env_file)
     sync_d405_mesh()
+    sync_camera_bracket_mesh()
     prepare_robot_package_urdfs()
     print(f"Prepared: {ISAAC_URDF}")
     print(f"Prepared: {CONTROL_URDF}")
     print(f"Synced:   {PACKAGE_D405_MESH}")
+    print(f"Synced:   {PACKAGE_CAMERA_BRACKET_MESH}")
 
 
 if __name__ == "__main__":

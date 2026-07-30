@@ -4,17 +4,7 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "A1Z_G1Z"
-    doc = """Generated from Composed Stage of root layer /tmp/tmpvz366sml/A1Z_G1Z.usdc
-
-
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_0moergj5/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
-
-
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_0moergj5/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
-
-
-Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
-"""
+    doc = "Generated from A1Z_G1Z_isaac.urdf by Isaac Sim 6."
     kilogramsPerUnit = 1
     metersPerUnit = 1
     subLayers = [

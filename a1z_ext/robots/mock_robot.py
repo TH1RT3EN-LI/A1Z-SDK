@@ -40,12 +40,14 @@ class MockArmRobot:
         self._control_period_s = 1.0 / max(1, control_freq_hz)
         self._lock = threading.Lock()
         self._running = False
+        self._estopped = False
         self._stop_event = threading.Event()
         self._sampler_thread: Optional[threading.Thread] = None
         self._pos = np.zeros(num_joints, dtype=np.float64)
         self._vel = np.zeros(num_joints, dtype=np.float64)
         self._eff = np.zeros(num_joints, dtype=np.float64)
         self._gripper_pos: Optional[float] = 1.0 if with_gripper else None
+        self._gripper_free_drive = False
         self._recording = RecordingSession()
         self._grasp_status: Dict[str, Any] = {
             "backend": "mock",
@@ -67,6 +69,7 @@ class MockArmRobot:
         del initial_kp, initial_kd
         with self._lock:
             self._running = True
+            self._estopped = False
             self._vel = np.zeros(self._num_joints, dtype=np.float64)
             self._eff = np.zeros(self._num_joints, dtype=np.float64)
         self._stop_event.clear()
@@ -85,6 +88,27 @@ class MockArmRobot:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def is_estopped(self) -> bool:
+        with self._lock:
+            return self._estopped
+
+    def _require_motion_enabled(self) -> None:
+        if self.is_estopped:
+            raise RuntimeError("Robot is in estop.")
+
+    def estop(self) -> None:
+        with self._lock:
+            self._estopped = True
+            self._vel = np.zeros(self._num_joints, dtype=np.float64)
+            self._eff = np.zeros(self._num_joints, dtype=np.float64)
+
+    def release(self) -> None:
+        with self._lock:
+            self._estopped = False
+            self._vel = np.zeros(self._num_joints, dtype=np.float64)
+            self._eff = np.zeros(self._num_joints, dtype=np.float64)
 
     def _clip_joint_pos(self, pos: np.ndarray) -> np.ndarray:
         pos = np.asarray(pos, dtype=np.float64).reshape(-1)
@@ -147,11 +171,14 @@ class MockArmRobot:
             "with_gripper": self._with_gripper,
             "zero_gravity_mode": self.zero_gravity_mode,
             "control_mode": "gravity_comp_effort" if self.zero_gravity_mode else "position_hold",
+            "is_estopped": self.is_estopped,
+            "gripper_free_drive": self._gripper_free_drive,
         }
 
     def command_gripper(self, value: float) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         if self._gripper_pos is None:
             raise RuntimeError("No gripper attached. Start the backend with gripper enabled.")
         with self._lock:
@@ -160,6 +187,12 @@ class MockArmRobot:
     def get_gripper_pos(self) -> Optional[float]:
         with self._lock:
             return self._gripper_pos
+
+    def set_gripper_free_drive(self, enabled: bool) -> None:
+        self._require_motion_enabled()
+        if self._gripper_pos is None:
+            raise RuntimeError("No gripper attached. Start the backend with gripper enabled.")
+        self._gripper_free_drive = bool(enabled)
 
     def grasp_close(self, *, timeout_s: float = 15.0) -> Dict[str, Any]:
         if timeout_s <= 0.0:
@@ -200,6 +233,7 @@ class MockArmRobot:
     def command_joint_pos(self, pos: np.ndarray) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         pos = np.asarray(pos, dtype=np.float64).reshape(-1)
         if self._gripper_pos is not None and pos.shape[0] == self._num_joints + 1:
             self.command_gripper(float(pos[self._num_joints]))
@@ -210,6 +244,7 @@ class MockArmRobot:
     def command_joint_state(self, joint_state: Dict[str, np.ndarray]) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         pos = self._clip_joint_pos(joint_state["pos"])
         vel = np.asarray(joint_state.get("vel", np.zeros(self._num_joints)), dtype=np.float64)
         eff = np.asarray(joint_state.get("eff", np.zeros(self._num_joints)), dtype=np.float64)
@@ -225,6 +260,7 @@ class MockArmRobot:
         del kp, kd
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         if speed <= 0:
             raise ValueError("speed must be > 0")
 
@@ -251,6 +287,7 @@ class MockArmRobot:
         last_pos = current_pos.copy()
 
         for step in range(1, steps + 1):
+            self._require_motion_enabled()
             t = step / steps
             alpha = 10 * t**3 - 15 * t**4 + 6 * t**5
             next_pos = current_pos + alpha * delta
@@ -262,11 +299,13 @@ class MockArmRobot:
         self._set_arm_state(target_pos)
 
     def set_gravity_mode(self, enabled: bool) -> None:
+        self._require_motion_enabled()
         self.zero_gravity_mode = enabled
 
     def start_recording(self, sample_hz: int = 50) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         self._recording.start(sample_hz)
 
     def stop_recording(self) -> Trajectory:
@@ -279,6 +318,7 @@ class MockArmRobot:
     ) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         prev_mode = self.zero_gravity_mode
         self.set_gravity_mode(False)
         try:

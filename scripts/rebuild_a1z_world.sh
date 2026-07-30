@@ -30,8 +30,8 @@ else
 fi
 
 # Rebuild flow:
-# 1. Prepare derived URDF variants used by Isaac/SDK, including the D405 wrist-camera
-#    mechanical chain under arm_link6.
+# 1. Prepare derived URDF variants used by Isaac/SDK, including the fixed
+#    camera-bracket and D405 wrist-camera chains under arm_link6.
 # 2. Import the prepared Isaac URDF into USD and regenerate the robot/world USD assets.
 python3 "$ROOT_DIR/scripts/prepare_a1z_urdfs.py"
 
@@ -46,3 +46,4 @@ for i in "${!EXCLUDED_EXTENSIONS[@]}"; do
 done
 
 "$ISAAC_PYTHON" "${IMPORT_ARGS[@]}"
+python3 "$ROOT_DIR/scripts/normalize_generated_usd_text.py"

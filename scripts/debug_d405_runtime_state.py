@@ -236,11 +236,6 @@ async def startup() -> None:
                 "A1Z_D405_PARENT_PRIM",
                 "A1Z_D405_FALLBACK_PARENT_PRIM",
                 "A1Z_D405_FK_FRAME",
-                "A1Z_D405_STAGE_MOUNT_OFFSET_XYZ_M",
-                "A1Z_D405_STAGE_MOUNT_RPY_DEG",
-                "A1Z_D405_STAGE_RECTIFY_RPY_DEG",
-                "A1Z_D405_STAGE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M",
-                "A1Z_D405_STAGE_RECTIFIED_TO_OPTICAL_RPY_DEG",
             )
         },
     }

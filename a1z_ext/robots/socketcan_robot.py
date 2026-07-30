@@ -6,6 +6,8 @@ import threading
 import time
 from typing import Any, Dict
 
+import numpy as np
+
 from a1z.robots.arm_robot import ArmRobot
 
 
@@ -59,6 +61,7 @@ class SocketCANArmRobot(ArmRobot):
                 "gripper_torque_limit_nm": (
                     self._gripper_max_torque_nm if self.gripper is not None else None
                 ),
+                "gripper_free_drive": bool(self._gripper_free_drive),
             }
         )
         return info
@@ -200,3 +203,28 @@ class SocketCANArmRobot(ArmRobot):
                     self._grasp_status = dict(status)
         status["estopped"] = self.is_estopped
         return status
+
+    def play_trajectory(
+        self,
+        trajectory,
+        speed_factor: float = 1.0,
+    ) -> None:
+        """Play recorded positions while making the official estop interruptible."""
+        if not trajectory:
+            raise ValueError("Empty trajectory")
+        if not self.is_running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        if self.is_estopped:
+            raise RuntimeError("Robot is in estop.")
+        if speed_factor <= 0:
+            raise ValueError("speed_factor must be > 0")
+
+        started = time.monotonic()
+        for recorded_s, position in trajectory:
+            if self.is_estopped:
+                raise RuntimeError("Trajectory playback interrupted by estop.")
+            target_time = started + float(recorded_s) / float(speed_factor)
+            self.command_joint_pos(np.asarray(position, dtype=np.float64))
+            remaining = target_time - time.monotonic()
+            if remaining > 0.0 and self._estop_latch.wait(timeout=remaining):
+                raise RuntimeError("Trajectory playback interrupted by estop.")

@@ -9,16 +9,6 @@ from pathlib import Path
 from a1z_ext.runtime.d405.settings import D405ComputeSettings
 
 
-def _env_vec3(name: str, default: tuple[float, float, float]) -> tuple[float, float, float]:
-    raw = os.environ.get(name)
-    if not raw:
-        return default
-    parts = [part.strip() for part in raw.replace(",", " ").split()]
-    if len(parts) != 3:
-        raise ValueError(f"{name} must contain exactly 3 numbers, got: {raw}")
-    return float(parts[0]), float(parts[1]), float(parts[2])
-
-
 def _repo_root() -> Path:
     env_root = os.environ.get("A1Z_REPO_ROOT")
     if env_root:

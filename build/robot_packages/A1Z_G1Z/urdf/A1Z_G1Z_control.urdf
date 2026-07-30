@@ -202,11 +202,32 @@
     <parent link="arm_link6" />
     <child link="grasp_tcp" />
   </joint>
+  <link name="camera_bracket_link">
+    <inertial>
+      <origin xyz="7.6511e-06 0.0107364317 0.0283061975" rpy="0 0 0" />
+      <mass value="0.03" />
+      <inertia ixx="1.7361317e-05" ixy="2.5639e-08" ixz="9.962e-09" iyy="5.539932e-06" iyz="2.082749e-06" izz="1.7136905e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://A1Z_G1Z/meshes/camera_bracket.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="camera_bracket_material">
+        <color rgba="0.18 0.2 0.22 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="camera_bracket_mount_joint" type="fixed">
+    <origin xyz="0.06842 0 0.06546" rpy="-1.57079632679 0 1.57079632679" />
+    <parent link="arm_link6" />
+    <child link="camera_bracket_link" />
+  </joint>
   <link name="d405_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <mass value="0.001" />
-      <inertia ixx="0.000054" ixy="0" ixz="0" iyy="0.000007" iyz="0" izz="0.000054" />
+      <inertia ixx="5.39061527778e-05" ixy="0" ixz="0" iyy="6.92972222222e-06" iyz="0" izz="5.38785694444e-05" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="2.251475 0 1.570796" />
@@ -219,7 +240,7 @@
     </visual>
   </link>
   <joint name="d405_mount_joint" type="fixed">
-    <origin xyz="0.08 0 0.086237" rpy="0 0 0" />
+    <origin xyz="0.0650543901297 0 0.0837692743183" rpy="0 -0.181432196149 0" />
     <parent link="arm_link6" />
     <child link="d405_link" />
   </joint>

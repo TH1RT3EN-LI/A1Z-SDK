@@ -15,6 +15,10 @@
 | Grasp perception | AnyGrasp in the GPU vision container |
 | Planning | backend-neutral AnyGrasp adapter |
 | Task orchestration | `scripts/run_pick_pipeline.py` |
+| Camera-bracket STEP conversion and asset insertion | `usd-pipeline` |
+| Camera-bracket placement from the link6 local bounds | `spatial-reasoning` |
+| Camera-bracket fixed attachment in the robot tree | generated URDF fixed joint, routed by `isaac-sim-orchestrator` |
+| Camera-bracket simulation QA | `isaac-sim-validator` |
 
 ## Supported boundary
 
@@ -26,6 +30,19 @@ Legacy Isaac 5 launchers, direct Isaac frame sources, synthetic frame sources,
 simulated attachment commands, `physical_v2`, the old ROS VLM bridge, the old
 GUI, and monolithic shell pipelines were deleted rather than retained as
 compatibility paths.
+
+## 2026-07-30 grasp-pipeline verification map
+
+| Feature under test | Skill / acceptance |
+|---|---|
+| ROS environment, D405 topics, and TF capture | `isaac-sim-ros2-bridge`; matching UID/GID, writable `HOME`, nounset-safe setup sourcing |
+| AnyGrasp-to-arm motion generation | `manipulation-ik`; selected plan contains pregrasp, grasp, lift, and retreat joint solutions |
+| End-to-end simulation execution | `isaac-sim-orchestrator`; foundations pass before the combined `--execute` run |
+| Final artifacts | `isaac-sim-validator`; reject missing plan/execution traces even if the wrapper exits successfully |
+
+The requested acceptance target is generation and submission of the simulated
+grasp action sequence. Object retention after gripper closure is informative
+but is not required for this verification run.
 
 ## Upstream revision
 

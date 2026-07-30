@@ -1,0 +1,61 @@
+{
+  "source": "assets/camera_bracket/camera_bracket.step",
+  "source_sha256": "7786fc7425eba7417802134ae2b1d64672063b868ed79b634da1d9682146461e",
+  "output": "assets/camera_bracket/camera_bracket.stl",
+  "output_sha256": "7ce380f8674ab1337ccd44af0fa4439562c302ad920ccd0e3274e6383b2979cf",
+  "normalization": "center X/Y and place the minimum Z surface at zero",
+  "normalization_translation_mm": [
+    -0.7865599699783807,
+    49.79988803695013,
+    365.9936308449664
+  ],
+  "source_bbox_mm": {
+    "min": [
+      -16.26835458799805,
+      -88.62590513864924,
+      -365.9936308449664
+    ],
+    "max": [
+      17.841474527954812,
+      -10.97387093525101,
+      -326.7755443256152
+    ]
+  },
+  "normalized_bbox_mm": {
+    "min": [
+      -17.05491455797643,
+      -38.82601710169911,
+      3.142691625869238e-14
+    ],
+    "max": [
+      17.05491455797643,
+      38.82601710169912,
+      39.218086519351175
+    ]
+  },
+  "cad_volume_mm3": 24392.209736799196,
+  "normalized_volume_centroid_mm": [
+    0.00765111054172473,
+    10.736431713642565,
+    28.306197464929443
+  ],
+  "uniform_density_inertia_about_centroid_mm5": [
+    [
+      14116029.471145727,
+      20846.176233940583,
+      8099.781697401146
+    ],
+    [
+      20846.176233940583,
+      4504373.067682076,
+      1693428.6005296372
+    ],
+    [
+      8099.781697401146,
+      1693428.6005296372,
+      13933566.182531508
+    ]
+  ],
+  "linear_tolerance_mm": 0.02,
+  "angular_tolerance_rad": 0.1
+}

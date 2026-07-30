@@ -97,3 +97,6 @@ def get_arm_motion_speed_limits() -> ArmMotionSpeedLimits:
 
 def validate_arm_motion_speed(value: float) -> float:
     return get_arm_motion_speed_limits().validate(value)
+from .d405 import D405_CONFIG_PATH, load_d405_config
+
+__all__ = ["D405_CONFIG_PATH", "load_d405_config"]

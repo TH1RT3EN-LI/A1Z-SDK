@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Incremental end-effector and joint teleop helper for the Tk UI."""
+"""Incremental end-effector and joint teleop helper for operator GUIs."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import argparse
 import json
 import math
 import os
-import socket
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,7 +23,16 @@ if str(SDK_ROOT) not in sys.path:
     sys.path.insert(0, str(SDK_ROOT))
 
 from a1z.robots.kinematics import Kinematics
-from a1z_ext.config import get_default_control_urdf_path, get_socket_path
+from a1z_ext.config import (
+    get_default_backend,
+    get_default_control_urdf_path,
+    get_socket_path,
+    get_tcp_host,
+    get_tcp_port,
+)
+from a1z_ext.control_client import send_control_request
+
+_MOTION_REQUEST_ATTEMPTED = False
 
 
 def _emit(payload: dict[str, Any], *, exit_code: int = 0) -> None:
@@ -33,33 +41,18 @@ def _emit(payload: dict[str, Any], *, exit_code: int = 0) -> None:
 
 
 def _send(cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    req = json.dumps({"cmd": cmd, "args": args or {}}) + "\n"
-    socket_path = get_socket_path()
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(120.0)
     try:
-        sock.connect(socket_path)
-        sock.sendall(req.encode("utf-8"))
-        data = b""
-        while b"\n" not in data:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            data += chunk
-    except FileNotFoundError as exc:
-        raise RuntimeError(
-            f"Socket not found: {socket_path}. Start the server first."
-        ) from exc
-    except ConnectionRefusedError as exc:
-        raise RuntimeError(
-            f"Server not reachable on socket: {socket_path}. Start the server first."
-        ) from exc
-    finally:
-        sock.close()
-
-    if not data:
-        raise RuntimeError("No response from A1Z server.")
-    return json.loads(data.split(b"\n", 1)[0].decode("utf-8"))
+        data = send_control_request(
+            cmd,
+            args,
+            socket_path=get_socket_path(),
+            tcp_host=get_tcp_host(),
+            tcp_port=get_tcp_port(),
+            timeout_s=120.0,
+        )
+    except Exception as exc:
+        raise RuntimeError(f"{cmd} request failed: {exc}") from exc
+    return {"ok": True, "data": data}
 
 
 def _ok_or_raise(resp: dict[str, Any]) -> dict[str, Any]:
@@ -74,6 +67,17 @@ def _current_joint_pos_rad() -> np.ndarray:
     if not isinstance(pos_deg, list) or len(pos_deg) < 6:
         raise RuntimeError(f"Unexpected status payload: {status}")
     return np.deg2rad(np.asarray(pos_deg[:6], dtype=np.float64))
+
+
+def _verified_info(expected_backend: str) -> dict[str, Any]:
+    info = _ok_or_raise(_send("info"))
+    actual_backend = str(info.get("backend", ""))
+    if actual_backend != expected_backend:
+        raise RuntimeError(
+            "Backend identity mismatch: "
+            f"expected={expected_backend}, actual={actual_backend or 'unknown'}"
+        )
+    return info
 
 
 def _joint_limits_deg_from_info(info: dict[str, Any]) -> list[list[float]] | None:
@@ -172,14 +176,24 @@ def _apply_rotation(
     return target
 
 
-def _validate_joint_limits(kinematics: Kinematics, q: np.ndarray) -> np.ndarray:
+def _validate_joint_limits(
+    kinematics: Kinematics,
+    q: np.ndarray,
+    *,
+    margin_deg: float = 0.0,
+) -> np.ndarray:
     lower = np.asarray(kinematics._model.lowerPositionLimit, dtype=np.float64).reshape(-1)
     upper = np.asarray(kinematics._model.upperPositionLimit, dtype=np.float64).reshape(-1)
+    margin_rad = math.radians(max(0.0, float(margin_deg)))
+    lower = lower + margin_rad
+    upper = upper - margin_rad
+    if np.any(lower >= upper):
+        raise RuntimeError(f"Joint margin is too large: {margin_deg} deg")
     tol = 1e-6
     if np.any(q < lower - tol) or np.any(q > upper + tol):
         joint_index = int(np.argmax((q < lower - tol) | (q > upper + tol))) + 1
         raise RuntimeError(
-            "IK solution violates joint limits "
+            "IK solution violates joint limits/margin "
             f"(joint J{joint_index}, deg={np.rad2deg(q).round(2).tolist()})"
         )
     return np.clip(q, lower, upper)
@@ -189,19 +203,24 @@ def _snapshot_payload(
     *,
     kinematics: Kinematics,
     end_effector_frame: str,
+    expected_backend: str,
 ) -> dict[str, Any]:
     q = _current_joint_pos_rad()
     transform = kinematics.fk(q, frame_name=end_effector_frame)
     status = _ok_or_raise(_send("status"))
-    info = _ok_or_raise(_send("info"))
+    info = _verified_info(expected_backend)
     return {
         "ok": True,
         "backend": info.get("backend"),
         "control_mode": info.get("control_mode"),
-        "socket_path": get_socket_path(),
+        "endpoint": (
+            get_socket_path()
+            or f"tcp://{get_tcp_host()}:{get_tcp_port()}"
+        ),
         "end_effector_frame": end_effector_frame,
         "joint_pos_deg": [float(v) for v in status.get("pos_deg", [])[:6]],
         "joint_limits_deg": _joint_limits_deg_from_info(info),
+        "gripper": status.get("gripper"),
         "pose": _pose_dict(transform),
     }
 
@@ -212,6 +231,8 @@ def _execute_motion(
     speed: float,
     motion_mode: str,
 ) -> dict[str, Any]:
+    global _MOTION_REQUEST_ATTEMPTED
+    _MOTION_REQUEST_ATTEMPTED = True
     if motion_mode == "move":
         return _ok_or_raise(
             _send(
@@ -233,6 +254,7 @@ def _handle_snapshot(args: argparse.Namespace) -> None:
         _snapshot_payload(
             kinematics=kinematics,
             end_effector_frame=args.end_effector_frame,
+            expected_backend=args.expected_backend,
         )
     )
 
@@ -270,7 +292,19 @@ def _handle_step(args: argparse.Namespace) -> None:
     if not converged:
         raise RuntimeError("IK did not converge for the requested end-effector step.")
 
-    target_q = _validate_joint_limits(kinematics, target_q)
+    target_q = _validate_joint_limits(
+        kinematics,
+        target_q,
+        margin_deg=args.joint_margin_deg,
+    )
+    max_joint_step_deg = float(
+        np.max(np.abs(np.rad2deg(target_q - current_q)))
+    )
+    if max_joint_step_deg > args.max_joint_step_deg:
+        raise RuntimeError(
+            "IK solution exceeds one-step joint jump limit: "
+            f"{max_joint_step_deg:.2f} > {args.max_joint_step_deg:.2f} deg"
+        )
     joint_target_deg = [float(v) for v in np.rad2deg(target_q).tolist()]
     _execute_motion(
         joint_target_deg=joint_target_deg,
@@ -281,6 +315,7 @@ def _handle_step(args: argparse.Namespace) -> None:
     payload = _snapshot_payload(
         kinematics=kinematics,
         end_effector_frame=args.end_effector_frame,
+        expected_backend=args.expected_backend,
     )
     payload.update(
         {
@@ -308,7 +343,7 @@ def _handle_joint_step(args: argparse.Namespace) -> None:
     if not isinstance(current_deg, list) or len(current_deg) < 6:
         raise RuntimeError(f"Unexpected status payload: {status}")
 
-    info = _ok_or_raise(_send("info"))
+    info = _verified_info(args.expected_backend)
     limits_deg = _joint_limits_deg_from_info(info)
     if limits_deg is None:
         raise RuntimeError("Joint soft limits are unavailable from the A1Z server.")
@@ -329,6 +364,7 @@ def _handle_joint_step(args: argparse.Namespace) -> None:
     payload = _snapshot_payload(
         kinematics=kinematics,
         end_effector_frame=args.end_effector_frame,
+        expected_backend=args.expected_backend,
     )
     status_message = f"J{args.joint_index} -> {applied_deg:.1f} deg"
     if abs(applied_deg - requested_deg) > 1e-6:
@@ -365,6 +401,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("A1Z_EE_FRAME", "grasp_tcp"),
         help="URDF frame name used as the controlled end effector.",
     )
+    parser.add_argument(
+        "--expected-backend",
+        choices=["socketcan", "mock", "isaacsim"],
+        default=get_default_backend(),
+        help="Fail closed unless the connected server reports this backend.",
+    )
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -382,6 +424,8 @@ def build_parser() -> argparse.ArgumentParser:
     step.add_argument("--max-iters", type=int, default=300)
     step.add_argument("--pos-threshold-m", type=float, default=5e-4)
     step.add_argument("--ori-threshold-deg", type=float, default=1.0)
+    step.add_argument("--joint-margin-deg", type=float, default=2.0)
+    step.add_argument("--max-joint-step-deg", type=float, default=15.0)
 
     joint_step = sub.add_parser("joint-step", help="Apply one incremental step to a single joint.")
     joint_step.add_argument("--joint-index", type=int, required=True, help="1-based joint index (J1..J6).")
@@ -396,6 +440,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     try:
+        _verified_info(args.expected_backend)
         if args.command == "snapshot":
             _handle_snapshot(args)
         if args.command == "step":
@@ -404,7 +449,14 @@ def main() -> None:
             _handle_joint_step(args)
         raise RuntimeError(f"Unsupported command: {args.command}")
     except Exception as exc:
-        _emit({"ok": False, "error": str(exc)}, exit_code=1)
+        _emit(
+            {
+                "ok": False,
+                "error": str(exc),
+                "motion_request_attempted": _MOTION_REQUEST_ATTEMPTED,
+            },
+            exit_code=1,
+        )
 
 
 if __name__ == "__main__":

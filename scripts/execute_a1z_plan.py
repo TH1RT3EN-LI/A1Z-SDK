@@ -37,6 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--socket-path", default=get_socket_path())
     parser.add_argument("--tcp-host", default=get_tcp_host())
     parser.add_argument("--tcp-port", type=int, default=get_tcp_port())
+    parser.add_argument(
+        "--expected-backend",
+        choices=["socketcan", "mock", "isaacsim"],
+        default="",
+        help="Fail closed unless the server reports this exact backend.",
+    )
     parser.add_argument("--output", default="", help="Optional execution result JSON")
     parser.add_argument(
         "--arm-speed",
@@ -126,6 +132,7 @@ def main() -> int:
     result: dict[str, Any] = {
         "plan_path": str(plan_path),
         "dry_run": bool(args.dry_run),
+        "expected_backend": args.expected_backend,
         "steps": [],
         "success": False,
     }
@@ -136,6 +143,17 @@ def main() -> int:
         policy = dict(plan.get("execution_policy", {}) or {})
         close_timeout_s = float(policy.get("grasp_timeout_s", 15.0))
         release_timeout_s = float(policy.get("release_timeout_s", 3.0))
+
+        if not args.dry_run and args.expected_backend:
+            info = _request(args, "info", timeout_s=10.0)
+            actual_backend = str(info.get("backend", ""))
+            if actual_backend != args.expected_backend:
+                raise RuntimeError(
+                    "backend identity mismatch: "
+                    f"expected={args.expected_backend}, "
+                    f"actual={actual_backend or 'unknown'}"
+                )
+            result["verified_backend"] = actual_backend
 
         if args.pre_open:
             step: dict[str, Any] = {"type": "gripper_open"}

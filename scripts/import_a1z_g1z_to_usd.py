@@ -129,6 +129,11 @@ GRIPPER_LINK_NAMES = (
     "gripper_finger_left_link",
     "gripper_finger_rIght_link",
 )
+# Keep the bracket's authored local Translate/Orient/Scale visible in Isaac's
+# Transform inspector instead of baking its default world pose into a matrix.
+DIRECT_LOCAL_XFORM_LINK_NAMES = {
+    "camera_bracket_link",
+}
 GRIPPER_INNER_INSTANCE_PRIM_PATHS = (
     "/A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/"
     "gripper_finger_left_link/gripper_finger_left_link",
@@ -575,6 +580,8 @@ def _reset_nested_rigid_body_xforms(stage, root_prim_path: str) -> None:
     patched_prims: list[str] = []
     for prim in Usd.PrimRange(root_prim):
         if not _is_rigid_body(prim):
+            continue
+        if prim.GetName() in DIRECT_LOCAL_XFORM_LINK_NAMES:
             continue
 
         ancestor = prim.GetParent()
@@ -1062,7 +1069,11 @@ def build_world(robot_usd_path, world_usd_path, robot_prim_path):
     configure_world_stage(stage)
 
     robot_prim = stage.DefinePrim(robot_prim_path, "Xform")
-    robot_prim.GetReferences().AddReference(robot_usd_path)
+    robot_reference = os.path.relpath(
+        os.path.abspath(robot_usd_path),
+        start=os.path.dirname(os.path.abspath(world_usd_path)),
+    ).replace(os.sep, "/")
+    robot_prim.GetReferences().AddReference(robot_reference)
     update_app(10)
 
     if not stage.GetRootLayer().Export(world_usd_path):

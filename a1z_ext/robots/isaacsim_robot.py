@@ -393,6 +393,7 @@ class IsaacSimArmRobot:
         self._world: Optional[World] = None
         self._articulation: Optional[ArticulationAdapter] = None
         self._running = False
+        self._estopped = False
 
         self._request_queue: queue.Queue[_MainThreadRequest] = queue.Queue()
         self._state_lock = threading.Lock()
@@ -411,6 +412,7 @@ class IsaacSimArmRobot:
         self._last_gripper_action_time = 0.0
         self._gripper_command_dofs: Optional[np.ndarray] = None
         self._gripper_target_dofs_override: Optional[np.ndarray] = None
+        self._gripper_free_drive = False
         self._last_hard_limit_log_time = 0.0
 
         self._gripper_open_value = 1.0
@@ -503,6 +505,7 @@ class IsaacSimArmRobot:
         self._contact_view_cache.clear()
         self._rigid_body_view_cache.clear()
         self._active_gripper_drive_profile = ""
+        self._gripper_free_drive = False
         if existing_world is None:
             if _NATIVE_ISAAC6:
                 raise RuntimeError("Isaac 6 A1Z backend requires the A1Z public-API world adapter.")
@@ -526,6 +529,7 @@ class IsaacSimArmRobot:
         self._resolve_joint_indices()
         self._refresh_joint_limits()
         self._running = True
+        self._estopped = False
         self._control_elapsed_s = 0.0
         if self._with_gripper:
             try:
@@ -572,6 +576,7 @@ class IsaacSimArmRobot:
         self._running = False
         self._gripper_command_dofs = None
         self._gripper_target_dofs_override = None
+        self._gripper_free_drive = False
         self._contact_view_cache.clear()
         self._rigid_body_view_cache.clear()
         self._active_gripper_drive_profile = ""
@@ -590,6 +595,63 @@ class IsaacSimArmRobot:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def is_estopped(self) -> bool:
+        return self._estopped
+
+    def _require_motion_enabled(self) -> None:
+        if self._estopped:
+            raise RuntimeError("Robot is in estop.")
+
+    def estop(self) -> None:
+        """Cancel the active trajectory and hold the measured simulated pose."""
+        if self._estopped:
+            return
+        # Latch before entering Kit's main thread so every concurrent public
+        # command is rejected immediately.
+        self._estopped = True
+        self._run_on_main_thread(self._estop_impl)
+
+    def _estop_impl(self) -> None:
+        self._ensure_main_thread()
+        interrupted = self._trajectory
+        self._trajectory = None
+        with self._state_lock:
+            current = self._full_pos[self._arm_joint_indices].copy()
+        self.zero_gravity_mode = False
+        with self._command_lock:
+            self._command.pos = self._clip_arm_pos(current)
+            self._command.vel = np.zeros(self._num_joints, dtype=np.float64)
+            self._command.acc = np.zeros(self._num_joints, dtype=np.float64)
+            self._command.kp = self._hold_kp.copy()
+            self._command.kd = self._hold_kd.copy()
+            self._command.torque_ff = np.zeros(self._num_joints, dtype=np.float64)
+        self._configure_actuators()
+        self._apply_control_action()
+        if interrupted is not None and interrupted.done_event is not None:
+            interrupted.done_event.set()
+
+    def release(self) -> None:
+        """Release the latch while retaining position hold at the current pose."""
+        if not self._estopped:
+            return
+        self._run_on_main_thread(self._release_estop_impl)
+
+    def _release_estop_impl(self) -> None:
+        self._ensure_main_thread()
+        with self._state_lock:
+            current = self._full_pos[self._arm_joint_indices].copy()
+        with self._command_lock:
+            self._command.pos = self._clip_arm_pos(current)
+            self._command.vel = np.zeros(self._num_joints, dtype=np.float64)
+            self._command.acc = np.zeros(self._num_joints, dtype=np.float64)
+            self._command.kp = self._hold_kp.copy()
+            self._command.kd = self._hold_kd.copy()
+            self._command.torque_ff = np.zeros(self._num_joints, dtype=np.float64)
+        self._estopped = False
+        self._configure_actuators()
+        self._apply_control_action()
 
     def process_pending(self, step_size: Optional[float] = None) -> bool:
         self._ensure_main_thread()
@@ -774,12 +836,14 @@ class IsaacSimArmRobot:
             "gripper_target_dofs": gripper_target_dofs,
             "gripper_command_dofs": gripper_command_dofs,
             "gripper_current_dofs": gripper_current_dofs,
+            "gripper_free_drive": self._gripper_free_drive,
             "gripper_carrier_body_path": self._gripper_carrier_body_path,
             "left_finger_body_path": self._left_finger_body_path,
             "right_finger_body_path": self._right_finger_body_path,
             "gripper_pad_material": dict(self._gripper_pad_material_status),
             "sim_grasp_state": self.get_sim_grasp_status(),
             "control_mode": "gravity_comp_effort" if self.zero_gravity_mode else "position_hold",
+            "is_estopped": self._estopped,
             "command_path": (
                 "articulation_controller_with_usd_mirror"
                 if self._mirror_drive_targets_to_usd
@@ -790,8 +854,11 @@ class IsaacSimArmRobot:
     def command_gripper(self, value: float) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         if not self._with_gripper:
             raise RuntimeError("No gripper attached. Start the backend with gripper enabled.")
+        if self._gripper_free_drive:
+            raise RuntimeError("Gripper is in free-drive mode.")
         value = float(np.clip(value, 0.0, 1.0))
         self._run_on_main_thread(lambda: self._abort_physical_grasp_impl("manual_gripper_override"))
         if self._sim_grasp_state.attached_object_path and value > float(self._gripper_open_value) + 1e-3:
@@ -818,6 +885,45 @@ class IsaacSimArmRobot:
             return None
         with self._state_lock:
             return float(self._gripper_open_value)
+
+    def set_gripper_free_drive(self, enabled: bool) -> None:
+        if not self._running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
+        if not self._with_gripper or self._gripper_joint_indices.size != 2:
+            raise RuntimeError("No gripper attached. Start the backend with gripper enabled.")
+        self._run_on_main_thread(lambda: self._set_gripper_free_drive_impl(bool(enabled)))
+
+    def _set_gripper_free_drive_impl(self, enabled: bool) -> None:
+        self._ensure_main_thread()
+        if enabled == self._gripper_free_drive:
+            return
+        if enabled and self._sim_grasp_state.attached_object_path:
+            raise RuntimeError("Release the attached object before enabling gripper free-drive.")
+        if enabled:
+            self._abort_physical_grasp_impl("gripper_free_drive")
+        with self._state_lock:
+            current = self._full_pos[self._gripper_joint_indices].copy()
+        self._gripper_free_drive = enabled
+        self._gripper_command_dofs = current.copy()
+        self._gripper_target_dofs_override = current.copy()
+        if enabled:
+            zeros = np.zeros(2, dtype=np.float64)
+            self._set_gripper_drive_profile(
+                profile_name="free_drive",
+                kp=zeros,
+                kd=zeros,
+                max_effort=zeros,
+                drive_type="force",
+            )
+            for dof_index in self._gripper_joint_indices.tolist():
+                self._switch_dof_control_mode("effort", int(dof_index))
+        else:
+            self._set_gripper_default_gains()
+            for dof_index in self._gripper_joint_indices.tolist():
+                self._switch_dof_control_mode("position", int(dof_index))
+            self._set_gripper_drive_targets(current)
+        self._apply_control_action()
 
     def get_sim_grasp_status(self) -> Dict[str, Any]:
         return {
@@ -1089,16 +1195,20 @@ class IsaacSimArmRobot:
     def command_joint_pos(self, pos: np.ndarray) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         pos = np.asarray(pos, dtype=np.float64).reshape(-1)
         arm_target = self._clip_arm_pos(pos[: self._num_joints])
         gripper_target = None
         if self._with_gripper and pos.shape[0] == self._num_joints + 1:
+            if self._gripper_free_drive:
+                raise RuntimeError("Gripper is in free-drive mode.")
             gripper_target = float(np.clip(pos[self._num_joints], 0.0, 1.0))
         self._run_on_main_thread(lambda: self._set_command_now(arm_target, gripper_target))
 
     def command_joint_state(self, joint_state: Dict[str, np.ndarray]) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         pos = np.asarray(joint_state["pos"], dtype=np.float64).reshape(-1)
         vel = np.asarray(
             joint_state.get("vel", np.zeros(self._num_joints, dtype=np.float64)),
@@ -1121,12 +1231,15 @@ class IsaacSimArmRobot:
     ) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         speed = self._arm_motion_speed_limits.validate(speed)
 
         target_pos = np.asarray(target_pos, dtype=np.float64).reshape(-1)
         arm_target = self._clip_arm_pos(target_pos[: self._num_joints])
         gripper_target = None
         if self._with_gripper and target_pos.shape[0] == self._num_joints + 1:
+            if self._gripper_free_drive:
+                raise RuntimeError("Gripper is in free-drive mode.")
             gripper_target = float(np.clip(target_pos[self._num_joints], 0.0, 1.0))
 
         kp_arr = None if kp is None else np.asarray(kp, dtype=np.float64).reshape(-1)[: self._num_joints]
@@ -1145,11 +1258,13 @@ class IsaacSimArmRobot:
     def set_gravity_mode(self, enabled: bool) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         self._run_on_main_thread(lambda: self._set_gravity_mode_impl(enabled))
 
     def start_recording(self, sample_hz: int = 50) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         self._recording.start(sample_hz)
 
     def stop_recording(self) -> Trajectory:
@@ -1162,6 +1277,7 @@ class IsaacSimArmRobot:
     ) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
         prev_mode = self.zero_gravity_mode
         self.set_gravity_mode(False)
         try:
@@ -1251,6 +1367,7 @@ class IsaacSimArmRobot:
         done_event: threading.Event,
         gripper_target: Optional[float],
     ) -> None:
+        self._require_motion_enabled()
         current_state = self.get_joint_state()
         current_arm = current_state["pos"]
         current_vel = current_state["vel"]
@@ -1336,6 +1453,7 @@ class IsaacSimArmRobot:
         wait_timeout_s = max(5.0, duration_estimate_s + 5.0)
         if not done_event.wait(timeout=wait_timeout_s):
             raise TimeoutError("Timed out waiting for Isaac Sim arm motion to complete.")
+        self._require_motion_enabled()
         self._wait_for_arm_target(arm_target, timeout_s=max(2.0, wait_timeout_s))
 
     def _try_staged_move_recovery(
@@ -4425,11 +4543,23 @@ class IsaacSimArmRobot:
             )
 
         if self._with_gripper and self._gripper_joint_indices.size == 2:
-            self._set_subset_gains(self._gripper_joint_indices, self._gripper_kp, self._gripper_kd)
-            self._set_subset_max_efforts(self._gripper_joint_indices, self._gripper_max_effort)
-            for dof_index in self._gripper_joint_indices.tolist():
-                self._switch_dof_control_mode("position", int(dof_index))
-            self._configure_gripper_drive_targets()
+            if self._gripper_free_drive:
+                zeros = np.zeros(2, dtype=np.float64)
+                self._set_gripper_drive_profile(
+                    profile_name="free_drive",
+                    kp=zeros,
+                    kd=zeros,
+                    max_effort=zeros,
+                    drive_type="force",
+                )
+                for dof_index in self._gripper_joint_indices.tolist():
+                    self._switch_dof_control_mode("effort", int(dof_index))
+            else:
+                self._set_subset_gains(self._gripper_joint_indices, self._gripper_kp, self._gripper_kd)
+                self._set_subset_max_efforts(self._gripper_joint_indices, self._gripper_max_effort)
+                for dof_index in self._gripper_joint_indices.tolist():
+                    self._switch_dof_control_mode("position", int(dof_index))
+                self._configure_gripper_drive_targets()
 
         position_hold_gravity_ff_active = bool(
             not self.zero_gravity_mode

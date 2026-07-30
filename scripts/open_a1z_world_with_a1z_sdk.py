@@ -512,6 +512,8 @@ def _enforce_nested_rigid_body_reset_xforms(stage, root_prim_path: str) -> list[
     for prim in Usd.PrimRange(root_prim):
         if not _is_rigid_body(prim):
             continue
+        if prim.GetName() == "camera_bracket_link":
+            continue
 
         ancestor = prim.GetParent()
         has_rigid_body_ancestor = False

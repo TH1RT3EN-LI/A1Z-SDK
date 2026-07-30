@@ -55,9 +55,16 @@ fi
 if [[ "$ACTION" == "wait" ]]; then
   WAIT_SOURCE_FRAME="${A1Z_D405_COLOR_FRAME_ID:-d405_color_optical_frame}"
   WAIT_TARGET_FRAME="${A1Z_BASE_LINK_FRAME:-base_link}"
+  WAIT_UID="$(id -u)"
+  WAIT_GID="$(id -g)"
+  WAIT_HOME="/tmp/a1z-home-$WAIT_UID"
   deadline=$(( $(date +%s) + 30 ))
   while [[ $(date +%s) -lt $deadline ]]; do
-    if docker exec -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-62}" "$ROS_CONTAINER_NAME" bash -lc "
+    if docker exec \
+      -u "$WAIT_UID:$WAIT_GID" \
+      -e HOME="$WAIT_HOME" \
+      -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-62}" \
+      "$ROS_CONTAINER_NAME" bash -lc "
       set +u
       source /opt/ros/humble/setup.bash
       set -u
@@ -151,9 +158,6 @@ docker exec \
   -e A1Z_D405_WIDTH="${A1Z_D405_WIDTH:-640}" \
   -e A1Z_D405_HEIGHT="${A1Z_D405_HEIGHT:-480}" \
   -e A1Z_D405_FPS="${A1Z_D405_FPS:-30}" \
-  -e A1Z_D405_COMPUTE_INSTALL_RPY_DEG="${A1Z_D405_COMPUTE_INSTALL_RPY_DEG:-}" \
-  -e A1Z_D405_COMPUTE_RECTIFY_RPY_DEG="${A1Z_D405_COMPUTE_RECTIFY_RPY_DEG:-}" \
-  -e A1Z_D405_COMPUTE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M="${A1Z_D405_COMPUTE_RECTIFIED_TO_OPTICAL_OFFSET_XYZ_M:-}" \
   "${DOCKER_TTY_ARGS[@]}" "$ROS_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail

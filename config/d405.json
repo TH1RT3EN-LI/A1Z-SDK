@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "enabled": true,
+  "parent_link": "arm_link6",
+  "mesh_scale": [
+    0.001,
+    0.001,
+    0.001
+  ],
+  "mass_kg": 0.001,
+  "mount_offset_xyz_m": [
+    0.065054390129681,
+    0.0,
+    0.083769274318288
+  ],
+  "mount_rpy_deg": [
+    0.0,
+    -10.395299107104066,
+    0.0
+  ],
+  "body_visual_rpy_deg": [
+    129.0,
+    0.0,
+    90.0
+  ],
+  "rear_mount_datum": {
+    "hole_centers_mesh_mm": [
+      [
+        -10.0,
+        0.0,
+        -23.0
+      ],
+      [
+        10.0,
+        0.0,
+        -23.0
+      ]
+    ],
+    "hole_diameter_mm": 2.5,
+    "hole_depth_mm": 5.5,
+    "outward_normal_mesh": [
+      0.0,
+      0.0,
+      -1.0
+    ]
+  },
+  "target_bracket_datum": {
+    "hole_centers_parent_m": [
+      [
+        0.044861685082751,
+        -0.01,
+        0.094780843819849
+      ],
+      [
+        0.044861685082751,
+        0.01,
+        0.094780843819849
+      ]
+    ],
+    "downward_outward_normal_parent": [
+      0.877943697692597,
+      0.0,
+      -0.4787638913721983
+    ]
+  },
+  "stage_frames": {
+    "rectify_rpy_deg": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rectified_to_optical_offset_xyz_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rectified_to_optical_rpy_deg": [
+      51.0,
+      0.0,
+      -90.0
+    ]
+  },
+  "compute_frames": {
+    "install_rpy_deg": [
+      0.0,
+      39.0,
+      0.0
+    ],
+    "rectify_rpy_deg": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rectified_to_optical_offset_xyz_m": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  }
+}

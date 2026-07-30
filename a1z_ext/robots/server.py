@@ -24,6 +24,7 @@ import signal
 import socket
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -37,6 +38,7 @@ from a1z_ext.config import (
     validate_arm_motion_speed,
 )
 from a1z_ext.robots.get_robot import create_a1z_robot
+from a1z_ext.robots.trajectory import load_trajectory, save_trajectory
 
 
 def _deg(*angles: float) -> np.ndarray:
@@ -92,6 +94,18 @@ class RobotServer:
         self._shutdown = threading.Event()
         self._listener_ready = threading.Event()
         self._listener_startup_error: Optional[BaseException] = None
+        self._recording_active = False
+        self._recording_sample_hz = 0
+        self._recording_trajectory = []
+        self._recording_name = ""
+
+    def _is_estopped(self) -> bool:
+        return bool(getattr(self._robot, "is_estopped", False))
+
+    def _reject_if_estopped(self) -> Optional[dict]:
+        if self._is_estopped():
+            return {"ok": False, "error": "Robot is in estop."}
+        return None
 
     # ------------------------------------------------------------------
     # Command handlers
@@ -110,6 +124,20 @@ class RobotServer:
             data["gripper"] = round(gpos, 3) if gpos is not None else None
         if hasattr(self._robot, "is_estopped"):
             data["estopped"] = bool(self._robot.is_estopped)
+        diagnostic_fields = {
+            "error_codes": "error_codes",
+            "temp_mos_c": "temp_mos",
+            "temp_rotor_c": "temp_rotor",
+        }
+        for response_key, state_key in diagnostic_fields.items():
+            raw = state.get(state_key)
+            if raw is None:
+                continue
+            values = np.asarray(raw).reshape(-1)[:6]
+            if response_key == "error_codes":
+                data[response_key] = [int(value) for value in values]
+            else:
+                data[response_key] = [round(float(value), 1) for value in values]
         return {"ok": True, "data": data}
 
     def _cmd_move(self, args: dict) -> dict:
@@ -130,6 +158,8 @@ class RobotServer:
             return {"ok": False, "error": "move requires 'preset' or 'joints'"}
 
         self._robot.move_joints(target, speed=speed)
+        if self._is_estopped():
+            return {"ok": False, "error": "Motion was interrupted by estop."}
         pos_deg = np.rad2deg(self._robot.get_joint_pos()[:6]).tolist()
         return {"ok": True, "data": {"pos_deg": [round(v, 2) for v in pos_deg]}}
 
@@ -201,6 +231,123 @@ class RobotServer:
         self._robot.release()
         return {"ok": True, "data": {"estopped": False}}
 
+    def _cmd_gravity_mode(self, args: dict) -> dict:
+        if not hasattr(self._robot, "set_gravity_mode"):
+            return {"ok": False, "error": "Active backend does not support gravity mode"}
+        enabled = bool(args.get("enabled", True))
+        self._robot.set_gravity_mode(enabled)
+        return {
+            "ok": True,
+            "data": {
+                "gravity_mode": enabled,
+                "control_mode": "gravity_comp_effort" if enabled else "position_hold",
+            },
+        }
+
+    def _cmd_gripper_free_drive(self, args: dict) -> dict:
+        if not self._with_gripper:
+            return {"ok": False, "error": "Server was started without --with-gripper"}
+        if not hasattr(self._robot, "set_gripper_free_drive"):
+            return {
+                "ok": False,
+                "error": "Active backend does not support gripper free-drive",
+            }
+        enabled = bool(args.get("enabled", True))
+        self._robot.set_gripper_free_drive(enabled)
+        return {"ok": True, "data": {"gripper_free_drive": enabled}}
+
+    @staticmethod
+    def _recording_path(name: object) -> Path:
+        safe_name = Path(str(name or "teach.json")).name
+        if not safe_name.endswith(".json"):
+            safe_name += ".json"
+        root = Path(__file__).resolve().parents[2] / "runtime" / "recordings"
+        root.mkdir(parents=True, exist_ok=True)
+        return root / safe_name
+
+    @staticmethod
+    def _trajectory_summary(trajectory, *, path: Optional[Path] = None) -> dict:
+        frames = len(trajectory)
+        duration_s = float(trajectory[-1][0]) if frames else 0.0
+        data = {
+            "frames": frames,
+            "duration_s": round(duration_s, 3),
+        }
+        if path is not None:
+            data["path"] = str(path)
+        return data
+
+    def _cmd_record_start(self, args: dict) -> dict:
+        if not hasattr(self._robot, "start_recording"):
+            return {"ok": False, "error": "Active backend does not support recording"}
+        if self._recording_active:
+            return {"ok": False, "error": "A recording is already active"}
+        sample_hz = int(args.get("sample_hz", 50))
+        if not 1 <= sample_hz <= 250:
+            return {"ok": False, "error": "sample_hz must be in [1, 250]"}
+        if hasattr(self._robot, "set_gravity_mode"):
+            self._robot.set_gravity_mode(True)
+        if self._with_gripper and hasattr(self._robot, "set_gripper_free_drive"):
+            self._robot.set_gripper_free_drive(True)
+        self._robot.start_recording(sample_hz)
+        self._recording_active = True
+        self._recording_sample_hz = sample_hz
+        self._recording_trajectory = []
+        return {
+            "ok": True,
+            "data": {
+                "recording": True,
+                "sample_hz": sample_hz,
+                "control_mode": "gravity_comp_effort",
+            },
+        }
+
+    def _cmd_record_stop(self, args: dict) -> dict:
+        if not self._recording_active:
+            return {"ok": False, "error": "No recording is active"}
+        trajectory = self._robot.stop_recording()
+        self._recording_active = False
+        if self._with_gripper and hasattr(self._robot, "set_gripper_free_drive"):
+            self._robot.set_gripper_free_drive(False)
+        self._recording_trajectory = list(trajectory)
+        path = self._recording_path(args.get("name", "teach.json"))
+        save_trajectory(self._recording_trajectory, str(path))
+        self._recording_name = path.name
+        data = self._trajectory_summary(self._recording_trajectory, path=path)
+        data["recording"] = False
+        return {"ok": True, "data": data}
+
+    def _cmd_record_play(self, args: dict) -> dict:
+        if not hasattr(self._robot, "play_trajectory"):
+            return {"ok": False, "error": "Active backend does not support playback"}
+        if self._recording_active:
+            return {"ok": False, "error": "Stop the active recording before playback"}
+        name = args.get("name", self._recording_name or "teach.json")
+        path = self._recording_path(name)
+        trajectory = load_trajectory(str(path))
+        speed_factor = float(args.get("speed_factor", 1.0))
+        if not 0.1 <= speed_factor <= 3.0:
+            return {"ok": False, "error": "speed_factor must be in [0.1, 3.0]"}
+        if hasattr(self._robot, "set_gravity_mode"):
+            self._robot.set_gravity_mode(False)
+        self._robot.play_trajectory(trajectory, speed_factor=speed_factor)
+        self._recording_trajectory = list(trajectory)
+        self._recording_name = path.name
+        data = self._trajectory_summary(trajectory, path=path)
+        data["speed_factor"] = speed_factor
+        return {"ok": True, "data": data}
+
+    def _cmd_record_info(self, _args: dict) -> dict:
+        data = self._trajectory_summary(self._recording_trajectory)
+        data.update(
+            {
+                "recording": self._recording_active,
+                "sample_hz": self._recording_sample_hz,
+                "name": self._recording_name,
+            }
+        )
+        return {"ok": True, "data": data}
+
     def _cmd_dance(self, args: dict) -> dict:
         moves_list = args.get("moves", DEFAULT_DANCE_ORDER)
         speed = float(args.get("speed", 0.6))
@@ -209,15 +356,21 @@ class RobotServer:
             avail = ", ".join(DANCE_MOVES)
             return {"ok": False, "error": f"Unknown moves: {unknown}. Available: {avail}"}
 
+        if self._is_estopped():
+            return {"ok": False, "error": "Robot is in estop."}
         self._robot.move_joints(PRESETS["home"], speed=speed * 0.7)
         time.sleep(0.4)
         for move_name in moves_list:
             print(f"[a1z] dance: {move_name}")
             for pose_key, spd_mul, pause in DANCE_MOVES[move_name]:
+                if self._is_estopped():
+                    return {"ok": False, "error": "Dance was interrupted by estop."}
                 self._robot.move_joints(PRESETS[pose_key], speed=speed * spd_mul)
                 if pause > 0:
                     time.sleep(pause)
             time.sleep(0.2)
+        if self._is_estopped():
+            return {"ok": False, "error": "Dance was interrupted by estop."}
         self._robot.move_joints(PRESETS["home"], speed=speed * 0.6)
         return {"ok": True, "data": {"moves": moves_list}}
 
@@ -242,6 +395,10 @@ class RobotServer:
             "dance_moves": list(DANCE_MOVES),
             "joint_limits_deg": joint_limits_deg,
             "control_mode": info.get("control_mode"),
+            "commands": sorted(self._HANDLERS),
+            "recording": self._recording_active,
+            "recording_name": self._recording_name,
+            "estopped": self._is_estopped(),
         }
         if info.get("hard_joint_limits") is not None:
             hard_joint_limits = np.asarray(info["hard_joint_limits"], dtype=np.float64).reshape(-1, 2)[:6]
@@ -260,6 +417,8 @@ class RobotServer:
         }
         if info.get("with_gripper"):
             data["gripper_range"] = [0.0, 1.0]
+        if info.get("gripper_free_drive") is not None:
+            data["gripper_free_drive"] = bool(info["gripper_free_drive"])
         if info.get("articulation_root_prim"):
             data["articulation_root_prim"] = info["articulation_root_prim"]
         if info.get("dof_names"):
@@ -425,6 +584,12 @@ class RobotServer:
         "grasp_status": _cmd_grasp_status,
         "estop": _cmd_estop,
         "estop_release": _cmd_estop_release,
+        "gravity_mode": _cmd_gravity_mode,
+        "gripper_free_drive": _cmd_gripper_free_drive,
+        "record_start": _cmd_record_start,
+        "record_stop": _cmd_record_stop,
+        "record_play": _cmd_record_play,
+        "record_info": _cmd_record_info,
         "dance":   _cmd_dance,
         "stop":    _cmd_stop,
         "info":    _cmd_info,
@@ -435,17 +600,46 @@ class RobotServer:
     _CAMERA_READ_COMMANDS = frozenset(
         {"camera_status", "camera_capture", "camera_extrinsic"}
     )
+    _READ_COMMANDS = frozenset(
+        {"status", "info", "grasp_status", "record_info"}
+    )
+    _EMERGENCY_COMMANDS = frozenset({"estop"})
+    _MOTION_COMMANDS = frozenset(
+        {
+            "move",
+            "command",
+            "gripper",
+            "grasp_close",
+            "grasp_release",
+            "gravity_mode",
+            "gripper_free_drive",
+            "record_start",
+            "record_play",
+            "dance",
+        }
+    )
 
     def _dispatch_request(self, cmd: str, args: dict) -> dict:
         handler = self._HANDLERS.get(cmd)
         if handler is None:
             return {"ok": False, "error": f"Unknown command '{cmd}'"}
+        if cmd in self._MOTION_COMMANDS:
+            rejected = self._reject_if_estopped()
+            if rejected is not None:
+                return rejected
+        if cmd in self._EMERGENCY_COMMANDS:
+            # E-stop must never queue behind a long blocking move/playback.
+            return handler(self, args)
         if cmd in self._CAMERA_READ_COMMANDS:
             # A fresh frame can wait for Kit and then spend tens of milliseconds
             # encoding. Keep camera requests serialized without holding the arm
             # command lock for that entire interval.
             with self._camera_lock:
                 return handler(self, args)
+        if cmd in self._READ_COMMANDS:
+            # Backends protect snapshots internally. Keep telemetry responsive
+            # while a blocking move owns the serialized command path.
+            return handler(self, args)
         with self._lock:
             return handler(self, args)
 

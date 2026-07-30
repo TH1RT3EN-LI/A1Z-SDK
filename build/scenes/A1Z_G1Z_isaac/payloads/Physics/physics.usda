@@ -4,17 +4,7 @@
         string creator = "URDF USD Converter v0.1.3"
     }
     defaultPrim = "A1Z_G1Z"
-    doc = """Generated from Composed Stage of root layer /tmp/tmpvz366sml/A1Z_G1Z.usdc
-
-
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_0moergj5/usdex_A1Z_G1Z_isaac/A1Z_G1Z.usdc
-
-
-Generated from Composed Stage of root layer /tmp/urdf_import_A1Z_G1Z_isaac_0moergj5/temp_A1Z_G1Z_isaac/A1Z_G1Z_isaac.usd
-
-
-Generated from Composed Stage of root layer /home/th1rt3en/dev/forge/A1Z/build/scenes/A1Z_G1Z_isaac/payloads/base.usd
-"""
+    doc = "Generated from A1Z_G1Z_isaac.urdf by Isaac Sim 6."
     kilogramsPerUnit = 1
     metersPerUnit = 1
     upAxis = "Z"
@@ -91,14 +81,24 @@ over "A1Z_G1Z"
                                     float physics:mass = 0.423356
                                     quatf physics:principalAxes = (0.99829113, 0.058241867, 0.0044376547, -0.0017233266)
 
+                                    over "camera_bracket_link" (
+                                        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+                                    )
+                                    {
+                                        point3f physics:centerOfMass = (0.0000076511, 0.010736432, 0.028306197)
+                                        float3 physics:diagonalInertia = (0.000005177181, 0.000017359916, 0.000017501057)
+                                        float physics:mass = 0.03
+                                        quatf physics:principalAxes = (-0.025080265, 0.70597774, 0.70116705, -0.096597955)
+                                    }
+
                                     over "d405_link" (
                                         prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
                                     )
                                     {
                                         point3f physics:centerOfMass = (0, 0, 0)
-                                        float3 physics:diagonalInertia = (0.000007, 0.000054, 0.000054)
+                                        float3 physics:diagonalInertia = (0.000006929722, 0.000053878568, 0.00005390615)
                                         float physics:mass = 0.001
-                                        quatf physics:principalAxes = (6.123234e-17, 0.70710677, 0.70710677, 0)
+                                        quatf physics:principalAxes = (-0.5, 0.5, 0.5, 0.5)
                                     }
 
                                     over "gripper_finger_left_link" (
@@ -109,16 +109,6 @@ over "A1Z_G1Z"
                                         float3 physics:diagonalInertia = (0.00000557385, 0.000021, 0.00002242615)
                                         float physics:mass = 0.02
                                         quatf physics:principalAxes = (-0.25456852, 0.90405387, 0.33969662, -0.04987669)
-
-                                        over "gripper_finger_left_link_1"
-                                        {
-                                            over "gripper_finger_left_link" (
-                                                prepend apiSchemas = ["MaterialBindingAPI"]
-                                            )
-                                            {
-                                                rel material:binding:physics = </A1Z_G1Z/PhysicsMaterials/A1ZGripperPad>
-                                            }
-                                        }
                                     }
 
                                     over "gripper_finger_rIght_link" (
@@ -129,16 +119,6 @@ over "A1Z_G1Z"
                                         float3 physics:diagonalInertia = (0.00000557385, 0.000021, 0.00002242615)
                                         float physics:mass = 0.02
                                         quatf physics:principalAxes = (0.90405387, 0.25456852, 0.04987669, 0.33969662)
-
-                                        over "gripper_finger_rIght_link_1"
-                                        {
-                                            over "gripper_finger_rIght_link" (
-                                                prepend apiSchemas = ["MaterialBindingAPI"]
-                                            )
-                                            {
-                                                rel material:binding:physics = </A1Z_G1Z/PhysicsMaterials/A1ZGripperPad>
-                                            }
-                                        }
                                     }
                                 }
                             }
@@ -146,20 +126,6 @@ over "A1Z_G1Z"
                     }
                 }
             }
-        }
-    }
-
-    def Scope "PhysicsMaterials"
-    {
-        def Material "A1ZGripperPad" (
-            prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
-        )
-        {
-            float physics:dynamicFriction = 1.5
-            float physics:restitution = 0
-            float physics:staticFriction = 2
-            token physxMaterial:frictionCombineMode = "max"
-            token physxMaterial:restitutionCombineMode = "min"
         }
     }
 
@@ -310,7 +276,7 @@ over "A1Z_G1Z"
             float drive:linear:physics:damping = 32
             float drive:linear:physics:maxForce = 120
             float drive:linear:physics:stiffness = 280
-            uniform token drive:linear:physics:type = "acceleration"
+            uniform token drive:linear:physics:type = "force"
             uniform token physics:axis = "Y"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6>
@@ -333,7 +299,7 @@ over "A1Z_G1Z"
             float drive:linear:physics:damping = 32
             float drive:linear:physics:maxForce = 120
             float drive:linear:physics:stiffness = 280
-            uniform token drive:linear:physics:type = "acceleration"
+            uniform token drive:linear:physics:type = "force"
             uniform token physics:axis = "Y"
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6>
@@ -361,15 +327,27 @@ over "A1Z_G1Z"
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
 
+        def PhysicsFixedJoint "camera_bracket_mount_joint"
+        {
+            custom rel physics:body0
+            prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6>
+            custom rel physics:body1
+            prepend rel physics:body1 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/camera_bracket_link>
+            point3f physics:localPos0 = (0.06842, 0, 0.06546)
+            point3f physics:localPos1 = (-2.524355e-29, 5.684342e-14, 0)
+            quatf physics:localRot0 = (0.5, -0.5, -0.5, 0.5)
+            quatf physics:localRot1 = (1, 8.106571e-15, 8.106571e-15, -8.106571e-15)
+        }
+
         def PhysicsFixedJoint "d405_mount_joint"
         {
             custom rel physics:body0
             prepend rel physics:body0 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6>
             custom rel physics:body1
             prepend rel physics:body1 = </A1Z_G1Z/Geometry/base_link/arm_link1/arm_link2/arm_link3/arm_link4/arm_link5/arm_link6/d405_link>
-            point3f physics:localPos0 = (0.08, 0, 0.086237)
+            point3f physics:localPos0 = (0.06505439, 0, 0.08376928)
             point3f physics:localPos1 = (0, 0, 0)
-            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot0 = (0.9958881, 0, -0.09059174, 0)
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
     }

@@ -222,11 +222,20 @@ class D405PayloadPerformanceTests(unittest.TestCase):
         np.testing.assert_array_equal(decode_array(payload["rgb"]), capture.rgb)
         np.testing.assert_array_equal(decode_array(payload["depth"]), capture.depth_m)
 
-    def test_camera_request_does_not_take_robot_command_lock(self) -> None:
+    def test_read_requests_do_not_take_robot_command_lock(self) -> None:
         class CameraSession:
             @staticmethod
             def health():
                 return {"ready": True}
+
+        class Robot:
+            @staticmethod
+            def get_joint_state():
+                return {
+                    "pos": np.zeros(6),
+                    "vel": np.zeros(6),
+                    "eff": np.zeros(6),
+                }
 
         class RaisingLock:
             def __enter__(self):
@@ -235,14 +244,15 @@ class D405PayloadPerformanceTests(unittest.TestCase):
             def __exit__(self, *_args):
                 return False
 
-        server = RobotServer(object(), with_gripper=False, camera_session=CameraSession())
+        server = RobotServer(Robot(), with_gripper=False, camera_session=CameraSession())
         server._lock = RaisingLock()
 
         result = server._dispatch_request("camera_status", {})
 
         self.assertEqual(result, {"ok": True, "data": {"ready": True}})
+        self.assertTrue(server._dispatch_request("status", {})["ok"])
         with self.assertRaisesRegex(AssertionError, "robot command lock"):
-            server._dispatch_request("status", {})
+            server._dispatch_request("move", {"preset": "home"})
 
     def test_on_demand_capture_waits_for_a_new_render_generation_and_keeps_graph_warm(self) -> None:
         session = self._bare_session()
