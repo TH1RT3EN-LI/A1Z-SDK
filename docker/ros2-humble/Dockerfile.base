@@ -1,13 +1,14 @@
 FROM ros:humble-ros-base
 
 ENV DEBIAN_FRONTEND=noninteractive
+ARG PIP_INDEX_URL=https://pypi.org/simple
 
 RUN apt-get update && apt-get install -y \
     python3-colcon-common-extensions \
     python3-pip \
     ros-humble-tf2-ros \
     ros-humble-tf2-geometry-msgs \
-    && pip3 install --no-cache-dir pin==4.0.0 \
+    && pip3 install --no-cache-dir --index-url "$PIP_INDEX_URL" pin==4.0.0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace/A1Z/ros2_ws

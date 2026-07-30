@@ -17,8 +17,13 @@ stop or power disconnect.
 
 The real ROS container uses host networking for SocketCAN visibility, mounts
 `/dev/bus/usb`, grants USB character devices (`major 189`), and has
-`NET_ADMIN` for explicit CAN setup. These permissions are added only by the
-`real` profile.
+`NET_ADMIN` for explicit CAN setup. It also adds the container process to
+numeric group `0`, because hosts without RealSense udev rules commonly expose
+USB nodes as `root:root 0664`; host permissions and device paths are not
+rewritten. The launcher discovers the selected RealSense adapter's current
+V4L2/media nodes from their USB ancestry and maps them automatically, so no
+`/dev/videoN`, serial number, or USB port is hard-coded. These permissions are
+added only by the `real` profile.
 
 The image includes `python3-can`, `iproute2`, `can-utils`, and
 `ros-humble-realsense2-camera`.

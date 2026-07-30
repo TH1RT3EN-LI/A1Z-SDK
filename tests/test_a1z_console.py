@@ -27,6 +27,9 @@ def test_real_and_sim_console_endpoints_are_isolated() -> None:
     assert profiles["sim"].port == 37103
     assert profiles["real"].port == 37104
     assert profiles["sim"].port != profiles["real"].port
+    assert profiles["sim"].camera_port == 37203
+    assert profiles["real"].camera_port == 37204
+    assert profiles["sim"].camera_port != profiles["real"].camera_port
 
 
 def _serve_once(response: dict, *, close_without_response: bool = False) -> tuple[int, list[dict]]:
@@ -95,6 +98,114 @@ def test_backend_identity_mismatch_fails_closed() -> None:
     with pytest.raises(BackendMismatchError):
         A1ZProtocolClient(profile).verify_backend(timeout_s=1.0)
     assert [request["cmd"] for request in requests] == ["info"]
+
+
+def test_camera_bridge_is_profile_isolated_and_independent_of_robot_endpoint() -> None:
+    from a1z_console.camera_protocol import CameraProtocolClient
+    from a1z_console.profiles import RuntimeProfile
+
+    port, requests = _serve_once(
+        {
+            "ok": True,
+            "data": {
+                "profile": "real",
+                "ready": True,
+                "camera_source": "realsense",
+                "width": 640,
+                "height": 480,
+            },
+        }
+    )
+    profile = RuntimeProfile(
+        name="real",
+        label="真机",
+        expected_backend="socketcan",
+        host="127.0.0.1",
+        port=1,
+        socket_path="",
+        environment={},
+        camera_host="127.0.0.1",
+        camera_port=port,
+    )
+    result = CameraProtocolClient(profile).request(
+        "camera_status",
+        timeout_s=1.0,
+    )
+    assert result["ready"] is True
+    assert [request["cmd"] for request in requests] == ["camera_status"]
+
+
+def test_camera_bridge_rejects_another_profile() -> None:
+    from a1z_console.camera_protocol import (
+        CameraProfileMismatchError,
+        CameraProtocolClient,
+    )
+    from a1z_console.profiles import RuntimeProfile
+
+    port, _requests = _serve_once(
+        {"ok": True, "data": {"profile": "sim", "ready": True}}
+    )
+    profile = RuntimeProfile(
+        name="real",
+        label="真机",
+        expected_backend="socketcan",
+        host="127.0.0.1",
+        port=37104,
+        socket_path="",
+        environment={},
+        camera_host="127.0.0.1",
+        camera_port=port,
+    )
+    with pytest.raises(CameraProfileMismatchError):
+        CameraProtocolClient(profile).request("camera_status", timeout_s=1.0)
+
+
+def test_rgbd_preview_is_generated_without_video_node_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    np = pytest.importorskip("numpy")
+    monkeypatch.syspath_prepend(str(ROOT / "ros2_ws" / "src" / "a1z_d405"))
+    from a1z_d405.console_bridge import compose_rgbd_preview_png
+    from a1z_ext.runtime.image_input import read_image_size
+
+    rgb = np.zeros((48, 64, 3), dtype=np.uint8)
+    rgb[:, :, 0] = np.arange(64, dtype=np.uint8)
+    depth = np.linspace(0.08, 0.5, 48 * 64, dtype=np.float32).reshape(48, 64)
+    png = compose_rgbd_preview_png(rgb, depth, max_width=96)
+
+    path = ROOT / "runtime" / "test-camera-preview.png"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(png)
+        width, height = read_image_size(path)
+    finally:
+        path.unlink(missing_ok=True)
+    assert width <= 96
+    assert height > 0
+
+
+def test_console_camera_path_uses_ros_topics_not_video_node_numbers() -> None:
+    preview = (ROOT / "scripts" / "d405_mosaic_preview.py").read_text()
+    qml = (CONSOLE_ROOT / "qml" / "A1ZConsole" / "SdkFunctionsPage.qml").read_text()
+    main_qml = (CONSOLE_ROOT / "qml" / "A1ZConsole" / "Main.qml").read_text()
+    controller = (
+        CONSOLE_ROOT / "a1z_console" / "controller.py"
+    ).read_text()
+    launch = (
+        ROOT
+        / "ros2_ws"
+        / "src"
+        / "a1z_motion"
+        / "launch"
+        / "a1z_stack.launch.py"
+    ).read_text()
+
+    assert "/dev/video" not in preview
+    assert "cameraPreviewSource" in qml
+    assert "cameraBridgeOnline" in main_qml
+    assert "控制服务离线" in main_qml
+    assert "if self._camera_ready:" in controller
+    assert "camera_console_bridge" in launch
 
 
 def test_anygrasp_summary_outputs_pose_and_joint_degrees(tmp_path: Path) -> None:

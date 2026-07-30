@@ -106,6 +106,7 @@ if [[ "$ACTION" == "stop" || "$ACTION" == "restart" || "$ACTION" == "status" ]];
       for pattern in \
         '/opt/ros/humble/bin/ros2 launch a1z_motion a1z_stack.launch.py' \
         '/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/isaac_d405_bridge' \
+        '/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/camera_console_bridge' \
         '/opt/ros/humble/lib/realsense2_camera/realsense2_camera_node' \
         '/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state' \
         '/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor'
@@ -123,7 +124,7 @@ if [[ "$ACTION" == "stop" || "$ACTION" == "restart" || "$ACTION" == "status" ]];
       rm -f '$RUN_PID_PATH'
       exit 0
     fi
-    ps -eo pid=,args= | grep -E 'a1z_stack.launch.py|a1z_motion/robot_state|a1z_motion/motion_executor|a1z_d405/isaac_d405_bridge|realsense2_camera_node' | grep -v grep
+    ps -eo pid=,args= | grep -E 'a1z_stack.launch.py|a1z_motion/robot_state|a1z_motion/motion_executor|a1z_d405/isaac_d405_bridge|a1z_d405/camera_console_bridge|realsense2_camera_node' | grep -v grep
   "
   [[ "$ACTION" == "status" || "$ACTION" == "stop" ]] && exit 0
 fi
@@ -141,6 +142,9 @@ docker exec \
   -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-62}" \
   -e A1Z_PROFILE="${A1Z_PROFILE:-sim}" \
   -e A1Z_CAMERA_SOURCE="${A1Z_CAMERA_SOURCE}" \
+  -e A1Z_CAMERA_BRIDGE_HOST="${A1Z_CAMERA_BRIDGE_HOST:-127.0.0.1}" \
+  -e A1Z_CAMERA_BRIDGE_PORT="${A1Z_CAMERA_BRIDGE_PORT}" \
+  -e A1Z_CAMERA_PREVIEW_MAX_WIDTH="${A1Z_CAMERA_PREVIEW_MAX_WIDTH:-960}" \
   -e A1Z_CONTROL_URDF="${A1Z_CONTROL_URDF:-/workspace/A1Z/build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_control.urdf}" \
   -e A1Z_SDK_DIR="${A1Z_SDK_DIR:-/workspace/A1Z/vendor/GALAXEA-A1Z}" \
   -e A1Z_REPO_ROOT="${A1Z_REPO_ROOT:-/workspace/A1Z}" \
@@ -155,9 +159,17 @@ docker exec \
   -e A1Z_D405_COLOR_FRAME_ID="${A1Z_D405_COLOR_FRAME_ID:-d405_color_optical_frame}" \
   -e A1Z_D405_DEPTH_FRAME_ID="${A1Z_D405_DEPTH_FRAME_ID:-d405_depth_optical_frame}" \
   -e A1Z_D405_SERIAL_NO="${A1Z_D405_SERIAL_NO:-}" \
+  -e A1Z_REALSENSE_CAMERA_NAME="${A1Z_REALSENSE_CAMERA_NAME:-d405}" \
+  -e A1Z_REALSENSE_BASE_FRAME_ID="${A1Z_REALSENSE_BASE_FRAME_ID:-link}" \
+  -e A1Z_REALSENSE_INITIAL_RESET="${A1Z_REALSENSE_INITIAL_RESET:-0}" \
   -e A1Z_D405_WIDTH="${A1Z_D405_WIDTH:-640}" \
   -e A1Z_D405_HEIGHT="${A1Z_D405_HEIGHT:-480}" \
   -e A1Z_D405_FPS="${A1Z_D405_FPS:-30}" \
+  -e A1Z_RGBD_TARGET_FRAME="${A1Z_RGBD_TARGET_FRAME:-base_link}" \
+  -e A1Z_RGBD_COLOR_TOPIC="${A1Z_RGBD_COLOR_TOPIC}" \
+  -e A1Z_RGBD_COLOR_INFO_TOPIC="${A1Z_RGBD_COLOR_INFO_TOPIC}" \
+  -e A1Z_RGBD_DEPTH_TOPIC="${A1Z_RGBD_DEPTH_TOPIC}" \
+  -e A1Z_RGBD_DEPTH_INFO_TOPIC="${A1Z_RGBD_DEPTH_INFO_TOPIC}" \
   "${DOCKER_TTY_ARGS[@]}" "$ROS_CONTAINER_NAME" \
   bash -lc '
     set -euo pipefail
@@ -168,6 +180,7 @@ docker exec \
       for pattern in \
         "/opt/ros/humble/bin/ros2 launch a1z_motion a1z_stack.launch.py" \
         "/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/isaac_d405_bridge" \
+        "/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/camera_console_bridge" \
         "/opt/ros/humble/lib/realsense2_camera/realsense2_camera_node" \
         "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state" \
         "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor"
@@ -183,6 +196,7 @@ docker exec \
       for pattern in \
         "/opt/ros/humble/bin/ros2 launch a1z_motion a1z_stack.launch.py" \
         "/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/isaac_d405_bridge" \
+        "/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/camera_console_bridge" \
         "/opt/ros/humble/lib/realsense2_camera/realsense2_camera_node" \
         "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state" \
         "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor"

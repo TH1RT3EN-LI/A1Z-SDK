@@ -20,7 +20,10 @@ Start the console from the repository root:
 The first launch installs an isolated Qt/PySide runtime below
 `runtime/a1z-console-python`. The GUI uses separate endpoints for simulation
 (`37103`) and hardware (`37104`), verifies the reported backend before every
-motion transaction, and never retries a motion request.
+motion transaction, and never retries a motion request. RGB-D preview uses a
+separate profile-isolated ROS bridge (`37203` for simulation, `37204` for
+hardware), so it does not depend on the robot-control service or a
+`/dev/video*` number.
 
 Run the read-only profile checks independently with:
 

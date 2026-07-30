@@ -29,7 +29,12 @@ ApplicationWindow {
             window.controller.neutralizeUi()
     }
     onClosing: window.controller.neutralizeUi()
-    onCurrentPageChanged: window.controller.neutralizeUi()
+    onCurrentPageChanged: {
+        window.controller.neutralizeUi()
+        window.controller.setCameraPreviewEnabled(currentPage === 0 || currentPage === 3)
+    }
+    Component.onCompleted: window.controller.setCameraPreviewEnabled(
+                               currentPage === 0 || currentPage === 3)
 
     Theme { id: theme }
 
@@ -98,12 +103,22 @@ ApplicationWindow {
 
                 StatusPill {
                     theme: window.appTheme
-                    text: !window.controller.connected ? qsTr("服务离线")
+                    text: !window.controller.connected ? qsTr("控制服务离线")
                           : window.controller.backendMatched
-                            ? qsTr("%1 在线").arg(window.controller.backend)
-                            : qsTr("身份未通过")
+                            ? qsTr("控制 %1 在线").arg(window.controller.backend)
+                            : qsTr("控制身份未通过")
                     level: window.controller.connected && window.controller.backendMatched
                            ? "ok" : "error"
+                }
+                StatusPill {
+                    theme: window.appTheme
+                    text: !window.controller.cameraBridgeOnline
+                          ? qsTr("相机桥离线")
+                          : window.controller.cameraReady
+                            ? qsTr("RGB-D 在线")
+                            : qsTr("相机桥在线 · 无帧")
+                    level: window.controller.cameraReady ? "ok"
+                           : window.controller.cameraBridgeOnline ? "warn" : "error"
                 }
                 StatusPill {
                     theme: window.appTheme

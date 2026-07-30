@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "console"))
 
 from a1z_console.profiles import load_profiles  # noqa: E402
+from a1z_console.camera_protocol import CameraProtocolClient  # noqa: E402
 from a1z_console.protocol import A1ZProtocolClient  # noqa: E402
 
 
@@ -59,6 +60,42 @@ def workspace_path(raw: str) -> Path:
     if raw.startswith(prefix):
         return ROOT / raw[len(prefix) :]
     return Path(raw)
+
+
+def find_realsense_usb_devices() -> list[str]:
+    """Discover RealSense USB devices by descriptors, never by bus/node number."""
+
+    devices: list[str] = []
+    usb_root = Path("/sys/bus/usb/devices")
+    if not usb_root.is_dir():
+        return devices
+    for device in usb_root.iterdir():
+        product_path = device / "product"
+        if not product_path.is_file():
+            continue
+        try:
+            product = product_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if "realsense" not in product.lower():
+            continue
+        serial_path = device / "serial"
+        speed_path = device / "speed"
+        try:
+            serial = (
+                serial_path.read_text(encoding="utf-8").strip()
+                if serial_path.is_file()
+                else "unknown"
+            )
+            speed = (
+                speed_path.read_text(encoding="utf-8").strip()
+                if speed_path.is_file()
+                else "unknown"
+            )
+        except OSError:
+            serial, speed = "unknown", "unknown"
+        devices.append(f"{product} · serial={serial} · USB {speed} Mb/s")
+    return devices
 
 
 def main() -> int:
@@ -106,6 +143,24 @@ def main() -> int:
     ros_ok, ros_detail = docker_running(ros_name)
     checks.append(check("ROS 2 容器", ros_ok, ros_detail))
 
+    try:
+        camera_status = CameraProtocolClient(profile).request(
+            "camera_status",
+            timeout_s=2.0,
+        )
+        camera_ok = bool(camera_status.get("ready", False))
+        camera_detail = (
+            f"{profile.camera_host}:{profile.camera_port} · "
+            f"{camera_status.get('camera_source', 'unknown')} · "
+            f"{camera_status.get('width', '—')}×{camera_status.get('height', '—')} · "
+            f"RGB={camera_status.get('color_topic', '—')} · "
+            f"Depth={camera_status.get('depth_topic', '—')}"
+        )
+    except Exception as exc:
+        camera_ok = False
+        camera_detail = str(exc)
+    checks.append(check("GUI RGB-D 相机桥", camera_ok, camera_detail))
+
     if args.profile == "sim":
         isaac_name = env.get("ISAAC_SIM_CONTAINER_NAME", "")
         isaac_ok, isaac_detail = docker_running(isaac_name)
@@ -133,12 +188,14 @@ def main() -> int:
             can_ok, can_detail = False, "真机容器未运行"
         checks.append(check("SocketCAN", can_ok, can_detail))
 
-        usb_root = Path("/dev/bus/usb")
+        realsense_devices = find_realsense_usb_devices()
         checks.append(
             check(
-                "D405 USB 映射",
-                usb_root.exists() and any(usb_root.glob("*/*")),
-                "/dev/bus/usb 可见" if usb_root.exists() else "/dev/bus/usb 不存在",
+                "RealSense USB 枚举",
+                bool(realsense_devices),
+                "；".join(realsense_devices)
+                if realsense_devices
+                else "未发现带 RealSense 产品描述符的 USB 设备",
             )
         )
         calibration = env.get("A1Z_HAND_EYE_CALIBRATION_STATUS", "missing")
@@ -168,15 +225,16 @@ def main() -> int:
         )
     )
 
-    d405_status_path = ROOT / "logs" / "d405-wrist-camera.status"
-    checks.append(
-        check(
-            "D405 状态文件",
-            d405_status_path.is_file(),
-            str(d405_status_path),
-            severity="advisory",
+    if args.profile == "sim":
+        d405_status_path = ROOT / "logs" / "d405-wrist-camera.status"
+        checks.append(
+            check(
+                "仿真 D405 状态文件",
+                d405_status_path.is_file(),
+                str(d405_status_path),
+                severity="advisory",
+            )
         )
-    )
 
     required_failures = [
         item for item in checks if item["severity"] == "required" and not item["ok"]

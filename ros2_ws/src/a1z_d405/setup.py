@@ -22,6 +22,7 @@ setup(
     entry_points={
         "console_scripts": [
             "isaac_d405_bridge = a1z_d405.publisher:main",
+            "camera_console_bridge = a1z_d405.console_bridge:main",
         ],
     },
 )

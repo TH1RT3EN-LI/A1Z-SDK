@@ -162,7 +162,7 @@ Item {
 
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 132
+                Layout.preferredHeight: 230
                 theme: root.theme
 
                 ColumnLayout {
@@ -177,24 +177,64 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
+                        Layout.fillHeight: true
                         spacing: root.theme.spacingS
 
-                        MetricTile {
+                        Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 66
-                            theme: root.theme
-                            label: qsTr("D405")
-                            value: root.controller.cameraSummary
-                            accentColor: root.theme.cyan
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: 2
+                            radius: root.theme.radiusControl
+                            color: "#FF0B0E13"
+                            border.color: root.controller.cameraReady
+                                          ? root.theme.cyan : root.theme.border
+                            border.width: 1
+                            clip: true
+
+                            Image {
+                                anchors.fill: parent
+                                anchors.margins: 6
+                                source: root.controller.cameraPreviewSource
+                                fillMode: Image.PreserveAspectFit
+                                asynchronous: true
+                                cache: false
+                                smooth: true
+                                visible: root.controller.cameraPreviewSource.length > 0
+                            }
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: qsTr("等待 ROS RGB-D 预览")
+                                visible: root.controller.cameraPreviewSource.length === 0
+                                color: root.theme.tertiaryText
+                                font.family: root.theme.fontFamily
+                                font.pixelSize: root.theme.typeBody
+                            }
                         }
 
-                        MetricTile {
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 66
-                            theme: root.theme
-                            label: qsTr("示教轨迹")
-                            value: root.controller.recordingSummary
-                            accentColor: root.theme.purple
+                            Layout.fillHeight: true
+                            Layout.preferredWidth: 1
+                            spacing: root.theme.spacingS
+
+                            MetricTile {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                theme: root.theme
+                                label: qsTr("RGB-D 相机")
+                                value: root.controller.cameraSummary
+                                accentColor: root.theme.cyan
+                            }
+
+                            MetricTile {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                theme: root.theme
+                                label: qsTr("示教轨迹")
+                                value: root.controller.recordingSummary
+                                accentColor: root.theme.purple
+                            }
                         }
                     }
                 }

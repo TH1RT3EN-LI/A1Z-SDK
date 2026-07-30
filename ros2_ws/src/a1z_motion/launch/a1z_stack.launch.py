@@ -8,6 +8,13 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _real_d405_node() -> Node:
     width = int(os.environ.get("A1Z_D405_WIDTH", "640"))
     height = int(os.environ.get("A1Z_D405_HEIGHT", "480"))
@@ -16,12 +23,14 @@ def _real_d405_node() -> Node:
     serial = os.environ.get("A1Z_D405_SERIAL_NO", "").strip()
     parameters = {
         "device_type": "d405",
+        "camera_name": os.environ.get("A1Z_REALSENSE_CAMERA_NAME", "d405"),
+        "base_frame_id": os.environ.get("A1Z_REALSENSE_BASE_FRAME_ID", "link"),
         "enable_color": True,
         "enable_depth": True,
         "enable_sync": True,
         "align_depth.enable": True,
         "publish_tf": False,
-        "initial_reset": True,
+        "initial_reset": _env_bool("A1Z_REALSENSE_INITIAL_RESET", False),
         "depth_module.depth_profile": profile,
         "depth_module.color_profile": profile,
     }
@@ -57,6 +66,12 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             camera_node,
+            Node(
+                package="a1z_d405",
+                executable="camera_console_bridge",
+                name="a1z_camera_console_bridge",
+                output="screen",
+            ),
             Node(
                 package="a1z_motion",
                 executable="robot_state",

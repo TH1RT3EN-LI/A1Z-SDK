@@ -15,6 +15,8 @@ class RuntimeProfile:
     port: int
     socket_path: str
     environment: dict[str, str]
+    camera_host: str = "127.0.0.1"
+    camera_port: int = 0
 
 
 def _read_env(path: Path) -> dict[str, str]:
@@ -47,5 +49,7 @@ def load_profiles(repo_root: Path) -> dict[str, RuntimeProfile]:
             port=int(env.get("A1Z_TCP_PORT", "0")),
             socket_path=env.get("A1Z_SOCKET_PATH", ""),
             environment=env,
+            camera_host=env.get("A1Z_CAMERA_BRIDGE_HOST", "127.0.0.1"),
+            camera_port=int(env.get("A1Z_CAMERA_BRIDGE_PORT", "0")),
         )
     return profiles

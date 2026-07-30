@@ -26,6 +26,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from .camera_protocol import CameraProtocolClient
 from .plan_parser import summarize_pipeline
 from .profiles import RuntimeProfile, load_profiles
 from .protocol import (
@@ -40,6 +41,7 @@ class _ThreadBridge(QObject):
     operationFinished = Signal(object)
     telemetryFinished = Signal(object)
     emergencyFinished = Signal(object)
+    cameraFinished = Signal(object)
 
 
 class ConsoleController(QObject):
@@ -73,7 +75,16 @@ class ConsoleController(QObject):
         self._joint_rows = self._empty_joint_rows()
         self._gripper: float | None = None
         self._info: dict[str, Any] = {}
-        self._camera_summary = "未检测"
+        self._camera_summary = "相机桥未连接"
+        self._camera_details = "等待 ROS RGB-D 链路"
+        self._camera_preview_source = ""
+        self._camera_bridge_online = False
+        self._camera_ready = False
+        self._camera_busy = False
+        self._camera_pending = False
+        self._camera_preview_enabled = False
+        self._camera_poll_counter = 0
+        self._camera_last_state = ""
         self._recording_summary = "未录制"
         self._gripper_free_drive = False
         self._ee_pose_text = "尚未读取 FK"
@@ -99,10 +110,15 @@ class ConsoleController(QObject):
             max_workers=1,
             thread_name_prefix="a1z-console-estop",
         )
+        self._camera_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="a1z-console-camera",
+        )
         self._bridge = _ThreadBridge(self)
         self._bridge.operationFinished.connect(self._on_operation_finished)
         self._bridge.telemetryFinished.connect(self._on_telemetry_finished)
         self._bridge.emergencyFinished.connect(self._on_emergency_finished)
+        self._bridge.cameraFinished.connect(self._on_camera_finished)
 
         self._telemetry_timer = QTimer(self)
         self._telemetry_timer.setInterval(700)
@@ -114,8 +130,14 @@ class ConsoleController(QObject):
         self._age_timer.timeout.connect(self._update_telemetry_age)
         self._age_timer.start()
 
+        self._camera_timer = QTimer(self)
+        self._camera_timer.setInterval(1000)
+        self._camera_timer.timeout.connect(self._poll_camera)
+        self._camera_timer.start()
+
         self._append_log("A1Z Console 已启动；运动命令自动重发已禁用。")
         QTimer.singleShot(50, self.refreshNow)
+        QTimer.singleShot(150, self._poll_camera)
 
     # ------------------------------------------------------------------
     # Qt properties
@@ -240,6 +262,26 @@ class ConsoleController(QObject):
         return self._camera_summary
 
     @Property(str, notify=stateChanged)
+    def cameraDetails(self) -> str:
+        return self._camera_details
+
+    @Property(str, notify=stateChanged)
+    def cameraPreviewSource(self) -> str:
+        return self._camera_preview_source
+
+    @Property(bool, notify=stateChanged)
+    def cameraBridgeOnline(self) -> bool:
+        return self._camera_bridge_online
+
+    @Property(bool, notify=stateChanged)
+    def cameraReady(self) -> bool:
+        return self._camera_ready
+
+    @Property(bool, notify=stateChanged)
+    def cameraBusy(self) -> bool:
+        return self._camera_busy
+
+    @Property(str, notify=stateChanged)
     def recordingSummary(self) -> str:
         return self._recording_summary
 
@@ -328,12 +370,22 @@ class ConsoleController(QObject):
         self._gripper = None
         self._gripper_free_drive = False
         self._info = {}
+        self._camera_summary = "相机桥未连接"
+        self._camera_details = "正在核验所选配置的 ROS RGB-D 链路"
+        self._camera_preview_source = ""
+        self._camera_bridge_online = False
+        self._camera_ready = False
+        self._camera_busy = False
+        self._camera_pending = False
+        self._camera_poll_counter = 0
+        self._camera_last_state = ""
         self._append_log(
             f"运行配置切换为 {self._profile.label}："
             f"{self._profile.expected_backend} @ {self.endpoint}"
         )
         self.stateChanged.emit()
         self.refreshNow()
+        QTimer.singleShot(100, self._poll_camera)
 
     @Slot()
     def refreshNow(self) -> None:
@@ -1110,18 +1162,191 @@ class ConsoleController(QObject):
         if command not in allowed:
             self._set_error("相机命令不在允许列表中")
             return
-        self._submit_verified(
-            {
-                "camera_status": "读取 D405 状态",
-                "camera_capture": "采集一帧 D405",
-                "camera_extrinsic": "读取相机外参",
-            }[command],
+        self._request_camera(
             command,
-            {"fresh": True} if command == "camera_capture" else {},
-            motion=False,
-            timeout_s=20.0,
-            result_handler="camera",
+            manual=True,
+            args={"preview_max_width": 960}
+            if command == "camera_capture"
+            else {},
         )
+
+    @Slot(bool)
+    def setCameraPreviewEnabled(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if self._camera_preview_enabled == enabled:
+            return
+        self._camera_preview_enabled = enabled
+        self._camera_poll_counter = 0
+        if enabled:
+            self._poll_camera()
+
+    def _poll_camera(self) -> None:
+        if self._camera_pending:
+            return
+        self._camera_poll_counter += 1
+        if self._camera_preview_enabled:
+            if self._camera_ready:
+                self._request_camera(
+                    "camera_capture",
+                    manual=False,
+                    args={"preview_max_width": 960},
+                )
+            else:
+                self._request_camera("camera_status", manual=False)
+        elif self._camera_poll_counter == 1 or self._camera_poll_counter >= 3:
+            self._camera_poll_counter = 0
+            self._request_camera("camera_status", manual=False)
+
+    def _request_camera(
+        self,
+        command: str,
+        *,
+        manual: bool,
+        args: dict[str, Any] | None = None,
+    ) -> None:
+        if self._camera_pending:
+            if manual:
+                self._set_error("已有相机请求正在执行")
+            return
+        labels = {
+            "camera_status": "读取 RGB-D 状态",
+            "camera_capture": "采集 RGB-D 预览",
+            "camera_extrinsic": "读取相机外参",
+        }
+        label = labels[command]
+        profile = self._profile
+        generation = self._profile_generation
+        self._camera_pending = True
+        self._camera_busy = True
+        if manual:
+            self._last_error = ""
+            self._status_text = f"{label}执行中"
+            self._append_log(f"开始：{label}")
+        self.stateChanged.emit()
+
+        def operation() -> dict[str, Any]:
+            data = CameraProtocolClient(profile).request(
+                command,
+                args,
+                timeout_s=5.0 if command == "camera_capture" else 3.0,
+            )
+            return {
+                "generation": generation,
+                "command": command,
+                "label": label,
+                "manual": manual,
+                "data": data,
+            }
+
+        future = self._camera_executor.submit(operation)
+
+        def done(completed: Future[dict[str, Any]]) -> None:
+            try:
+                payload = {"ok": True, **completed.result()}
+            except Exception as exc:
+                payload = {
+                    "ok": False,
+                    "generation": generation,
+                    "command": command,
+                    "label": label,
+                    "manual": manual,
+                    "error": str(exc),
+                }
+            self._bridge.cameraFinished.emit(payload)
+
+        future.add_done_callback(done)
+
+    @Slot(object)
+    def _on_camera_finished(self, payload: object) -> None:
+        result = dict(payload)
+        if int(result.get("generation", -1)) != self._profile_generation:
+            return
+        self._camera_pending = False
+        self._camera_busy = False
+        manual = bool(result.get("manual", False))
+        label = str(result.get("label", "相机请求"))
+        if not result.get("ok"):
+            message = str(result.get("error", "相机桥请求失败"))
+            self._camera_bridge_online = False
+            self._camera_ready = False
+            self._camera_summary = "相机桥离线"
+            self._camera_details = message
+            state = f"error:{message}"
+            if manual:
+                self._last_error = message
+                self._status_text = f"{label}失败"
+                self._append_log(f"失败：{label}：{message}")
+                self.operationFinished.emit(label, False, message)
+            elif state != self._camera_last_state:
+                self._append_log(f"相机链路离线：{message}")
+            self._camera_last_state = state
+            self.stateChanged.emit()
+            return
+
+        data = dict(result.get("data", {}) or {})
+        command = str(result.get("command", ""))
+        self._camera_bridge_online = True
+        ready = bool(data.get("ready", True))
+        self._camera_ready = ready
+        width = int(data.get("width", 0) or 0)
+        height = int(data.get("height", 0) or 0)
+        source = str(data.get("camera_source", "ROS"))
+        if width > 0 and height > 0:
+            self._camera_summary = (
+                f"{width}×{height} · {source} · "
+                f"{'在线' if ready else '等待帧'}"
+            )
+        else:
+            self._camera_summary = (
+                f"{source} · {'在线' if ready else '等待 RGB-D 帧'}"
+            )
+
+        if command == "camera_capture":
+            preview_b64 = str(data.pop("preview_png_b64", ""))
+            preview_mime = str(data.pop("preview_mime", "image/png"))
+            if preview_b64:
+                self._camera_preview_source = (
+                    f"data:{preview_mime};base64,{preview_b64}"
+                )
+            depth_range = data.get("depth_range_m")
+            depth_text = ""
+            if isinstance(depth_range, list) and len(depth_range) == 2:
+                depth_text = (
+                    f" · 深度 {float(depth_range[0]):.3f}–"
+                    f"{float(depth_range[1]):.3f} m"
+                )
+            self._camera_details = (
+                f"RGB {data.get('rgb_encoding', '—')} · "
+                f"Depth {data.get('depth_encoding', '—')} · "
+                f"同步差 {float(data.get('sync_delta_ms', 0.0)):.1f} ms"
+                f"{depth_text}"
+            )
+        elif command == "camera_extrinsic":
+            matrix = data.get("extrinsic_camera_to_target")
+            self._camera_details = (
+                f"{data.get('camera_frame_id', 'camera')} → "
+                f"{data.get('target_frame_id', 'target')} · "
+                f"{data.get('lookup_mode', 'unknown')} · "
+                f"T={json.dumps(matrix, ensure_ascii=False)}"
+            )
+        else:
+            self._camera_details = (
+                f"{data.get('color_topic', '—')} + "
+                f"{data.get('depth_topic', '—')} · "
+                f"同步={'是' if data.get('synchronized') else '否'} · "
+                f"外参={'就绪' if data.get('extrinsic_ready') else '等待'}"
+            )
+
+        state = f"ready:{ready}:{width}x{height}:{source}"
+        if state != self._camera_last_state:
+            self._append_log(f"相机链路：{self._camera_summary}")
+        self._camera_last_state = state
+        if manual:
+            self._last_error = ""
+            self._status_text = f"{label}完成"
+            self._append_log(f"完成：{label} · {self._camera_details}")
+            self.operationFinished.emit(label, True, self._status_text)
+        self.stateChanged.emit()
 
     # ------------------------------------------------------------------
     # Process tasks: lifecycle, AnyGrasp, ROS, preflight, maintenance
@@ -1525,8 +1750,10 @@ class ConsoleController(QObject):
     def shutdown(self) -> None:
         self._telemetry_timer.stop()
         self._age_timer.stop()
+        self._camera_timer.stop()
         if self._process is not None and self._process.state() != QProcess.NotRunning:
             self.cancelTask()
             self._process.waitForFinished(1500)
         self._executor.shutdown(wait=False, cancel_futures=True)
         self._emergency_executor.shutdown(wait=False, cancel_futures=True)
+        self._camera_executor.shutdown(wait=False, cancel_futures=True)

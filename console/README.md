@@ -15,6 +15,8 @@ Qt 6 / QML 桌面控制台，参考 `duojin_l1w_control_gui` 的控制器与界�
 - 末端点动使用官方 Pinocchio FK/IK，保留 2° 关节裕量，并拒绝超过 15° 的
   单步 IK 分支跳变；
 - AnyGrasp 分为“只计算并审阅”和“执行当前已审阅计划”，两者不是同一个按钮。
+- RGB-D 预览统一订阅配置选定的 ROS 主题；GUI 不直接打开 USB 或
+  `/dev/video*`，仿真与真机使用同一条相机桥协议。
 
 ## 启动
 
@@ -47,7 +49,8 @@ Python 包目录。
 - 运行总览：连接、后端身份、控制模式、六轴角度/速度/力矩/温度/故障码。
 - 手动控制：J1–J6 点动与绝对目标，Base/Tool 末端平移和姿态点动，夹爪控制。
 - AnyGrasp：只计算、计划安全审阅、dry-run、显式实际执行。
-- SDK 功能：服务生命周期、零力/保持、预置位、动作序列、示教、夹爪、D405。
+- SDK 功能：服务生命周期、零力/保持、预置位、动作序列、示教、夹爪，以及
+  RGB/Depth 同步预览、链路状态和相机外参。
 - 诊断与日志：全链路预检、ROS 管理、官方 CAN 工具和受保护的校零入口。
 
 ## 验证
@@ -59,3 +62,17 @@ PYTHONPATH=runtime/a1z-console-python \
   -I console/qml console/qml/A1ZConsole/*.qml
 python3 -m pytest -q tests/test_a1z_console.py
 ```
+
+## RGB-D 预览链路
+
+相机预览不依赖机械臂控制端点。先启动所选 profile 的 ROS 2 栈：
+
+```bash
+A1Z_PROFILE=sim ./scripts/run_a1z_ros2_stack_in_container.sh start
+A1Z_PROFILE=real ./scripts/run_a1z_ros2_stack_in_container.sh start
+```
+
+设备适配器负责发现/独占物理设备或读取仿真相机，随后发布
+`A1Z_RGBD_*_TOPIC` 约定。`camera_console_bridge` 将这组主题提供给 GUI：
+SIM 使用 `37203`，REAL 使用 `37204`。两个 profile 的端点隔离，且整个 GUI
+链路不引用动态变化的 V4L2 节点编号。

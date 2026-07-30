@@ -12,6 +12,8 @@ case "$A1Z_PROFILE_NAME" in
     ;;
 esac
 
+declare -A A1Z_LOADED_ENV_KEYS=()
+
 load_env_file() {
   local env_file="$1"
   [[ -f "$env_file" ]] || {
@@ -25,8 +27,12 @@ load_env_file() {
     key="${key%"${key##*[![:space:]]}"}"
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
-    if [[ -z "${!key+x}" ]]; then
+    # Preserve values explicitly supplied by the caller, while allowing the
+    # selected profile file to override defaults previously loaded from
+    # common.env.
+    if [[ -z "${!key+x}" || -n "${A1Z_LOADED_ENV_KEYS[$key]+x}" ]]; then
       export "$key=$value"
+      A1Z_LOADED_ENV_KEYS["$key"]=1
     fi
   done < "$env_file"
 }

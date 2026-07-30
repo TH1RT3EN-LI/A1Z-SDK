@@ -277,7 +277,7 @@ Item {
 
                 GlassCard {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 240
+                    Layout.preferredHeight: 180
                     theme: root.theme
 
                     ColumnLayout {
@@ -287,7 +287,7 @@ Item {
                         SectionHeader {
                             Layout.fillWidth: true
                             theme: root.theme
-                            title: qsTr("G1Z 与 D405")
+                            title: qsTr("G1Z 夹爪")
                         }
 
                         RowLayout {
@@ -314,41 +314,133 @@ Item {
                                                !root.controller.gripperFreeDrive)
                             }
                         }
+                    }
+                }
+            }
 
-                        RowLayout {
+            GlassCard {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 430
+                theme: root.theme
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 10
+
+                    SectionHeader {
+                        Layout.fillWidth: true
+                        theme: root.theme
+                        title: qsTr("ROS RGB-D 相机")
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        spacing: 12
+
+                        Rectangle {
                             Layout.fillWidth: true
-                            spacing: 8
-                            AppButton {
-                                Layout.fillWidth: true
-                                theme: root.theme
-                                text: qsTr("相机状态")
-                                enabled: root.controller.connected && !root.controller.commandBusy
-                                onClicked: root.controller.queryCamera("camera_status")
+                            Layout.fillHeight: true
+                            Layout.minimumWidth: 520
+                            radius: root.theme.radiusControl
+                            color: "#FF0B0E13"
+                            border.color: root.controller.cameraReady
+                                          ? root.theme.cyan : root.theme.border
+                            border.width: 1
+                            clip: true
+
+                            Image {
+                                id: cameraPreview
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                source: root.controller.cameraPreviewSource
+                                fillMode: Image.PreserveAspectFit
+                                asynchronous: true
+                                cache: false
+                                smooth: true
+                                visible: root.controller.cameraPreviewSource.length > 0
                             }
-                            AppButton {
-                                Layout.fillWidth: true
-                                theme: root.theme
-                                kind: "primary"
-                                text: qsTr("采集一帧")
-                                enabled: root.controller.connected && !root.controller.commandBusy
-                                onClicked: root.controller.queryCamera("camera_capture")
-                            }
-                            AppButton {
-                                Layout.fillWidth: true
-                                theme: root.theme
-                                text: qsTr("读取外参")
-                                enabled: root.controller.connected && !root.controller.commandBusy
-                                onClicked: root.controller.queryCamera("camera_extrinsic")
+
+                            Column {
+                                anchors.centerIn: parent
+                                spacing: 8
+                                visible: root.controller.cameraPreviewSource.length === 0
+
+                                BusyIndicator {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    running: root.controller.cameraBusy
+                                    visible: running
+                                }
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: root.controller.cameraBusy
+                                          ? qsTr("正在读取 RGB-D 帧…")
+                                          : qsTr("等待 ROS RGB-D 数据")
+                                    color: root.theme.tertiaryText
+                                    font.family: root.theme.fontFamily
+                                    font.pixelSize: root.theme.typeBody
+                                }
                             }
                         }
 
-                        Text {
-                            Layout.fillWidth: true
-                            text: root.controller.cameraSummary
-                            color: root.theme.tertiaryText
-                            elide: Text.ElideRight
-                            font.family: root.theme.fontFamily
-                            font.pixelSize: root.theme.typeCaption
+                        ColumnLayout {
+                            Layout.preferredWidth: 390
+                            Layout.fillHeight: true
+                            spacing: 10
+
+                            StatusPill {
+                                theme: root.theme
+                                text: root.controller.cameraSummary
+                                level: root.controller.cameraReady ? "ok" : "warn"
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                AppButton {
+                                    Layout.fillWidth: true
+                                    theme: root.theme
+                                    text: qsTr("链路状态")
+                                    enabled: !root.controller.cameraBusy
+                                    onClicked: root.controller.queryCamera("camera_status")
+                                }
+                                AppButton {
+                                    Layout.fillWidth: true
+                                    theme: root.theme
+                                    kind: "primary"
+                                    text: qsTr("刷新画面")
+                                    enabled: !root.controller.cameraBusy
+                                    onClicked: root.controller.queryCamera("camera_capture")
+                                }
+                            }
+
+                            AppButton {
+                                Layout.fillWidth: true
+                                theme: root.theme
+                                text: qsTr("读取相机外参")
+                                enabled: !root.controller.cameraBusy
+                                onClicked: root.controller.queryCamera("camera_extrinsic")
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: root.controller.cameraDetails
+                                color: root.theme.secondaryText
+                                wrapMode: Text.Wrap
+                                font.family: root.theme.fontFamily
+                                font.pixelSize: root.theme.typeCaption
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("画面来自配置选定的 ROS 主题；GUI 不直接占用 USB，也不依赖 /dev/video 编号。")
+                                color: root.theme.tertiaryText
+                                wrapMode: Text.Wrap
+                                font.family: root.theme.fontFamily
+                                font.pixelSize: root.theme.typeCaption
+                            }
+
+                            Item { Layout.fillHeight: true }
                         }
                     }
                 }
