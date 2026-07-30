@@ -14,6 +14,14 @@ from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = Path("/workspace/A1Z")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from a1z_ext.remote_gpu.ssh_client import (  # noqa: E402
+    RemoteGpuConfig,
+    preflight_remote_gpu,
+    run_remote_vision_pipeline,
+)
 
 
 def _q(value: object) -> str:
@@ -31,9 +39,13 @@ def _read_env(path: Path) -> dict[str, str]:
 
 
 def _load_profile(profile: str) -> dict[str, str]:
-    env = dict(os.environ)
+    env: dict[str, str] = {}
     env.update(_read_env(ROOT / "config" / "common.env"))
     env.update(_read_env(ROOT / "config" / f"{profile}.env"))
+    remote_config = ROOT / "config" / "remote_gpu_client.env"
+    if profile == "real" and remote_config.is_file():
+        env.update(_read_env(remote_config))
+    env.update(os.environ)
     env["A1Z_PROFILE"] = profile
     return env
 
@@ -95,12 +107,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Allow physical execution before hand-eye calibration is marked verified.",
     )
     parser.add_argument("--arm-speed", type=float, default=None)
+    parser.add_argument(
+        "--vision-backend",
+        choices=["local", "remote_ssh"],
+        default=None,
+        help=(
+            "Vision execution backend. For profile=real the default can be set with "
+            "A1Z_REAL_VISION_BACKEND; simulation is always local."
+        ),
+    )
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
     env = _load_profile(args.profile)
+    if args.profile == "real":
+        configured_vision_backend = args.vision_backend or env.get(
+            "A1Z_REAL_VISION_BACKEND", "local"
+        )
+    else:
+        configured_vision_backend = "local"
+    if args.profile != "real" and args.vision_backend == "remote_ssh":
+        raise SystemExit(
+            "remote GPU offload is intentionally limited to --profile real; "
+            "simulation remains on its host"
+        )
+    if configured_vision_backend not in {"local", "remote_ssh"}:
+        raise SystemExit(
+            "A1Z_REAL_VISION_BACKEND must be either 'local' or 'remote_ssh'"
+        )
     if (
         args.profile == "real"
         and args.execute
@@ -134,7 +170,7 @@ def main() -> int:
     execution_ws = _workspace_path(execution)
     ros_container = env["A1Z_ROS2_CONTAINER_NAME"]
     vision_container = env["A1Z_VISION_CONTAINER_NAME"]
-    stages: list[dict[str, str]] = []
+    stages: list[dict[str, object]] = []
 
     def stage(name: str, command: Sequence[str], timeout_s: float | None = None) -> None:
         _run(command, env=env, timeout_s=timeout_s)
@@ -156,11 +192,25 @@ def main() -> int:
             [str(ROOT / "scripts" / "run_a1z_ros2_stack_in_container.sh"), "wait"],
             45.0,
         )
-        stage(
-            "vision_container",
-            [str(ROOT / "scripts" / "ensure_a1z_vision_container.sh")],
-            120.0,
-        )
+        remote_config = None
+        if configured_vision_backend == "remote_ssh":
+            remote_config = RemoteGpuConfig.from_env(env)
+            remote_preflight = preflight_remote_gpu(remote_config)
+            stages.append(
+                {
+                    "name": "remote_gpu_preflight",
+                    "status": "passed",
+                    "backend": "remote_ssh",
+                    "host": remote_config.host,
+                    "gpu_count": remote_preflight.get("gpu_count", 0),
+                }
+            )
+        else:
+            stage(
+                "vision_container",
+                [str(ROOT / "scripts" / "ensure_a1z_vision_container.sh")],
+                120.0,
+            )
 
         _docker_exec(
             ros_container,
@@ -191,50 +241,79 @@ def main() -> int:
             raise RuntimeError("capture did not include current robot joint state")
         stages.append({"name": "rgbd_capture", "status": "passed"})
 
-        env["A1Z_TARGET_INSTRUCTION"] = args.instruction
-        _docker_exec(
-            vision_container,
-            (
-                "set -euo pipefail; source /opt/venvs/a1z-vision/bin/activate; "
-                "python3 /workspace/A1Z/scripts/run_target_mask_pipeline.py "
-                '--instruction "$A1Z_TARGET_INSTRUCTION" '
-                f"--image {_q(capture_ws + '/color.png')} "
-                f"--output-dir {_q(target_ws)} "
-                "--env-file /workspace/A1Z/config/a1z_vlm.env "
-                f"--provider {_q(args.provider)} "
-                f"--sam-checkpoint {_q(env['A1Z_SAM2_DEFAULT_CKPT'])}"
-            ),
-            env=env,
-            forwarded=("A1Z_TARGET_INSTRUCTION",),
-            timeout_s=300.0,
-        )
-        stages.append({"name": "target_perception", "status": "passed"})
+        if configured_vision_backend == "remote_ssh":
+            assert remote_config is not None
+            remote_result = run_remote_vision_pipeline(
+                config=remote_config,
+                instruction=args.instruction,
+                provider=args.provider,
+                capture_dir=capture,
+                target_dir=target,
+                anygrasp_dir=anygrasp,
+                runtime_dir=output / "remote_gpu",
+            )
+            stages.extend(
+                [
+                    {
+                        "name": "target_perception",
+                        "status": "passed",
+                        "backend": "remote_ssh",
+                    },
+                    {
+                        "name": "anygrasp",
+                        "status": "passed",
+                        "backend": "remote_ssh",
+                        "request_id": remote_result.get("request_id"),
+                    },
+                ]
+            )
+        else:
+            env["A1Z_TARGET_INSTRUCTION"] = args.instruction
+            _docker_exec(
+                vision_container,
+                (
+                    "set -euo pipefail; source /opt/venvs/a1z-vision/bin/activate; "
+                    "python3 /workspace/A1Z/scripts/run_target_mask_pipeline.py "
+                    '--instruction "$A1Z_TARGET_INSTRUCTION" '
+                    f"--image {_q(capture_ws + '/color.png')} "
+                    f"--output-dir {_q(target_ws)} "
+                    "--env-file /workspace/A1Z/config/a1z_vlm.env "
+                    f"--provider {_q(args.provider)} "
+                    f"--sam-checkpoint {_q(env['A1Z_SAM2_DEFAULT_CKPT'])}"
+                ),
+                env=env,
+                forwarded=("A1Z_TARGET_INSTRUCTION",),
+                timeout_s=300.0,
+            )
+            stages.append(
+                {"name": "target_perception", "status": "passed", "backend": "local"}
+            )
 
-        _docker_exec(
-            vision_container,
-            (
-                "set -euo pipefail; source /opt/venvs/a1z-vision/bin/activate; "
-                f"snapshot={_q(env['A1Z_ANYGRASP_IFCONFIG_SNAPSHOT'])}; "
-                "if [[ -f \"$snapshot\" ]]; then "
-                "mkdir -p /tmp/a1z-anygrasp-bin; "
-                "printf '#!/usr/bin/env bash\\ncat \"%s\"\\n' \"$snapshot\" "
-                "> /tmp/a1z-anygrasp-bin/ifconfig; "
-                "chmod +x /tmp/a1z-anygrasp-bin/ifconfig; "
-                "export PATH=/tmp/a1z-anygrasp-bin:$PATH; fi; "
-                "python3 /workspace/A1Z/scripts/run_anygrasp_from_selected_mask.py "
-                f"--rgb {_q(capture_ws + '/rgb.npy')} "
-                f"--depth {_q(capture_ws + '/depth_m.npy')} "
-                f"--intrinsics {_q(capture_ws + '/intrinsics.json')} "
-                f"--selection-json {_q(target_ws + '/selection/selection.json')} "
-                f"--output-dir {_q(anygrasp_ws)} "
-                f"--sdk-dir {_q(env['A1Z_ANYGRASP_SDK_DIR'])} "
-                f"--checkpoint-path {_q(env['A1Z_ANYGRASP_DETECTION_CKPT'])} "
-                f"--license-dir {_q(env['A1Z_ANYGRASP_LICENSE_DIR'])}"
-            ),
-            env=env,
-            timeout_s=300.0,
-        )
-        stages.append({"name": "anygrasp", "status": "passed"})
+            _docker_exec(
+                vision_container,
+                (
+                    "set -euo pipefail; source /opt/venvs/a1z-vision/bin/activate; "
+                    f"snapshot={_q(env['A1Z_ANYGRASP_IFCONFIG_SNAPSHOT'])}; "
+                    "if [[ -f \"$snapshot\" ]]; then "
+                    "mkdir -p /tmp/a1z-anygrasp-bin; "
+                    "printf '#!/usr/bin/env bash\\ncat \"%s\"\\n' \"$snapshot\" "
+                    "> /tmp/a1z-anygrasp-bin/ifconfig; "
+                    "chmod +x /tmp/a1z-anygrasp-bin/ifconfig; "
+                    "export PATH=/tmp/a1z-anygrasp-bin:$PATH; fi; "
+                    "python3 /workspace/A1Z/scripts/run_anygrasp_from_selected_mask.py "
+                    f"--rgb {_q(capture_ws + '/rgb.npy')} "
+                    f"--depth {_q(capture_ws + '/depth_m.npy')} "
+                    f"--intrinsics {_q(capture_ws + '/intrinsics.json')} "
+                    f"--selection-json {_q(target_ws + '/selection/selection.json')} "
+                    f"--output-dir {_q(anygrasp_ws)} "
+                    f"--sdk-dir {_q(env['A1Z_ANYGRASP_SDK_DIR'])} "
+                    f"--checkpoint-path {_q(env['A1Z_ANYGRASP_DETECTION_CKPT'])} "
+                    f"--license-dir {_q(env['A1Z_ANYGRASP_LICENSE_DIR'])}"
+                ),
+                env=env,
+                timeout_s=300.0,
+            )
+            stages.append({"name": "anygrasp", "status": "passed", "backend": "local"})
 
         planner_script = (
             "run_anygrasp_adapter_in_container.sh"
@@ -295,6 +374,7 @@ def main() -> int:
             "instruction": args.instruction,
             "camera_source": env["A1Z_CAMERA_SOURCE"],
             "robot_backend": env["A1Z_BACKEND"],
+            "vision_backend": configured_vision_backend,
             "planner": args.planner,
             "execution_requested": bool(args.execute),
             "dry_run": bool(args.dry_run),
@@ -319,6 +399,7 @@ def main() -> int:
                 {
                     "profile": args.profile,
                     "instruction": args.instruction,
+                    "vision_backend": configured_vision_backend,
                     "stages": stages,
                     "error": str(exc),
                 },

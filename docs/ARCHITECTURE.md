@@ -48,3 +48,19 @@ Dockerfiles remain tracked.
 The current AnyGrasp binary stack requires NVIDIA CUDA. An AMD integrated GPU
 cannot run this container as configured; moving the vision stage to AMD would
 require replacing or porting AnyGrasp rather than changing the robot adapter.
+
+## Physical remote-GPU boundary
+
+For `--profile real`, VLM/SAM and AnyGrasp can be replaced as one execution
+unit by the `remote_ssh` vision backend:
+
+```text
+laptop: D405 capture ─ SSH artifact request ─► GPU host: VLM/SAM + AnyGrasp
+        planner/executor ◄─ SSH artifact reply ─ GPU host: temporary job cleanup
+        local runtime store
+```
+
+Robot control, camera ownership, TF, planning, execution, and the durable
+runtime directory remain on the laptop. The GPU host cannot command the robot
+and keeps no task database. Simulation is always local. See
+[`REMOTE_GPU.md`](REMOTE_GPU.md) for setup, security, and migration details.

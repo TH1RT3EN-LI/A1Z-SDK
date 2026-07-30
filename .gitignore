@@ -9,6 +9,8 @@ __pycache__/
 
 # Local secrets.
 config/a1z_vlm.env
+config/remote_gpu_client.env
+config/remote_gpu_server.env
 
 scripts/__pycache__/
 tools/__pycache__/

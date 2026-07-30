@@ -9,6 +9,11 @@ Primary commands:
 - `verify_a1z_socketcan_preflight_in_container.sh`: read-only physical
   hardware/container preflight.
 - `a1zctl_in_container.sh`: start or query the control server.
+- `configure_remote_gpu_client.sh`: write the ignored laptop-side SSH GPU
+  configuration.
+- `run_remote_vision_job.py`: preflight or submit one physical RGB-D vision
+  job without running planning/execution.
+- `a1z_remote_gpu_worker.py`: GPU-host stdin/stdout worker invoked over SSH.
 
 Pipeline stages remain independently runnable:
 
@@ -20,3 +25,6 @@ Pipeline stages remain independently runnable:
 
 All container helpers source `load_a1z_env.sh`. Set `A1Z_PROFILE=sim` or
 `A1Z_PROFILE=real`; simulation is the safe default.
+
+Remote GPU offload is restricted to `A1Z_PROFILE=real`; see
+[`docs/REMOTE_GPU.md`](../docs/REMOTE_GPU.md).

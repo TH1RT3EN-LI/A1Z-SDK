@@ -43,3 +43,7 @@ The image includes `python3-can`, `iproute2`, `can-utils`, and
 No powered-arm motion was used for repository validation; final joint signs,
 camera hand-eye calibration, gripper empty-close threshold, and safe poses must
 be verified on the target robot.
+
+Target perception and AnyGrasp may run on a separate NVIDIA host while every
+artifact, plan, and execution record stays on this machine. Configure that
+optional real-only deployment using [`REMOTE_GPU.md`](REMOTE_GPU.md).
