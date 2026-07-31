@@ -49,10 +49,12 @@ class ConsoleBridgeConfig:
     stale_after_s: float
     depth_uint16_scale_m: float
     preview_max_width: int
+    preview_depth_min_m: float
+    preview_depth_max_m: float
 
     @classmethod
     def from_env(cls) -> "ConsoleBridgeConfig":
-        return cls(
+        config = cls(
             profile=os.environ.get("A1Z_PROFILE", "sim").strip(),
             camera_source=os.environ.get("A1Z_CAMERA_SOURCE", "unknown").strip(),
             host=os.environ.get("A1Z_CAMERA_BRIDGE_HOST", "127.0.0.1").strip(),
@@ -84,7 +86,24 @@ class ConsoleBridgeConfig:
             preview_max_width=int(
                 os.environ.get("A1Z_CAMERA_PREVIEW_MAX_WIDTH", "960")
             ),
+            preview_depth_min_m=float(
+                os.environ.get("A1Z_CAMERA_PREVIEW_DEPTH_MIN_M", "0.05")
+            ),
+            preview_depth_max_m=float(
+                os.environ.get("A1Z_CAMERA_PREVIEW_DEPTH_MAX_M", "3.0")
+            ),
         )
+        if (
+            not np.isfinite(config.preview_depth_min_m)
+            or not np.isfinite(config.preview_depth_max_m)
+            or config.preview_depth_min_m < 0.0
+            or config.preview_depth_max_m
+            <= config.preview_depth_min_m + 1e-6
+        ):
+            raise ValueError(
+                "A1Z camera preview depth range must be finite and increasing"
+            )
+        return config
 
 
 def _resize_nearest(image: np.ndarray, *, max_width: int) -> np.ndarray:
@@ -104,7 +123,11 @@ def _resize_nearest(image: np.ndarray, *, max_width: int) -> np.ndarray:
     return np.ascontiguousarray(image[y_indices[:, None], x_indices[None, :]])
 
 
-def _depth_colormap(depth_m: np.ndarray) -> np.ndarray:
+def _depth_colormap(
+    depth_m: np.ndarray,
+    *,
+    depth_range_m: tuple[float, float] | None = None,
+) -> np.ndarray:
     depth = np.asarray(depth_m, dtype=np.float32)
     valid = np.isfinite(depth) & (depth > 0.0)
     output = np.full((*depth.shape, 3), 14, dtype=np.uint8)
@@ -112,10 +135,19 @@ def _depth_colormap(depth_m: np.ndarray) -> np.ndarray:
         return output
 
     values = depth[valid]
-    low, high = np.percentile(values, [2.0, 98.0])
-    if not np.isfinite(low) or not np.isfinite(high) or high <= low + 1e-6:
-        low = float(np.min(values))
-        high = max(low + 1e-3, float(np.max(values)))
+    if depth_range_m is None:
+        low, high = np.percentile(values, [2.0, 98.0])
+        if not np.isfinite(low) or not np.isfinite(high) or high <= low + 1e-6:
+            low = float(np.min(values))
+            high = max(low + 1e-3, float(np.max(values)))
+    else:
+        low, high = (float(value) for value in depth_range_m)
+        if (
+            not np.isfinite(low)
+            or not np.isfinite(high)
+            or high <= low + 1e-6
+        ):
+            raise ValueError("depth_range_m must be finite and increasing")
     normalized = np.where(
         valid,
         np.clip((depth - low) / (high - low), 0.0, 1.0),
@@ -145,6 +177,7 @@ def compose_rgbd_preview_png(
     depth_m: np.ndarray,
     *,
     max_width: int = 960,
+    depth_range_m: tuple[float, float] | None = None,
 ) -> bytes:
     """Return a side-by-side RGB/depth PNG suitable for a QML data URL."""
 
@@ -163,7 +196,7 @@ def compose_rgbd_preview_png(
     panel_width = max(1, (max(64, int(max_width)) - separator_width) // 2)
     color_panel = _resize_nearest(color[:, :, :3], max_width=panel_width)
     depth_panel = _resize_nearest(
-        _depth_colormap(depth),
+        _depth_colormap(depth, depth_range_m=depth_range_m),
         max_width=panel_width,
     )
     height = min(color_panel.shape[0], depth_panel.shape[0])
@@ -478,6 +511,10 @@ class A1ZCameraConsoleBridgeNode(_RosNode):
             rgb,
             depth_m,
             max_width=requested_width,
+            depth_range_m=(
+                self._cfg.preview_depth_min_m,
+                self._cfg.preview_depth_max_m,
+            ),
         )
         valid_depth = depth_m[np.isfinite(depth_m) & (depth_m > 0.0)]
         payload = self._base_payload()
@@ -505,6 +542,10 @@ class A1ZCameraConsoleBridgeNode(_RosNode):
                         float(np.max(valid_depth)),
                     ]
                 ),
+                "preview_depth_range_m": [
+                    self._cfg.preview_depth_min_m,
+                    self._cfg.preview_depth_max_m,
+                ],
                 "preview_mime": "image/png",
                 "preview_png_b64": base64.b64encode(preview_png).decode("ascii"),
             }
