@@ -445,6 +445,7 @@ Item {
                             Image {
                                 id: cameraPreview
                                 objectName: "sdkCameraPreview"
+                                readonly property int loadStatus: status
                                 anchors.fill: parent
                                 anchors.margins: 8
                                 source: root.visible

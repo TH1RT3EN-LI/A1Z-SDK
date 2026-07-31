@@ -194,6 +194,7 @@ Item {
 
                             Image {
                                 objectName: "dashboardCameraPreview"
+                                readonly property int loadStatus: status
                                 anchors.fill: parent
                                 anchors.margins: 6
                                 source: root.visible
