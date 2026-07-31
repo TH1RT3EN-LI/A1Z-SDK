@@ -188,6 +188,12 @@ class MockArmRobot:
         with self._lock:
             return self._gripper_pos
 
+    def get_gripper_target_pos(self) -> Optional[float]:
+        return self.get_gripper_pos()
+
+    def get_gripper_measured_pos(self) -> Optional[float]:
+        return self.get_gripper_pos()
+
     def set_gripper_free_drive(self, enabled: bool) -> None:
         self._require_motion_enabled()
         if self._gripper_pos is None:
@@ -301,6 +307,14 @@ class MockArmRobot:
     def set_gravity_mode(self, enabled: bool) -> None:
         self._require_motion_enabled()
         self.zero_gravity_mode = enabled
+
+    def set_gravity_comp_factor(self, factor: float) -> None:
+        self._require_motion_enabled()
+        value = float(factor)
+        if not np.isfinite(value) or not 0.0 <= value <= 1.0:
+            raise ValueError("gravity_comp_factor must be finite and in [0.0, 1.0]")
+        with self._lock:
+            self.gravity_comp_factor = value
 
     def start_recording(self, sample_hz: int = 50) -> None:
         if not self._running:

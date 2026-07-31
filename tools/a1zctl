@@ -54,6 +54,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
         can_channel=args.can,
         with_gripper=args.with_gripper,
         gravity_mode=args.gravity_mode,
+        gravity_comp_factor=args.gravity_factor,
         socket_path=args.socket_path,
         tcp_host=args.tcp_host,
         tcp_port=args.tcp_port,
@@ -121,6 +122,10 @@ def cmd_estop_release(args: argparse.Namespace) -> None:
     _emit(args, _send("estop_release"))
 
 
+def cmd_gravity_factor(args: argparse.Namespace) -> None:
+    _emit(args, _send("gravity_factor", {"factor": args.factor}))
+
+
 def cmd_stop(args: argparse.Namespace) -> None:
     _emit(args, _send("stop"))
 
@@ -146,6 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("A1Z_WITH_GRIPPER", "0") == "1",
     )
     serve_parser.add_argument("--gravity-mode", action="store_true")
+    serve_parser.add_argument(
+        "--gravity-factor",
+        type=float,
+        default=float(os.environ.get("A1Z_GRAVITY_COMP_FACTOR", "1.0")),
+        help="Gravity compensation scale: 0=off, 1=full.",
+    )
     serve_parser.add_argument(
         "--control-freq", type=int, default=get_control_frequency_hz()
     )
@@ -189,6 +200,10 @@ def build_parser() -> argparse.ArgumentParser:
     release_parser.add_argument("--timeout-s", type=float, default=3.0)
     sub.add_parser("estop", help="Latch the physical SDK soft emergency stop")
     sub.add_parser("estop-release", help="Release the physical SDK estop latch")
+    gravity_factor_parser = sub.add_parser(
+        "gravity-factor", help="Set gravity compensation scale"
+    )
+    gravity_factor_parser.add_argument("factor", type=float)
     sub.add_parser("stop", help="Stop the server")
     return parser
 
@@ -205,6 +220,7 @@ COMMANDS = {
     "grasp-release": cmd_grasp_release,
     "estop": cmd_estop,
     "estop-release": cmd_estop_release,
+    "gravity-factor": cmd_gravity_factor,
     "stop": cmd_stop,
 }
 

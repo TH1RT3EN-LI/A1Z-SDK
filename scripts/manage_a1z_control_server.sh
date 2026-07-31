@@ -12,10 +12,15 @@ source "$ROOT_DIR/scripts/load_a1z_env.sh"
 ACTION="${1:-status}"
 shift || true
 GRAVITY_MODE=0
+GRAVITY_FACTOR="${A1Z_GRAVITY_COMP_FACTOR:-1.0}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gravity-mode)
       GRAVITY_MODE=1
+      ;;
+    --gravity-factor)
+      GRAVITY_FACTOR="${2:?missing value for --gravity-factor}"
+      shift
       ;;
     *)
       echo "Unknown option: $1" >&2
@@ -28,7 +33,7 @@ done
 case "$ACTION" in
   start|stop|restart|status) ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status} [--gravity-mode]" >&2
+    echo "Usage: $0 {start|stop|restart|status} [--gravity-mode] [--gravity-factor 0..1]" >&2
     exit 2
     ;;
 esac
@@ -135,6 +140,8 @@ if probe_backend; then
 fi
 
 if [[ "$PROFILE_NAME" == "sim" ]]; then
+  export A1Z_ISAAC_GRAVITY_MODE="$GRAVITY_MODE"
+  export A1Z_GRAVITY_COMP_FACTOR="$GRAVITY_FACTOR"
   if [[ "$SIM_LAUNCH_MODE" == "native" ]]; then
     stale_pid="$(find_native_kit_pid || true)"
     if [[ -n "$stale_pid" ]]; then
@@ -186,6 +193,7 @@ else
     --min-control-freq "$A1Z_MIN_CONTROL_FREQ_HZ"
     --gripper-max-torque "$A1Z_GRIPPER_MAX_TORQUE"
     --gripper-empty-close-threshold "$A1Z_GRIPPER_EMPTY_CLOSE_THRESHOLD"
+    --gravity-factor "$GRAVITY_FACTOR"
   )
   if [[ "$GRAVITY_MODE" == "1" ]]; then
     SERVER_ARGS+=(--gravity-mode)

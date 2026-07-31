@@ -107,6 +107,18 @@ class RobotServer:
             return {"ok": False, "error": "Robot is in estop."}
         return None
 
+    def _get_gripper_positions(self) -> tuple[Optional[float], Optional[float]]:
+        legacy_reader = getattr(self._robot, "get_gripper_pos", None)
+        legacy = legacy_reader() if callable(legacy_reader) else None
+        target_reader = getattr(self._robot, "get_gripper_target_pos", None)
+        measured_reader = getattr(self._robot, "get_gripper_measured_pos", None)
+        target = target_reader() if callable(target_reader) else legacy
+        measured = measured_reader() if callable(measured_reader) else legacy
+        return (
+            None if target is None else float(target),
+            None if measured is None else float(measured),
+        )
+
     # ------------------------------------------------------------------
     # Command handlers
     # ------------------------------------------------------------------
@@ -120,8 +132,22 @@ class RobotServer:
             "torque_nm":  [round(v, 3) for v in state["eff"].tolist()],
         }
         if self._with_gripper:
-            gpos = self._robot.get_gripper_pos()
-            data["gripper"] = round(gpos, 3) if gpos is not None else None
+            target, measured = self._get_gripper_positions()
+            data["gripper_target"] = (
+                round(target, 3) if target is not None else None
+            )
+            data["gripper_measured"] = (
+                round(measured, 3) if measured is not None else None
+            )
+            # Compatibility for older clients: "gripper" now prefers physical
+            # feedback and falls back to the commanded target only when no
+            # measured value exists.
+            compatibility_value = measured if measured is not None else target
+            data["gripper"] = (
+                round(compatibility_value, 3)
+                if compatibility_value is not None
+                else None
+            )
         if hasattr(self._robot, "is_estopped"):
             data["estopped"] = bool(self._robot.is_estopped)
         diagnostic_fields = {
@@ -181,6 +207,7 @@ class RobotServer:
                 return {"ok": False, "error": "gripper must be in [0.0, 1.0]"}
             target = np.append(target, value)
             data["gripper"] = round(value, 3)
+            data["gripper_target"] = round(value, 3)
 
         self._robot.command_joint_pos(target)
         return {"ok": True, "data": data}
@@ -192,7 +219,13 @@ class RobotServer:
         if not 0.0 <= value <= 1.0:
             return {"ok": False, "error": "value must be in [0.0, 1.0]"}
         self._robot.command_gripper(value)
-        return {"ok": True, "data": {"gripper": value}}
+        return {
+            "ok": True,
+            "data": {
+                "gripper": value,
+                "gripper_target": value,
+            },
+        }
 
     def _cmd_grasp_close(self, args: dict) -> dict:
         if not self._with_gripper:
@@ -234,13 +267,57 @@ class RobotServer:
     def _cmd_gravity_mode(self, args: dict) -> dict:
         if not hasattr(self._robot, "set_gravity_mode"):
             return {"ok": False, "error": "Active backend does not support gravity mode"}
+        factor = None
+        if "factor" in args:
+            if not hasattr(self._robot, "set_gravity_comp_factor"):
+                return {
+                    "ok": False,
+                    "error": "Active backend does not support gravity compensation scaling",
+                }
+            factor = float(args["factor"])
+            if not np.isfinite(factor) or not 0.0 <= factor <= 1.0:
+                return {
+                    "ok": False,
+                    "error": "gravity factor must be finite and in [0.0, 1.0]",
+                }
         enabled = bool(args.get("enabled", True))
+        if enabled and factor is not None:
+            self._robot.set_gravity_comp_factor(factor)
         self._robot.set_gravity_mode(enabled)
+        if not enabled and factor is not None:
+            self._robot.set_gravity_comp_factor(factor)
+        current_factor = float(
+            self._robot.get_robot_info().get(
+                "gravity_comp_factor", factor if factor is not None else 1.0
+            )
+        )
         return {
             "ok": True,
             "data": {
                 "gravity_mode": enabled,
                 "control_mode": "gravity_comp_effort" if enabled else "position_hold",
+                "gravity_comp_factor": current_factor,
+            },
+        }
+
+    def _cmd_gravity_factor(self, args: dict) -> dict:
+        if not hasattr(self._robot, "set_gravity_comp_factor"):
+            return {
+                "ok": False,
+                "error": "Active backend does not support gravity compensation scaling",
+            }
+        factor = float(args.get("factor", 1.0))
+        if not np.isfinite(factor) or not 0.0 <= factor <= 1.0:
+            return {
+                "ok": False,
+                "error": "gravity factor must be finite and in [0.0, 1.0]",
+            }
+        self._robot.set_gravity_comp_factor(factor)
+        return {
+            "ok": True,
+            "data": {
+                "gravity_comp_factor": factor,
+                "gravity_comp_factor_range": [0.0, 1.0],
             },
         }
 
@@ -399,7 +476,19 @@ class RobotServer:
             "recording": self._recording_active,
             "recording_name": self._recording_name,
             "estopped": self._is_estopped(),
+            "gravity_comp_factor": float(info.get("gravity_comp_factor", 1.0)),
+            "gravity_comp_factor_range": [0.0, 1.0],
         }
+        if info.get("control_freq_hz") is not None:
+            data["control_freq_hz"] = int(info["control_freq_hz"])
+        for source_key in ("default_kp", "default_kd"):
+            if info.get(source_key) is not None:
+                values = np.asarray(info[source_key], dtype=np.float64).reshape(-1)[:6]
+                data[source_key] = [round(float(value), 3) for value in values]
+        if info.get("gripper_torque_limit_nm") is not None:
+            data["gripper_torque_limit_nm"] = round(
+                float(info["gripper_torque_limit_nm"]), 3
+            )
         if info.get("hard_joint_limits") is not None:
             hard_joint_limits = np.asarray(info["hard_joint_limits"], dtype=np.float64).reshape(-1, 2)[:6]
             data["hard_joint_limits_deg"] = {
@@ -585,6 +674,7 @@ class RobotServer:
         "estop": _cmd_estop,
         "estop_release": _cmd_estop_release,
         "gravity_mode": _cmd_gravity_mode,
+        "gravity_factor": _cmd_gravity_factor,
         "gripper_free_drive": _cmd_gripper_free_drive,
         "record_start": _cmd_record_start,
         "record_stop": _cmd_record_stop,
@@ -612,6 +702,7 @@ class RobotServer:
             "grasp_close",
             "grasp_release",
             "gravity_mode",
+            "gravity_factor",
             "gripper_free_drive",
             "record_start",
             "record_play",
@@ -758,6 +849,7 @@ def serve(
     can_channel: str = get_default_can_channel(),
     with_gripper: bool = False,
     gravity_mode: bool = False,
+    gravity_comp_factor: float = 1.0,
     backend: Optional[str] = None,
     socket_path: Optional[str] = None,
     tcp_host: Optional[str] = None,
@@ -769,6 +861,9 @@ def serve(
     articulation_root_prim: Optional[str] = None,
 ) -> None:
     """Start the robot server in the foreground."""
+    gravity_comp_factor = float(gravity_comp_factor)
+    if not np.isfinite(gravity_comp_factor) or not 0.0 <= gravity_comp_factor <= 1.0:
+        raise ValueError("gravity_comp_factor must be finite and in [0.0, 1.0]")
     backend_name = backend or get_default_backend()
     print(
         f"[a1z] Initialising arm  backend={backend_name}  can={can_channel}  "
@@ -779,7 +874,7 @@ def serve(
         can_channel=can_channel,
         zero_gravity_mode=gravity_mode,
         with_gripper=with_gripper,
-        gravity_comp_factor=1.0,
+        gravity_comp_factor=gravity_comp_factor,
         control_freq_hz=control_freq_hz,
         min_freq_hz=min_freq_hz,
         gripper_max_torque=gripper_max_torque,

@@ -13,7 +13,8 @@ Qt 6 / QML 桌面控制台，参考 `duojin_l1w_control_gui` 的控制器与界�
   才能人工解除；
 - 关节点动每次读取最新角度后只发送一个 `move`；
 - 末端点动使用官方 Pinocchio FK/IK，保留 2° 关节裕量，并拒绝超过 15° 的
-  单步 IK 分支跳变；
+  单步 IK 分支跳变；Base/Tool 变换与完整 SDK 能力映射见
+  `docs/A1Z_CONSOLE_SDK_COVERAGE.md`；
 - AnyGrasp 分为“只计算并审阅”和“执行当前已审阅计划”，两者不是同一个按钮。
 - RGB-D 预览统一订阅配置选定的 ROS 主题；GUI 不直接打开 USB 或
   `/dev/video*`，仿真与真机使用同一条相机桥协议。
@@ -33,6 +34,13 @@ Python 包目录。
 ```bash
 ./scripts/run_a1z_console.sh --profile sim
 ./scripts/run_a1z_console.sh --profile real
+```
+
+逐页视觉回归可使用 `--page`、`--frame`、`--window-size` 和 `--screenshot`，例如：
+
+```bash
+QT_QPA_PLATFORM=offscreen ./scripts/run_a1z_console.sh \
+  --page manual --frame tool --window-size 1220x760 --screenshot runtime/manual.png
 ```
 
 ## 安全边界

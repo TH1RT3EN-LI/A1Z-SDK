@@ -1111,6 +1111,12 @@ def parse_args():
         help="Start Isaac arm backend in gravity-comp/effort mode.",
     )
     parser.add_argument(
+        "--gravity-factor",
+        type=float,
+        default=_env_float("A1Z_GRAVITY_COMP_FACTOR", 1.0),
+        help="Gravity compensation scale: 0=off, 1=full.",
+    )
+    parser.add_argument(
         "--hold-mode",
         dest="gravity_mode",
         action="store_false",
@@ -1338,6 +1344,7 @@ async def startup():
             with_gripper=args.with_gripper,
             articulation_root_prim=args.articulation_root,
             zero_gravity_mode=args.gravity_mode,
+            gravity_comp_factor=args.gravity_factor,
         )
         robot.start(existing_world=runtime_world, reset_world=False)
         try:

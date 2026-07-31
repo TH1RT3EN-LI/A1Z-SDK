@@ -42,9 +42,9 @@ QtObject {
     readonly property int radiusControl: 9
     readonly property int radiusCard: 13
     readonly property int radiusPanel: 16
-    readonly property int typeCaption: 11
-    readonly property int typeLabel: 13
-    readonly property int typeBody: 14
-    readonly property int typeTitle: 16
-    readonly property int typeHeading: 22
+    readonly property int typeCaption: 12
+    readonly property int typeLabel: 14
+    readonly property int typeBody: 15
+    readonly property int typeTitle: 17
+    readonly property int typeHeading: 23
 }

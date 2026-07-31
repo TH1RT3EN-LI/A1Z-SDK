@@ -15,6 +15,17 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from .controller import ConsoleController
 
 
+def _parse_window_size(value: str) -> tuple[int, int]:
+    try:
+        width_text, height_text = value.lower().split("x", 1)
+        width, height = int(width_text), int(height_text)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("window size must use WIDTHxHEIGHT") from exc
+    if width < 800 or height < 600:
+        raise argparse.ArgumentTypeError("window size must be at least 800x600")
+    return width, height
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=["sim", "real"], default="sim")
@@ -27,6 +38,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--screenshot",
         type=Path,
         help="Save one rendered window image and exit (for visual validation).",
+    )
+    parser.add_argument(
+        "--page",
+        choices=["dashboard", "manual", "anygrasp", "sdk", "diagnostics"],
+        default="dashboard",
+        help="Initial page, including for screenshot validation.",
+    )
+    parser.add_argument(
+        "--window-size",
+        type=_parse_window_size,
+        help="Override the initial window size as WIDTHxHEIGHT for visual validation.",
+    )
+    parser.add_argument(
+        "--frame",
+        choices=["base", "tool"],
+        default="base",
+        help="Initial Cartesian jog frame, including for screenshot validation.",
     )
     return parser
 
@@ -56,6 +84,18 @@ def main() -> int:
     if not roots:
         controller.shutdown()
         return 2
+    page_index = {
+        "dashboard": 0,
+        "manual": 1,
+        "anygrasp": 2,
+        "sdk": 3,
+        "diagnostics": 4,
+    }[args.page]
+    roots[0].setProperty("currentPage", page_index)
+    roots[0].setProperty("frameMode", args.frame)
+    if args.window_size is not None:
+        roots[0].setProperty("width", args.window_size[0])
+        roots[0].setProperty("height", args.window_size[1])
 
     app.aboutToQuit.connect(controller.shutdown)
     if args.screenshot is not None:

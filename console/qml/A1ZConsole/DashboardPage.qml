@@ -22,6 +22,7 @@ Item {
                 Layout.fillWidth: true
                 theme: root.theme
                 title: qsTr("A1Z 运行总览")
+                subtitle: qsTr("集中查看关节遥测、RGB-D 链路与示教状态")
             }
 
             GlassCard {

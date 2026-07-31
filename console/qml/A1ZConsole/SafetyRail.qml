@@ -48,8 +48,8 @@ GlassCard {
 
                 Text {
                     Layout.fillWidth: true
-                    text: root.controller.motionEnabled ? qsTr("MOTION READY")
-                                                : qsTr("MOTION LOCKED")
+                    text: root.controller.motionEnabled ? qsTr("运动指令已就绪")
+                                                : qsTr("运动指令已锁定")
                     color: root.controller.motionEnabled ? root.theme.green
                            : root.controller.commandOutcomeUncertain ? root.theme.red
                            : root.theme.orange
@@ -203,14 +203,14 @@ GlassCard {
                 Layout.fillWidth: true
                 theme: root.theme
                 kind: root.frameMode === "base" ? "primary" : "secondary"
-                text: qsTr("Base")
+                text: qsTr("基座 Base")
                 onClicked: root.frameModeRequested("base")
             }
             AppButton {
                 Layout.fillWidth: true
                 theme: root.theme
                 kind: root.frameMode === "tool" ? "primary" : "secondary"
-                text: qsTr("Tool")
+                text: qsTr("工具 TCP")
                 onClicked: root.frameModeRequested("tool")
             }
         }
@@ -260,7 +260,7 @@ GlassCard {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("硬件急停优先")
+            text: qsTr("软件急停不能替代现场硬件急停")
             color: root.theme.tertiaryText
             horizontalAlignment: Text.AlignHCenter
             font.family: root.theme.fontFamily

@@ -30,6 +30,13 @@ _TORQUE_CLIP = np.array(_CONTROL_DEFAULTS["torque_clip"], dtype=np.float64)
 _MOTOR_A_KT = float(_CONTROL_DEFAULTS["motor_a_kt"])
 
 
+def _validate_gravity_comp_factor(value: float) -> float:
+    factor = float(value)
+    if not np.isfinite(factor) or not 0.0 <= factor <= 1.0:
+        raise ValueError("gravity_comp_factor must be finite and in [0.0, 1.0]")
+    return factor
+
+
 def _load_control_model(urdf: str):
     from a1z.dynamics.gravity_model import GravityModel
 
@@ -195,6 +202,7 @@ def create_a1z_robot(
     articulation_root_prim: Optional[str] = None,
 ) -> Robot:
     """Create the requested A1Z backend."""
+    gravity_comp_factor = _validate_gravity_comp_factor(gravity_comp_factor)
     if backend == "socketcan":
         return get_a1z_robot(
             can_channel=can_channel,

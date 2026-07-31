@@ -22,6 +22,7 @@ Item {
                 Layout.fillWidth: true
                 theme: root.theme
                 title: qsTr("AnyGrasp 抓取链路")
+                subtitle: qsTr("先计算并审阅安全检查，再通过确认短语执行当前计划")
             }
 
             GlassCard {
@@ -70,7 +71,12 @@ Item {
                         ComboBox {
                             id: planner
                             Layout.preferredWidth: 150
-                            model: ["adapter", "best"]
+                            model: [
+                                { text: qsTr("适配器规划"), value: "adapter" },
+                                { text: qsTr("最优候选"), value: "best" }
+                            ]
+                            textRole: "text"
+                            valueRole: "value"
                         }
 
                         Text {
@@ -100,7 +106,7 @@ Item {
                             enabled: !root.controller.taskBusy && !root.controller.commandBusy
                             onClicked: root.controller.computeAnyGrasp(
                                            instruction.text,
-                                           planner.currentText,
+                                           planner.currentValue,
                                            visionBackend.currentValue)
                         }
 
@@ -117,7 +123,9 @@ Item {
 
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 390
+                Layout.preferredHeight: root.controller.planSegments.length === 0
+                                        ? 220
+                                        : Math.max(300, 192 + root.controller.planSegments.length * 38)
                 theme: root.theme
 
                 ColumnLayout {
@@ -166,6 +174,7 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
+                        visible: root.controller.planSegments.length > 0
                         spacing: 7
 
                         Text {
@@ -198,6 +207,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 30
+                        visible: root.controller.planSegments.length > 0
                         radius: root.theme.radiusSmall
                         color: root.theme.tile
 
@@ -274,6 +284,37 @@ Item {
                                     font.family: "monospace"
                                     font.pixelSize: root.theme.typeCaption
                                 }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 58
+                        visible: root.controller.planSegments.length === 0
+                        radius: root.theme.radiusControl
+                        color: "transparent"
+                        border.color: root.theme.border
+
+                        Column {
+                            anchors.centerIn: parent
+                            spacing: 4
+
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: qsTr("尚无待审阅计划")
+                                color: root.theme.secondaryText
+                                font.family: root.theme.fontFamily
+                                font.pixelSize: root.theme.typeLabel
+                                font.weight: Font.DemiBold
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: qsTr("完成“只计算”后，这里将显示轨迹段与安全检查")
+                                color: root.theme.tertiaryText
+                                font.family: root.theme.fontFamily
+                                font.pixelSize: root.theme.typeCaption
                             }
                         }
                     }

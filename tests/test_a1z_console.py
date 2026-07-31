@@ -4,6 +4,7 @@ import json
 import socket
 import threading
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -208,6 +209,38 @@ def test_console_camera_path_uses_ros_topics_not_video_node_numbers() -> None:
     assert "camera_console_bridge" in launch
 
 
+def test_sdk_console_presents_arm_control_mode_as_exclusive_state() -> None:
+    page = (
+        CONSOLE_ROOT / "qml" / "A1ZConsole" / "SdkFunctionsPage.qml"
+    ).read_text()
+    selector = (
+        CONSOLE_ROOT / "qml" / "A1ZConsole" / "ArmControlModeSelector.qml"
+    ).read_text()
+    qmldir = (CONSOLE_ROOT / "qml" / "A1ZConsole" / "qmldir").read_text()
+
+    assert "ArmControlModeSelector" in page
+    assert "controlMode: root.controller.controlMode" in page
+    assert "root.controller.setGravityMode(" in page
+    assert 'controlMode === "position_hold"' in selector
+    assert 'controlMode === "gravity_comp_effort"' in selector
+    assert "Accessible.RadioButton" in selector
+    assert "ArmControlModeSelector 1.0 ArmControlModeSelector.qml" in qmldir
+
+
+def test_diagnostics_log_view_can_scroll_without_forced_tail_follow() -> None:
+    page = (
+        CONSOLE_ROOT / "qml" / "A1ZConsole" / "DiagnosticsPage.qml"
+    ).read_text()
+
+    assert "id: logScroll" in page
+    assert "ScrollBar.horizontal.policy: ScrollBar.AsNeeded" in page
+    assert "ScrollBar.vertical.policy: ScrollBar.AsNeeded" in page
+    assert "property bool followTail: true" in page
+    assert 'qsTr("暂停跟随")' in page
+    assert 'qsTr("跟随最新")' in page
+    assert "cursorPosition = length" not in page
+
+
 def test_anygrasp_summary_outputs_pose_and_joint_degrees(tmp_path: Path) -> None:
     from a1z_console.plan_parser import summarize_pipeline
 
@@ -276,6 +309,233 @@ def test_console_safety_contract_is_present_in_sources() -> None:
     assert "gravity_mode" in server
 
 
+def test_gripper_slider_draft_is_not_bound_to_periodic_telemetry() -> None:
+    qml = (
+        CONSOLE_ROOT / "qml" / "A1ZConsole" / "ManualControlPage.qml"
+    ).read_text()
+
+    assert "property real gripperTargetDraft" in qml
+    assert "property bool gripperTargetDirty" in qml
+    assert "value: root.gripperTargetDraft" in qml
+    assert "onMoved:" in qml
+    assert "value: root.controller.gripper" not in qml
+    assert "root.controller.gripperMeasured" in qml
+    assert "root.controller.gripperTarget" in qml
+
+
+def test_status_separates_gripper_target_from_measured_feedback() -> None:
+    np = pytest.importorskip("numpy")
+    from a1z_ext.robots.server import RobotServer
+
+    class GripperTelemetrySpy:
+        is_estopped = False
+
+        def get_joint_state(self) -> dict[str, object]:
+            return {
+                "pos": np.zeros(6),
+                "vel": np.zeros(6),
+                "eff": np.zeros(6),
+            }
+
+        def get_gripper_pos(self) -> float:
+            return 0.8
+
+        def get_gripper_target_pos(self) -> float:
+            return 0.8
+
+        def get_gripper_measured_pos(self) -> float:
+            return 0.35
+
+        def command_gripper(self, value: float) -> None:
+            self.commanded = float(value)
+
+    robot = GripperTelemetrySpy()
+    server = RobotServer(robot, with_gripper=True)
+    status = server._dispatch_request("status", {})["data"]
+    assert status["gripper_target"] == pytest.approx(0.8)
+    assert status["gripper_measured"] == pytest.approx(0.35)
+    assert status["gripper"] == pytest.approx(0.35)
+
+    command = server._dispatch_request("gripper", {"value": 0.6})
+    assert command["ok"] is True
+    assert command["data"]["gripper_target"] == pytest.approx(0.6)
+    assert robot.commanded == pytest.approx(0.6)
+
+
+def test_operator_facing_sdk_capabilities_have_protocol_handlers() -> None:
+    pytest.importorskip("numpy")
+    from a1z_ext.robots.server import RobotServer
+
+    expected = {
+        "status",
+        "info",
+        "move",
+        "command",
+        "gripper",
+        "grasp_close",
+        "grasp_status",
+        "grasp_release",
+        "estop",
+        "estop_release",
+        "gravity_mode",
+        "gravity_factor",
+        "gripper_free_drive",
+        "record_start",
+        "record_stop",
+        "record_play",
+        "record_info",
+        "dance",
+    }
+    assert expected <= set(RobotServer._HANDLERS)
+    assert {
+        "move",
+        "command",
+        "gripper",
+        "grasp_close",
+        "grasp_release",
+        "gravity_mode",
+        "gravity_factor",
+        "gripper_free_drive",
+        "record_start",
+        "record_play",
+        "dance",
+    } <= RobotServer._MOTION_COMMANDS
+    assert {"status", "info", "grasp_status", "record_info"} <= RobotServer._READ_COMMANDS
+    assert RobotServer._EMERGENCY_COMMANDS == {"estop"}
+
+
+def test_cartesian_jog_uses_selected_base_or_tool_axes() -> None:
+    np = pytest.importorskip("numpy")
+    from a1z_ext.robots.cartesian_jog import apply_rotation, apply_translation
+
+    base_to_tool = np.eye(4, dtype=np.float64)
+    base_to_tool[:3, :3] = np.array(
+        [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+        dtype=np.float64,
+    )
+
+    base_step = apply_translation(
+        base_to_tool, axis="x", delta_m=0.01, frame="base"
+    )
+    tool_step = apply_translation(
+        base_to_tool, axis="x", delta_m=0.01, frame="tool"
+    )
+    assert base_step[:3, 3] == pytest.approx([0.01, 0.0, 0.0])
+    assert tool_step[:3, 3] == pytest.approx([0.0, 0.01, 0.0])
+
+    base_rotation = apply_rotation(
+        base_to_tool, axis="x", delta_deg=15.0, frame="base"
+    )
+    tool_rotation = apply_rotation(
+        base_to_tool, axis="x", delta_deg=15.0, frame="tool"
+    )
+    assert base_rotation[:3, :3] == pytest.approx(
+        apply_rotation(np.eye(4), axis="x", delta_deg=15.0, frame="base")[:3, :3]
+        @ base_to_tool[:3, :3]
+    )
+    assert tool_rotation[:3, :3] == pytest.approx(
+        base_to_tool[:3, :3]
+        @ apply_rotation(np.eye(4), axis="x", delta_deg=15.0, frame="tool")[:3, :3]
+    )
+
+
+def test_official_kinematics_reaches_a_tool_tcp_increment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("pinocchio")
+    monkeypatch.syspath_prepend(str(ROOT / "vendor" / "GALAXEA-A1Z"))
+
+    from a1z.robots.kinematics import Kinematics
+    from a1z_ext.robots.cartesian_jog import apply_rotation, apply_translation, pose_error
+
+    kinematics = Kinematics(
+        str(
+            ROOT
+            / "build"
+            / "robot_packages"
+            / "A1Z_G1Z"
+            / "urdf"
+            / "A1Z_G1Z_control.urdf"
+        ),
+        end_effector_frame="grasp_tcp",
+    )
+    current_q = np.deg2rad([10.0, 50.0, -65.0, 20.0, 25.0, -15.0])
+    current_pose = kinematics.fk(current_q, frame_name="grasp_tcp")
+
+    target_translation = apply_translation(
+        current_pose, axis="x", delta_m=0.005, frame="tool"
+    )
+    converged, translated_q = kinematics.ik(
+        target_translation,
+        init_q=current_q,
+        frame_name="grasp_tcp",
+        dt=0.1,
+        pos_threshold=1e-4,
+        ori_threshold=np.deg2rad(0.1),
+        damping=1e-6,
+        max_iters=1000,
+    )
+    assert converged is True
+    translated_pose = kinematics.fk(translated_q, frame_name="grasp_tcp")
+    expected_delta_base = current_pose[:3, :3] @ np.array([0.005, 0.0, 0.0])
+    actual_delta_base = translated_pose[:3, 3] - current_pose[:3, 3]
+    assert actual_delta_base == pytest.approx(expected_delta_base, abs=1e-4)
+    assert pose_error(target_translation, translated_pose)[0] < 1e-4
+
+    target_rotation = apply_rotation(
+        current_pose, axis="z", delta_deg=2.0, frame="tool"
+    )
+    converged, rotated_q = kinematics.ik(
+        target_rotation,
+        init_q=current_q,
+        frame_name="grasp_tcp",
+        dt=0.1,
+        pos_threshold=1e-4,
+        ori_threshold=np.deg2rad(0.1),
+        damping=1e-6,
+        max_iters=1000,
+    )
+    assert converged is True
+    rotation_error = pose_error(
+        target_rotation,
+        kinematics.fk(rotated_q, frame_name="grasp_tcp"),
+    )
+    assert rotation_error[0] < 1e-4
+    assert rotation_error[1] < 0.1
+
+
+def test_grasp_tcp_axes_follow_the_official_gripper_mount_frame() -> None:
+    official = ET.parse(
+        ROOT / "vendor" / "GALAXEA-A1Z" / "a1z" / "robot_models" / "a1z" / "A1Z_G1Z.urdf"
+    ).getroot()
+    generated = ET.parse(
+        ROOT / "build" / "robot_packages" / "A1Z_G1Z" / "urdf" / "A1Z_G1Z_control.urdf"
+    ).getroot()
+
+    finger_joints = {
+        joint.attrib["name"]: joint
+        for joint in official.findall("joint")
+        if joint.attrib.get("name", "").startswith("gripper_finger_")
+    }
+    assert len(finger_joints) == 2
+    for joint in finger_joints.values():
+        assert joint.find("parent").attrib["link"] == "arm_link6"
+        assert joint.find("origin").attrib["rpy"] == "0 0 0"
+        assert float(joint.find("origin").attrib["xyz"].split()[0]) > 0.0
+
+    tcp_joint = generated.find("joint[@name='grasp_tcp_joint']")
+    assert tcp_joint is not None
+    assert tcp_joint.find("parent").attrib["link"] == "arm_link6"
+    assert tcp_joint.find("child").attrib["link"] == "grasp_tcp"
+    assert tcp_joint.find("origin").attrib["rpy"] == "0 0 0"
+    assert [float(value) for value in tcp_joint.find("origin").attrib["xyz"].split()] == [
+        0.08,
+        0.0,
+        0.0,
+    ]
+
+
 def test_estop_and_status_bypass_a_blocking_move() -> None:
     np = pytest.importorskip("numpy")
     from a1z_ext.robots.mock_robot import MockArmRobot
@@ -336,7 +596,18 @@ def test_console_sdk_recording_and_control_modes(
         staticmethod(lambda name: tmp_path / Path(str(name)).name),
     )
 
-    assert server._dispatch_request("gravity_mode", {"enabled": True})["ok"] is True
+    gravity = server._dispatch_request(
+        "gravity_mode", {"enabled": True, "factor": 0.3}
+    )
+    assert gravity["ok"] is True
+    assert gravity["data"]["gravity_comp_factor"] == pytest.approx(0.3)
+    assert server._dispatch_request("info", {})["data"]["gravity_comp_factor"] == pytest.approx(0.3)
+    rejected = server._dispatch_request("gravity_factor", {"factor": 1.2})
+    assert rejected["ok"] is False
+    assert robot.gravity_comp_factor == pytest.approx(0.3)
+    changed = server._dispatch_request("gravity_factor", {"factor": 0.65})
+    assert changed["ok"] is True
+    assert robot.gravity_comp_factor == pytest.approx(0.65)
     assert server._dispatch_request("gripper_free_drive", {"enabled": True})["ok"] is True
     assert server._dispatch_request("record_start", {"sample_hz": 50})["ok"] is True
     time.sleep(0.05)
@@ -348,3 +619,49 @@ def test_console_sdk_recording_and_control_modes(
     assert info["recording"] is False
     assert info["name"] == "teach.json"
     robot.stop()
+
+
+def test_gravity_mode_transition_applies_factor_in_safe_order() -> None:
+    pytest.importorskip("numpy")
+    from a1z_ext.robots.server import RobotServer
+
+    class GravitySpy:
+        is_estopped = False
+
+        def __init__(self) -> None:
+            self.factor = 1.0
+            self.enabled = False
+            self.calls: list[tuple[str, float | bool]] = []
+
+        def set_gravity_comp_factor(self, factor: float) -> None:
+            self.factor = float(factor)
+            self.calls.append(("factor", self.factor))
+
+        def set_gravity_mode(self, enabled: bool) -> None:
+            self.enabled = bool(enabled)
+            self.calls.append(("mode", self.enabled))
+
+        def get_robot_info(self) -> dict[str, float]:
+            return {"gravity_comp_factor": self.factor}
+
+    robot = GravitySpy()
+    server = RobotServer(robot, with_gripper=False)
+    assert server._dispatch_request(
+        "gravity_mode", {"enabled": True, "factor": 0.3}
+    )["ok"]
+    assert robot.calls == [("factor", 0.3), ("mode", True)]
+
+    robot.calls.clear()
+    assert server._dispatch_request(
+        "gravity_mode", {"enabled": False, "factor": 0.8}
+    )["ok"]
+    assert robot.calls == [("mode", False), ("factor", 0.8)]
+
+
+def test_robot_factory_rejects_unsafe_gravity_scale_before_backend_creation() -> None:
+    pytest.importorskip("numpy")
+    from a1z_ext.robots.get_robot import create_a1z_robot
+
+    for factor in (-0.01, 1.01, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="gravity_comp_factor"):
+            create_a1z_robot(backend="mock", gravity_comp_factor=factor)

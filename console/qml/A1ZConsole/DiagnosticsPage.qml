@@ -29,6 +29,7 @@ Item {
                     Layout.fillWidth: true
                     theme: root.theme
                     title: qsTr("连接诊断与维护")
+                    subtitle: qsTr("先预检、再维护；校零与总线扫描要求控制服务离线")
                 }
 
                 GlassCard {
@@ -140,7 +141,7 @@ Item {
                                 model: [
                                     { label: qsTr("启动"), action: "start" },
                                     { label: qsTr("状态"), action: "status" },
-                                    { label: qsTr("等待就绪"), action: "wait" },
+                                    { label: qsTr("等待"), action: "wait" },
                                     { label: qsTr("重启"), action: "restart" },
                                     { label: qsTr("停止"), action: "stop" }
                                 ]
@@ -268,6 +269,20 @@ Item {
         }
 
         GlassCard {
+            id: logPanel
+
+            property bool followTail: true
+            readonly property Flickable logFlickable:
+                logScroll.contentItem as Flickable
+
+            function scrollToTail() {
+                if (!logFlickable)
+                    return
+
+                logFlickable.contentY = Math.max(
+                            0, logFlickable.contentHeight - logFlickable.height)
+            }
+
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredWidth: 0.46 * root.width
@@ -288,28 +303,60 @@ Item {
 
                     AppButton {
                         theme: root.theme
+                        text: logPanel.followTail ? qsTr("暂停跟随")
+                                                  : qsTr("跟随最新")
+                        onClicked: {
+                            logPanel.followTail = !logPanel.followTail
+                            if (logPanel.followTail)
+                                Qt.callLater(logPanel.scrollToTail)
+                        }
+                    }
+
+                    AppButton {
+                        theme: root.theme
                         text: qsTr("清空")
                         onClicked: root.controller.clearLogs()
                     }
                 }
 
-                TextArea {
-                    id: logs
+                Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    readOnly: true
-                    selectByMouse: true
-                    text: root.controller.logs
-                    color: root.theme.secondaryText
-                    wrapMode: TextArea.WrapAnywhere
-                    font.family: "monospace"
-                    font.pixelSize: 11
-                    background: Rectangle {
-                        radius: root.theme.radiusControl
-                        color: root.theme.tile
-                        border.color: root.theme.border
+                    clip: true
+                    radius: root.theme.radiusControl
+                    color: root.theme.tile
+                    border.color: root.theme.border
+
+                    ScrollView {
+                        id: logScroll
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        clip: true
+                        ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                        ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                        TextArea {
+                            id: logs
+                            width: Math.max(
+                                       logScroll.availableWidth,
+                                       contentWidth + leftPadding + rightPadding)
+                            height: Math.max(
+                                        logScroll.availableHeight,
+                                        contentHeight + topPadding + bottomPadding)
+                            readOnly: true
+                            selectByMouse: true
+                            text: root.controller.logs
+                            color: root.theme.secondaryText
+                            wrapMode: TextArea.NoWrap
+                            font.family: "monospace"
+                            font.pixelSize: root.theme.typeCaption
+                            background: null
+                            onTextChanged: {
+                                if (logPanel.followTail)
+                                    Qt.callLater(logPanel.scrollToTail)
+                            }
+                        }
                     }
-                    onTextChanged: cursorPosition = length
                 }
             }
         }

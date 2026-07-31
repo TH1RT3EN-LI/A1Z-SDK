@@ -6,6 +6,7 @@ import QtQuick.Layouts
 
 Item {
     id: root
+    objectName: "manualControlPage"
 
     required property var theme
     required property var controller
@@ -14,6 +15,9 @@ Item {
     property real linearStepMm: 10.0
     property real angularStepDeg: 5.0
     property string frameMode: "base"
+    property real gripperTargetDraft: 1.0
+    property bool gripperTargetDirty: false
+    property string gripperDraftProfile: ""
 
     function loadCurrentDrafts() {
         for (var i = 0; i < 6; ++i)
@@ -25,6 +29,29 @@ Item {
         for (var i = 0; i < 6; ++i)
             values.push(Number(draftModel.get(i).target))
         root.controller.sendJointTarget(values, root.motionSpeed)
+    }
+
+    function syncGripperDraft() {
+        if (root.gripperDraftProfile !== root.controller.profile) {
+            root.gripperDraftProfile = root.controller.profile
+            root.gripperTargetDirty = false
+        }
+
+        var target = Number(root.controller.gripperTarget)
+        if (root.gripperTargetDirty) {
+            if (root.controller.commandBusy
+                    || target < 0
+                    || Math.abs(target - root.gripperTargetDraft) > 0.005) {
+                return
+            }
+            root.gripperTargetDirty = false
+        }
+
+        if (target >= 0) {
+            root.gripperTargetDraft = target
+        } else if (root.controller.gripperMeasured >= 0) {
+            root.gripperTargetDraft = Number(root.controller.gripperMeasured)
+        }
     }
 
     ListModel {
@@ -49,11 +76,12 @@ Item {
                 Layout.fillWidth: true
                 theme: root.theme
                 title: qsTr("手动控制")
+                subtitle: qsTr("单次点动；Tool 增量始终相对 grasp_tcp 当前姿态计算")
             }
 
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 86
+                Layout.preferredHeight: 132
                 theme: root.theme
 
                 RowLayout {
@@ -78,6 +106,22 @@ Item {
                             font.pixelSize: root.theme.typeLabel
                             font.weight: Font.DemiBold
                         }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.controller.eeAxisText
+                            color: root.theme.secondaryText
+                            elide: Text.ElideRight
+                            font.family: "monospace"
+                            font.pixelSize: root.theme.typeCaption
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.controller.eeMotionText
+                            color: root.theme.tertiaryText
+                            elide: Text.ElideRight
+                            font.family: root.theme.fontFamily
+                            font.pixelSize: root.theme.typeCaption
+                        }
                     }
 
                     AppButton {
@@ -91,7 +135,7 @@ Item {
 
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 390
+                Layout.preferredHeight: 430
                 theme: root.theme
 
                 ColumnLayout {
@@ -117,7 +161,7 @@ Item {
                         AppButton {
                             theme: root.theme
                             kind: "primary"
-                            text: qsTr("发送一次绝对运动")
+                            text: qsTr("执行绝对目标")
                             enabled: root.controller.motionEnabled
                             onClicked: root.submitDrafts()
                         }
@@ -269,7 +313,9 @@ Item {
                         SectionHeader {
                             Layout.fillWidth: true
                             theme: root.theme
-                            title: qsTr("末端平移")
+                            title: root.frameMode === "tool"
+                                   ? qsTr("末端平移 · Tool / grasp_tcp")
+                                   : qsTr("末端平移 · Base")
                         }
 
                         GridLayout {
@@ -284,7 +330,8 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: qsTr("+X 前")
+                                text: root.frameMode === "tool"
+                                      ? qsTr("+X · 工具前向") : qsTr("+X · 基座轴")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "x",
@@ -297,7 +344,8 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: qsTr("+Y 左")
+                                text: root.frameMode === "tool"
+                                      ? qsTr("+Y · 夹爪开合轴") : qsTr("+Y · 基座轴")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "y",
@@ -308,8 +356,8 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                kind: "primary"
-                                text: qsTr("+Z 上")
+                                text: root.frameMode === "tool"
+                                      ? qsTr("+Z · 工具法向") : qsTr("+Z · 基座轴")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "z",
@@ -320,7 +368,8 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: qsTr("−Y 右")
+                                text: root.frameMode === "tool"
+                                      ? qsTr("−Y · 夹爪开合轴") : qsTr("−Y · 基座轴")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "y",
@@ -333,7 +382,8 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: qsTr("−X 后")
+                                text: root.frameMode === "tool"
+                                      ? qsTr("−X · 工具后向") : qsTr("−X · 基座轴")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "x",
@@ -347,7 +397,8 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: qsTr("−Z 下")
+                                text: root.frameMode === "tool"
+                                      ? qsTr("−Z · 工具法向") : qsTr("−Z · 基座轴")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "z",
@@ -371,7 +422,9 @@ Item {
                         SectionHeader {
                             Layout.fillWidth: true
                             theme: root.theme
-                            title: qsTr("末端姿态")
+                            title: root.frameMode === "tool"
+                                   ? qsTr("末端姿态 · 绕 Tool 轴")
+                                   : qsTr("末端姿态 · 绕 Base 轴")
                         }
 
                         Repeater {
@@ -426,7 +479,7 @@ Item {
 
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 170
+                Layout.preferredHeight: 190
                 theme: root.theme
 
                 ColumnLayout {
@@ -437,6 +490,7 @@ Item {
                         Layout.fillWidth: true
                         theme: root.theme
                         title: qsTr("G1Z 夹爪")
+                        subtitle: qsTr("拖动编辑目标，点击发送后执行；0 为全关，1 为全开")
                     }
 
                     RowLayout {
@@ -444,8 +498,10 @@ Item {
                         spacing: 10
 
                         Text {
-                            text: root.controller.gripper < 0 ? qsTr("回读 —")
-                                                      : qsTr("回读 %1").arg(root.controller.gripper.toFixed(3))
+                            text: root.controller.gripperMeasured < 0
+                                  ? qsTr("实际 —")
+                                  : qsTr("实际 %1").arg(
+                                        root.controller.gripperMeasured.toFixed(3))
                             color: root.theme.secondaryText
                             font.family: root.theme.fontFamily
                             font.pixelSize: root.theme.typeLabel
@@ -453,26 +509,41 @@ Item {
 
                         Slider {
                             id: gripperDraft
+                            objectName: "gripperTargetSlider"
                             Layout.fillWidth: true
                             from: 0.0
                             to: 1.0
-                            value: root.controller.gripper < 0 ? 1.0 : root.controller.gripper
+                            value: root.gripperTargetDraft
                             stepSize: 0.01
+                            enabled: root.controller.motionEnabled
+                            Accessible.name: qsTr("夹爪目标开度")
+                            onMoved: {
+                                root.gripperTargetDraft = value
+                                root.gripperTargetDirty = true
+                            }
                         }
 
                         Text {
-                            text: gripperDraft.value.toFixed(2)
-                            color: root.theme.text
+                            Layout.preferredWidth: 112
+                            text: root.gripperTargetDirty
+                                  ? qsTr("目标 %1 · 未发送").arg(
+                                        root.gripperTargetDraft.toFixed(2))
+                                  : qsTr("目标 %1").arg(
+                                        root.gripperTargetDraft.toFixed(2))
+                            color: root.gripperTargetDirty
+                                   ? root.theme.orange : root.theme.text
                             font.family: "monospace"
-                            font.pixelSize: root.theme.typeLabel
+                            font.pixelSize: root.theme.typeCaption
                         }
 
                         AppButton {
                             theme: root.theme
                             kind: "primary"
-                            text: qsTr("发送开度")
+                            text: qsTr("发送目标")
                             enabled: root.controller.motionEnabled
-                            onClicked: root.controller.setGripper(gripperDraft.value)
+                                     && root.gripperTargetDirty
+                            onClicked: root.controller.setGripper(
+                                           root.gripperTargetDraft)
                         }
                         AppButton {
                             theme: root.theme
@@ -493,5 +564,16 @@ Item {
         }
     }
 
-    Component.onCompleted: loadCurrentDrafts()
+    Connections {
+        target: root.controller
+
+        function onStateChanged() {
+            root.syncGripperDraft()
+        }
+    }
+
+    Component.onCompleted: {
+        loadCurrentDrafts()
+        syncGripperDraft()
+    }
 }

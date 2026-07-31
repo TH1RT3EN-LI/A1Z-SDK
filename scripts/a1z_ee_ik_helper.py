@@ -31,6 +31,7 @@ from a1z_ext.config import (
     get_tcp_port,
 )
 from a1z_ext.control_client import send_control_request
+from a1z_ext.robots.cartesian_jog import apply_rotation, apply_translation, pose_error
 
 _MOTION_REQUEST_ATTEMPTED = False
 
@@ -94,27 +95,6 @@ def _joint_limits_deg_from_info(info: dict[str, Any]) -> list[list[float]] | Non
     return limits_deg
 
 
-def _rotation_matrix(axis: str, angle_rad: float) -> np.ndarray:
-    c = math.cos(angle_rad)
-    s = math.sin(angle_rad)
-    if axis == "x":
-        return np.array(
-            [[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]],
-            dtype=np.float64,
-        )
-    if axis == "y":
-        return np.array(
-            [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]],
-            dtype=np.float64,
-        )
-    if axis == "z":
-        return np.array(
-            [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]],
-            dtype=np.float64,
-        )
-    raise ValueError(f"Unsupported axis: {axis}")
-
-
 def _rpy_deg_from_matrix(rotation: np.ndarray) -> list[float]:
     sy = math.hypot(float(rotation[0, 0]), float(rotation[1, 0]))
     singular = sy < 1e-9
@@ -136,44 +116,11 @@ def _pose_dict(transform: np.ndarray) -> dict[str, Any]:
         "xyz_m": [float(v) for v in xyz_m.tolist()],
         "xyz_mm": [float(v * 1000.0) for v in xyz_m.tolist()],
         "rpy_deg": [float(v) for v in rpy_deg],
+        "rotation_matrix": [
+            [float(value) for value in row]
+            for row in transform[:3, :3].tolist()
+        ],
     }
-
-
-def _apply_translation(
-    transform: np.ndarray,
-    *,
-    axis: str,
-    delta_m: float,
-    frame: str,
-) -> np.ndarray:
-    axis_vectors = {
-        "x": np.array([1.0, 0.0, 0.0], dtype=np.float64),
-        "y": np.array([0.0, 1.0, 0.0], dtype=np.float64),
-        "z": np.array([0.0, 0.0, 1.0], dtype=np.float64),
-    }
-    direction = axis_vectors[axis]
-    world_delta = direction * delta_m
-    if frame == "tool":
-        world_delta = transform[:3, :3] @ world_delta
-    target = transform.copy()
-    target[:3, 3] = target[:3, 3] + world_delta
-    return target
-
-
-def _apply_rotation(
-    transform: np.ndarray,
-    *,
-    axis: str,
-    delta_deg: float,
-    frame: str,
-) -> np.ndarray:
-    target = transform.copy()
-    delta_rot = _rotation_matrix(axis, math.radians(delta_deg))
-    if frame == "tool":
-        target[:3, :3] = target[:3, :3] @ delta_rot
-    else:
-        target[:3, :3] = delta_rot @ target[:3, :3]
-    return target
 
 
 def _validate_joint_limits(
@@ -221,6 +168,8 @@ def _snapshot_payload(
         "joint_pos_deg": [float(v) for v in status.get("pos_deg", [])[:6]],
         "joint_limits_deg": _joint_limits_deg_from_info(info),
         "gripper": status.get("gripper"),
+        "gripper_target": status.get("gripper_target"),
+        "gripper_measured": status.get("gripper_measured"),
         "pose": _pose_dict(transform),
     }
 
@@ -265,14 +214,14 @@ def _handle_step(args: argparse.Namespace) -> None:
     current_transform = kinematics.fk(current_q, frame_name=args.end_effector_frame)
 
     if args.kind == "translation":
-        target_transform = _apply_translation(
+        target_transform = apply_translation(
             current_transform,
             axis=args.axis,
             delta_m=args.delta,
             frame=args.frame,
         )
     else:
-        target_transform = _apply_rotation(
+        target_transform = apply_rotation(
             current_transform,
             axis=args.axis,
             delta_deg=args.delta,
@@ -317,6 +266,14 @@ def _handle_step(args: argparse.Namespace) -> None:
         end_effector_frame=args.end_effector_frame,
         expected_backend=args.expected_backend,
     )
+    actual_pose = kinematics.fk(
+        np.deg2rad(np.asarray(payload["joint_pos_deg"][:6], dtype=np.float64)),
+        frame_name=args.end_effector_frame,
+    )
+    translation_error_m, orientation_error_deg = pose_error(
+        target_transform,
+        actual_pose,
+    )
     payload.update(
         {
             "requested_step": {
@@ -328,6 +285,10 @@ def _handle_step(args: argparse.Namespace) -> None:
             },
             "ik_joint_target_deg": joint_target_deg,
             "target_pose": _pose_dict(target_transform),
+            "verification": {
+                "translation_error_mm": translation_error_m * 1000.0,
+                "orientation_error_deg": orientation_error_deg,
+            },
         }
     )
     _emit(payload)

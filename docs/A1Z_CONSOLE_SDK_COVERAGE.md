@@ -1,0 +1,44 @@
+# A1Z 控制台与官方 SDK 能力对照
+
+## 权威基线
+
+- 官方仓库：`https://github.com/userguide-galaxea/GALAXEA-A1Z.git`
+- 分支：`gripper`
+- 上游提交：`e931ecd0e25ad35df251097ba42921b3d2fa7224`
+- 本地记录：`vendor/GALAXEA-A1Z_UPSTREAM`
+
+控制台只通过一个控制服务访问 SDK。真机后端继承官方 `ArmRobot`，仿真后端实现同一操作语义；GUI 不直接打开 CAN，也不会创建第二个 `ArmRobot`。
+
+## 能力映射
+
+| 官方能力 | 控制台入口 | 实现语义 |
+| --- | --- | --- |
+| `get_joint_state` / `get_robot_info` | 运行总览、顶部状态、诊断 | 周期回读位置、速度、力矩、温度、错误、软限位、控制模式与动力学参数 |
+| `command_joint_pos` | 夹爪/协议内部的离散目标 | 只发送一次目标；不在 GUI 暴露高频伺服按钮 |
+| `move_joints` | 六轴绝对目标、关节点动、预置位、动作序列 | 统一速度策略、软限位、单队列串行执行 |
+| `command_gripper` / `get_gripper_pos` | G1Z 开度、释放 | 开度范围固定为 `[0, 1]`；目标草稿与周期遥测分离，真机分别显示 SDK 目标值和 CAN 实际反馈 |
+| G1Z 力位混控 | 夹持检测 | 使用官方扭矩上限并根据真实位置反馈判断夹持，不把位置误差伪装成力传感器 |
+| `set_gripper_free_drive` | SDK 功能 / G1Z 夹爪 | 用于手动示教，录制开始时自动开启、停止时恢复 |
+| `estop` / `release` | 常驻运动互锁栏 | 急停独立于阻塞运动队列；软件急停不替代硬件急停 |
+| `set_gravity_mode` | 控制模式、示教录制 | 明确区分“零力漂浮”和“位置保持” |
+| `gravity_comp_factor` | 0.00–1.00 滑块、服务启动参数 | 0 为关闭、1 为完整补偿；进入零力前先应用系数，真机首次使用默认建议 0.30 |
+| `start_recording` / `stop_recording` / `save_recording` | 零力示教与回放 | 采样率 1–250 Hz；文件名去除目录，只写入受控录制目录 |
+| `load_recording` / `play_trajectory` | 回放一次 | 回放前切回位置保持，倍率限制为 0.1–3.0 |
+| `Kinematics.fk` | 读取一次 FK | 末端统一为 `grasp_tcp` |
+| `Kinematics.ik` | Base / Tool 平移与姿态点动 | Tool 平移用当前 TCP 旋转矩阵投影到 Base；Tool 旋转右乘，Base 旋转左乘；执行后用真实关节回读再次 FK 并报告误差 |
+| 官方预置/舞蹈示例语义 | 关节预置位、动作序列 | 业务文案中文化，协议仍使用稳定的官方动作标识 |
+| 官方 CAN 诊断与校零工具 | 诊断与日志 | 仅在真机且控制服务离线时开放，避免 CAN 双主 |
+
+## 有意不做成 GUI 按钮的接口
+
+- `command_joint_state` 是高频 PD/前馈伺服接口。把它做成单击控件会产生阶跃，并允许绕过统一速度与轨迹约束，因此控制台不直接暴露。
+- `MotorA`、`MotorB`、`CANInterface` 的寄存器和 MIT 帧接口属于驱动层。日常运行只允许官方 SDK 所有者访问；诊断页面仅调用官方离线工具。
+- `get_observations` 与状态/夹爪回读信息重复，不作为独立操作入口。
+- 控制频率、最小安全频率、Kp/Kd 和夹爪扭矩上限是启动期安全配置，不在运行中热改构造参数。GUI 展示 SDK 可回读的控制频率、Kp/Kd 与夹爪扭矩上限；最小安全频率仍由真机 profile 配置管理。
+
+## 回归门槛
+
+- Base / Tool 变换必须通过纯矩阵契约测试。
+- 官方 Pinocchio `Kinematics` 必须能在非轴对齐姿态下求解 Tool `+X` 平移和 Tool `+Z` 旋转，并由 FK 验证目标误差。
+- `grasp_tcp` 的父链接、偏移和轴方向必须与官方 G1Z URDF 的夹爪安装方向一致。
+- 重力补偿系数必须在服务、真机/仿真/Mock 后端、CLI、生命周期脚本、控制器和 GUI 之间完整透传，并拒绝非有限值及 `[0, 1]` 之外的值。

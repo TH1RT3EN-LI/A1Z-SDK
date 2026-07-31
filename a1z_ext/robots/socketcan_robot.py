@@ -66,6 +66,28 @@ class SocketCANArmRobot(ArmRobot):
         )
         return info
 
+    def set_gravity_comp_factor(self, factor: float) -> None:
+        """Apply the official SDK gravity scale without replacing the SDK owner."""
+        if not self.is_running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        if self.is_estopped:
+            raise RuntimeError("Robot is in estop.")
+        value = float(factor)
+        if not np.isfinite(value) or not 0.0 <= value <= 1.0:
+            raise ValueError("gravity_comp_factor must be finite and in [0.0, 1.0]")
+        with self._command_lock:
+            self.gravity_comp_factor = value
+
+    def get_gripper_target_pos(self) -> Optional[float]:
+        """Return the normalized target last accepted by the official SDK."""
+        return super().get_gripper_pos()
+
+    def get_gripper_measured_pos(self) -> Optional[float]:
+        """Return normalized CAN feedback without substituting the target."""
+        if self.gripper is None or self.gripper._motor.last_feedback is None:
+            return None
+        return float(self.gripper.get_feedback_norm())
+
     def _require_live_gripper_feedback(self) -> float:
         if not self.is_running:
             raise RuntimeError("Robot not running. Call start() first.")

@@ -8,6 +8,7 @@ NavButton 1.0 NavButton.qml
 MetricTile 1.0 MetricTile.qml
 SectionHeader 1.0 SectionHeader.qml
 SafetyRail 1.0 SafetyRail.qml
+ArmControlModeSelector 1.0 ArmControlModeSelector.qml
 DashboardPage 1.0 DashboardPage.qml
 ManualControlPage 1.0 ManualControlPage.qml
 AnyGraspPage 1.0 AnyGraspPage.qml

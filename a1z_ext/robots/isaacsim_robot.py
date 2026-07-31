@@ -886,6 +886,14 @@ class IsaacSimArmRobot:
         with self._state_lock:
             return float(self._gripper_open_value)
 
+    def get_gripper_target_pos(self) -> Optional[float]:
+        if not self._with_gripper:
+            return None
+        return float(self._gripper_target_value)
+
+    def get_gripper_measured_pos(self) -> Optional[float]:
+        return self.get_gripper_pos()
+
     def set_gripper_free_drive(self, enabled: bool) -> None:
         if not self._running:
             raise RuntimeError("Robot not running. Call start() first.")
@@ -1260,6 +1268,15 @@ class IsaacSimArmRobot:
             raise RuntimeError("Robot not running. Call start() first.")
         self._require_motion_enabled()
         self._run_on_main_thread(lambda: self._set_gravity_mode_impl(enabled))
+
+    def set_gravity_comp_factor(self, factor: float) -> None:
+        if not self._running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        self._require_motion_enabled()
+        value = float(factor)
+        if not np.isfinite(value) or not 0.0 <= value <= 1.0:
+            raise ValueError("gravity_comp_factor must be finite and in [0.0, 1.0]")
+        self._gravity_comp_factor = value
 
     def start_recording(self, sample_hz: int = 50) -> None:
         if not self._running:

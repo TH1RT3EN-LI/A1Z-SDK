@@ -74,6 +74,7 @@ class ConsoleController(QObject):
         self._last_error = ""
         self._joint_rows = self._empty_joint_rows()
         self._gripper: float | None = None
+        self._gripper_target: float | None = None
         self._info: dict[str, Any] = {}
         self._camera_summary = "相机桥未连接"
         self._camera_details = "等待 ROS RGB-D 链路"
@@ -87,7 +88,10 @@ class ConsoleController(QObject):
         self._camera_last_state = ""
         self._recording_summary = "未录制"
         self._gripper_free_drive = False
+        self._gravity_comp_factor = 1.0
         self._ee_pose_text = "尚未读取 FK"
+        self._ee_axis_text = "读取 FK 后显示 grasp_tcp 三轴在 Base 中的方向"
+        self._ee_motion_text = "尚未执行末端点动"
         self._logs = ""
         self._log_lines: list[str] = []
         self._plan_summary: dict[str, Any] = {}
@@ -172,8 +176,40 @@ class ConsoleController(QObject):
         return self._backend or "—"
 
     @Property(str, notify=stateChanged)
+    def backendLabel(self) -> str:
+        return {
+            "isaacsim": "Isaac Sim 仿真",
+            "socketcan": "SocketCAN 真机",
+            "mock": "Mock 离线",
+        }.get(self._backend, self._backend or "—")
+
+    @Property(str, notify=stateChanged)
     def controlMode(self) -> str:
         return self._control_mode or "—"
+
+    @Property(str, notify=stateChanged)
+    def controlModeLabel(self) -> str:
+        return {
+            "gravity_comp_effort": "零力漂浮",
+            "position_hold": "位置保持",
+        }.get(self._control_mode, self._control_mode or "—")
+
+    @Property(str, notify=stateChanged)
+    def sdkDynamicsSummary(self) -> str:
+        frequency = self._info.get("control_freq_hz")
+        kp = list(self._info.get("default_kp", []) or [])
+        kd = list(self._info.get("default_kd", []) or [])
+        parts = []
+        if frequency is not None:
+            parts.append(f"{int(frequency)} Hz")
+        if kp:
+            parts.append("Kp [" + ", ".join(f"{float(v):g}" for v in kp[:6]) + "]")
+        if kd:
+            parts.append("Kd [" + ", ".join(f"{float(v):g}" for v in kd[:6]) + "]")
+        torque_limit = self._info.get("gripper_torque_limit_nm")
+        if torque_limit is not None:
+            parts.append(f"G1Z 上限 {float(torque_limit):g} Nm")
+        return " · ".join(parts) if parts else "等待 SDK 参数回读"
 
     @Property(bool, notify=stateChanged)
     def commandBusy(self) -> bool:
@@ -257,6 +293,14 @@ class ConsoleController(QObject):
     def gripper(self) -> float:
         return -1.0 if self._gripper is None else self._gripper
 
+    @Property(float, notify=stateChanged)
+    def gripperMeasured(self) -> float:
+        return -1.0 if self._gripper is None else self._gripper
+
+    @Property(float, notify=stateChanged)
+    def gripperTarget(self) -> float:
+        return -1.0 if self._gripper_target is None else self._gripper_target
+
     @Property(str, notify=stateChanged)
     def cameraSummary(self) -> str:
         return self._camera_summary
@@ -289,9 +333,21 @@ class ConsoleController(QObject):
     def gripperFreeDrive(self) -> bool:
         return self._gripper_free_drive
 
+    @Property(float, notify=stateChanged)
+    def gravityCompFactor(self) -> float:
+        return self._gravity_comp_factor
+
     @Property(str, notify=stateChanged)
     def eePoseText(self) -> str:
         return self._ee_pose_text
+
+    @Property(str, notify=stateChanged)
+    def eeAxisText(self) -> str:
+        return self._ee_axis_text
+
+    @Property(str, notify=stateChanged)
+    def eeMotionText(self) -> str:
+        return self._ee_motion_text
 
     @Property(str, notify=logsChanged)
     def logs(self) -> str:
@@ -368,7 +424,12 @@ class ConsoleController(QObject):
         self._status_text = f"已选择{self._profile.label}，正在核验后端"
         self._joint_rows = self._empty_joint_rows()
         self._gripper = None
+        self._gripper_target = None
         self._gripper_free_drive = False
+        self._gravity_comp_factor = 1.0
+        self._ee_pose_text = "尚未读取 FK"
+        self._ee_axis_text = "读取 FK 后显示 grasp_tcp 三轴在 Base 中的方向"
+        self._ee_motion_text = "尚未执行末端点动"
         self._info = {}
         self._camera_summary = "相机桥未连接"
         self._camera_details = "正在核验所选配置的 ROS RGB-D 链路"
@@ -504,6 +565,7 @@ class ConsoleController(QObject):
         self._backend = str(info.get("backend", ""))
         self._control_mode = str(info.get("control_mode", ""))
         self._gripper_free_drive = bool(info.get("gripper_free_drive", False))
+        self._gravity_comp_factor = float(info.get("gravity_comp_factor", 1.0))
         limits = dict(info.get("joint_limits_deg", {}) or {})
         rows = []
         for index, old in enumerate(self._joint_rows):
@@ -541,8 +603,15 @@ class ConsoleController(QObject):
                 }
             )
         self._joint_rows = rows
-        gripper = status.get("gripper")
-        self._gripper = float(gripper) if isinstance(gripper, (int, float)) else None
+        legacy_gripper = status.get("gripper")
+        measured = status.get("gripper_measured", legacy_gripper)
+        target = status.get("gripper_target", legacy_gripper)
+        self._gripper = (
+            float(measured) if isinstance(measured, (int, float)) else None
+        )
+        self._gripper_target = (
+            float(target) if isinstance(target, (int, float)) else None
+        )
         self._estopped = bool(status.get("estopped", False))
 
     def _append_log(self, message: str) -> None:
@@ -723,6 +792,15 @@ class ConsoleController(QObject):
             self._recording_summary = f"{frames} 帧 / {duration:.2f} s"
             if path:
                 self._recording_summary += f" · {path}"
+        elif handler == "gravity":
+            if "gravity_comp_factor" in data:
+                self._gravity_comp_factor = float(data["gravity_comp_factor"])
+            if "control_mode" in data:
+                self._control_mode = str(data["control_mode"])
+        elif handler == "gripper":
+            target = data.get("gripper_target", data.get("gripper"))
+            if isinstance(target, (int, float)):
+                self._gripper_target = float(target)
         elif handler == "helper":
             snapshot = dict(data.get("snapshot", {}) or {})
             if snapshot:
@@ -744,6 +822,8 @@ class ConsoleController(QObject):
             "vel_rad_s": [0.0] * 6,
             "torque_nm": [0.0] * 6,
             "gripper": snapshot.get("gripper"),
+            "gripper_target": snapshot.get("gripper_target"),
+            "gripper_measured": snapshot.get("gripper_measured"),
             "estopped": False,
         }
         self._apply_status(status)
@@ -760,6 +840,29 @@ class ConsoleController(QObject):
                 + ", ".join(f"{float(value):.1f}" for value in rpy[:3])
                 + "]°"
             )
+        rotation = list(pose.get("rotation_matrix", []) or [])
+        if len(rotation) == 3 and all(isinstance(row, list) and len(row) == 3 for row in rotation):
+            axes = []
+            for column, axis_name in enumerate(("X", "Y", "Z")):
+                values = [float(rotation[row][column]) for row in range(3)]
+                axes.append(
+                    f"{axis_name}→[{values[0]:+.2f}, {values[1]:+.2f}, {values[2]:+.2f}]"
+                )
+            self._ee_axis_text = "Tool 轴在 Base 中：" + " · ".join(axes)
+        requested = dict(snapshot.get("requested_step", {}) or {})
+        verification = dict(snapshot.get("verification", {}) or {})
+        if requested:
+            delta = float(requested.get("delta", 0.0))
+            unit = "m" if requested.get("kind") == "translation" else "°"
+            self._ee_motion_text = (
+                f"已执行 {str(requested.get('frame', '')).title()} "
+                f"{str(requested.get('axis', '')).upper()} {delta:+g}{unit}"
+            )
+            if verification:
+                self._ee_motion_text += (
+                    f" · FK 误差 {float(verification.get('translation_error_mm', 0.0)):.2f} mm / "
+                    f"{float(verification.get('orientation_error_deg', 0.0)):.2f}°"
+                )
 
     @Slot()
     def refreshKinematics(self) -> None:
@@ -975,6 +1078,7 @@ class ConsoleController(QObject):
             {"value": float(value)},
             motion=True,
             timeout_s=30.0,
+            result_handler="gripper",
         )
 
     @Slot()
@@ -1071,14 +1175,26 @@ class ConsoleController(QObject):
             allow_estop=True,
         )
 
-    @Slot(bool)
-    def setGravityMode(self, enabled: bool) -> None:
+    @Slot(bool, float)
+    def setGravityMode(self, enabled: bool, factor: float) -> None:
         self._submit_verified(
             "切换零力漂浮" if enabled else "切换位置保持",
             "gravity_mode",
-            {"enabled": bool(enabled)},
+            {"enabled": bool(enabled), "factor": float(factor)},
             motion=True,
             timeout_s=10.0,
+            result_handler="gravity",
+        )
+
+    @Slot(float)
+    def setGravityFactor(self, factor: float) -> None:
+        self._submit_verified(
+            f"设置重力补偿系数 {float(factor):.2f}",
+            "gravity_factor",
+            {"factor": float(factor)},
+            motion=True,
+            timeout_s=10.0,
+            result_handler="gravity",
         )
 
     @Slot(str, float)
@@ -1352,14 +1468,15 @@ class ConsoleController(QObject):
     # Process tasks: lifecycle, AnyGrasp, ROS, preflight, maintenance
     # ------------------------------------------------------------------
 
-    @Slot(bool)
-    def startServer(self, gravity_mode: bool) -> None:
+    @Slot(bool, float)
+    def startServer(self, gravity_mode: bool, gravity_factor: float) -> None:
         args = [
             str(self._repo_root / "scripts" / "manage_a1z_control_server.sh"),
             "start",
         ]
         if gravity_mode:
             args.append("--gravity-mode")
+        args.extend(["--gravity-factor", f"{float(gravity_factor):.3f}"])
         self._start_process_task(
             "server_start",
             "启动控制服务",

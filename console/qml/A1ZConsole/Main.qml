@@ -105,7 +105,7 @@ ApplicationWindow {
                     theme: window.appTheme
                     text: !window.controller.connected ? qsTr("控制服务离线")
                           : window.controller.backendMatched
-                            ? qsTr("控制 %1 在线").arg(window.controller.backend)
+                            ? qsTr("%1在线").arg(window.controller.backendLabel)
                             : qsTr("控制身份未通过")
                     level: window.controller.connected && window.controller.backendMatched
                            ? "ok" : "error"
@@ -128,7 +128,7 @@ ApplicationWindow {
                 }
                 StatusPill {
                     theme: window.appTheme
-                    text: window.controller.controlMode
+                    text: qsTr("模式 · %1").arg(window.controller.controlModeLabel)
                 }
 
                 Text {
