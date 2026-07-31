@@ -61,6 +61,9 @@ class ConsoleController(QObject):
         self._backend_matched = False
         self._backend = ""
         self._control_mode = ""
+        self._robot_running = False
+        self._faulted = False
+        self._fault_message = ""
         self._command_busy = False
         self._task_busy = False
         self._task_motion = False
@@ -77,8 +80,8 @@ class ConsoleController(QObject):
         self._gripper: float | None = None
         self._gripper_target: float | None = None
         self._info: dict[str, Any] = {}
-        self._camera_summary = "相机桥未连接"
-        self._camera_details = "等待 ROS RGB-D 链路"
+        self._camera_summary = "离线"
+        self._camera_details = ""
         self._camera_preview_source = ""
         self._camera_bridge_online = False
         self._camera_ready = False
@@ -90,9 +93,9 @@ class ConsoleController(QObject):
         self._recording_summary = "未录制"
         self._gripper_free_drive = False
         self._gravity_comp_factor = 1.0
-        self._ee_pose_text = "尚未读取 FK"
-        self._ee_axis_text = "读取 FK 后显示 grasp_tcp 三轴在 Base 中的方向"
-        self._ee_motion_text = "尚未执行末端点动"
+        self._ee_pose_text = "未读取"
+        self._ee_axis_text = ""
+        self._ee_motion_text = ""
         self._logs = ""
         self._log_lines: list[str] = []
         self._plan_summary: dict[str, Any] = {}
@@ -195,6 +198,18 @@ class ConsoleController(QObject):
             "position_hold": "位置保持",
         }.get(self._control_mode, self._control_mode or "—")
 
+    @Property(bool, notify=stateChanged)
+    def robotRunning(self) -> bool:
+        return self._robot_running
+
+    @Property(bool, notify=stateChanged)
+    def faulted(self) -> bool:
+        return self._faulted
+
+    @Property(str, notify=stateChanged)
+    def faultMessage(self) -> str:
+        return self._fault_message
+
     @Property(str, notify=stateChanged)
     def sdkDynamicsSummary(self) -> str:
         frequency = self._info.get("control_freq_hz")
@@ -210,7 +225,7 @@ class ConsoleController(QObject):
         torque_limit = self._info.get("gripper_torque_limit_nm")
         if torque_limit is not None:
             parts.append(f"G1Z 上限 {float(torque_limit):g} Nm")
-        return " · ".join(parts) if parts else "等待 SDK 参数回读"
+        return " · ".join(parts) if parts else "暂无参数"
 
     @Property(bool, notify=stateChanged)
     def commandBusy(self) -> bool:
@@ -251,9 +266,18 @@ class ConsoleController(QObject):
     @Property(bool, notify=stateChanged)
     def motionEnabled(self) -> bool:
         return (
+            self.modeControlEnabled
+            and self._control_mode == "position_hold"
+        )
+
+    @Property(bool, notify=stateChanged)
+    def modeControlEnabled(self) -> bool:
+        return (
             self._connected
             and self._backend_matched
             and self.telemetryFresh
+            and self._robot_running
+            and not self._faulted
             and not self._command_busy
             and not self._task_busy
             and not self._uncertain
@@ -266,6 +290,11 @@ class ConsoleController(QObject):
             return "上条命令结果不确定，请先核对现场并解除锁定"
         if self._estopped:
             return "软急停已锁定"
+        if self._faulted:
+            return (
+                "控制循环故障："
+                + (self._fault_message or "请重启控制服务")
+            )
         if self._task_busy:
             return f"{self._task_label or '任务'}进行中"
         if self._command_busy:
@@ -276,6 +305,10 @@ class ConsoleController(QObject):
             return "Real / Sim 后端身份不匹配"
         if not self.telemetryFresh:
             return "遥测已过期"
+        if not self._robot_running:
+            return "服务端点在线，但机械臂控制循环未运行"
+        if self._control_mode != "position_hold":
+            return "位置运动已锁定；请先切换到位置保持"
         return "就绪：一次点击只发送一次运动"
 
     @Property(str, notify=stateChanged)
@@ -374,7 +407,7 @@ class ConsoleController(QObject):
     def graspSummary(self) -> str:
         grasp = dict(self._plan_summary.get("grasp", {}) or {})
         if not grasp:
-            return "尚无已计算抓取位姿"
+            return "暂无抓取位姿"
         xyz = grasp.get("translationMm", [])
         xyz_text = ", ".join(f"{float(value):.1f}" for value in xyz)
         return (
@@ -419,6 +452,9 @@ class ConsoleController(QObject):
         self._backend_matched = False
         self._backend = ""
         self._control_mode = ""
+        self._robot_running = False
+        self._faulted = False
+        self._fault_message = ""
         self._last_telemetry_monotonic = 0.0
         self._telemetry_age_ms = -1
         self._last_error = ""
@@ -428,12 +464,12 @@ class ConsoleController(QObject):
         self._gripper_target = None
         self._gripper_free_drive = False
         self._gravity_comp_factor = 1.0
-        self._ee_pose_text = "尚未读取 FK"
-        self._ee_axis_text = "读取 FK 后显示 grasp_tcp 三轴在 Base 中的方向"
-        self._ee_motion_text = "尚未执行末端点动"
+        self._ee_pose_text = "未读取"
+        self._ee_axis_text = ""
+        self._ee_motion_text = ""
         self._info = {}
-        self._camera_summary = "相机桥未连接"
-        self._camera_details = "正在核验所选配置的 ROS RGB-D 链路"
+        self._camera_summary = "离线"
+        self._camera_details = "检查中…"
         self._set_camera_preview_source("")
         self._camera_bridge_online = False
         self._camera_ready = False
@@ -543,8 +579,15 @@ class ConsoleController(QObject):
         self._apply_status(dict(data.get("status", {})))
         self._connected = True
         self._backend_matched = self._backend == self._profile.expected_backend
-        self._last_error = ""
-        self._status_text = "遥测在线"
+        if self._faulted:
+            self._last_error = self._fault_message or "机械臂控制循环故障"
+            self._status_text = "控制服务在线 · 控制循环故障"
+        elif not self._robot_running:
+            self._last_error = "机械臂控制循环未运行，请重启控制服务"
+            self._status_text = "控制服务在线 · 控制循环停止"
+        else:
+            self._last_error = ""
+            self._status_text = "遥测在线 · 控制循环运行中"
         self._last_telemetry_monotonic = time.monotonic()
         self._telemetry_age_ms = 0
         self.stateChanged.emit()
@@ -565,6 +608,12 @@ class ConsoleController(QObject):
         self._info = dict(info)
         self._backend = str(info.get("backend", ""))
         self._control_mode = str(info.get("control_mode", ""))
+        if "running" in info:
+            self._robot_running = bool(info["running"])
+        if "faulted" in info:
+            self._faulted = bool(info["faulted"])
+        if "fault_message" in info:
+            self._fault_message = str(info.get("fault_message", "") or "")
         self._gripper_free_drive = bool(info.get("gripper_free_drive", False))
         self._gravity_comp_factor = float(info.get("gravity_comp_factor", 1.0))
         limits = dict(info.get("joint_limits_deg", {}) or {})
@@ -590,17 +639,36 @@ class ConsoleController(QObject):
         rows = []
         for index in range(6):
             previous = self._joint_rows[index]
+            error_code = (
+                int(errors[index])
+                if index < len(errors)
+                else int(previous["errorCode"])
+            )
+            motor_a_raw_status = index < 3
+            error_is_fault = (
+                not motor_a_raw_status and error_code not in (0, 1)
+            )
+            if motor_a_raw_status:
+                error_status = f"原始 {error_code}"
+            elif error_code == 1:
+                error_status = "正常"
+            elif error_code == 0:
+                error_status = "禁用"
+            else:
+                error_status = f"故障 {error_code:X}"
             rows.append(
                 {
                     "name": f"J{index + 1}",
                     "position": float(positions[index]) if index < len(positions) else previous["position"],
-                    "velocity": float(velocities[index]) if index < len(velocities) else 0.0,
-                    "torque": float(torques[index]) if index < len(torques) else 0.0,
+                    "velocity": float(velocities[index]) if index < len(velocities) else previous["velocity"],
+                    "torque": float(torques[index]) if index < len(torques) else previous["torque"],
                     "minimum": previous["minimum"],
                     "maximum": previous["maximum"],
-                    "errorCode": int(errors[index]) if index < len(errors) else 0,
-                    "tempMos": float(temp_mos[index]) if index < len(temp_mos) else -1.0,
-                    "tempRotor": float(temp_rotor[index]) if index < len(temp_rotor) else -1.0,
+                    "errorCode": error_code,
+                    "errorStatus": error_status,
+                    "errorIsFault": error_is_fault,
+                    "tempMos": float(temp_mos[index]) if index < len(temp_mos) else previous["tempMos"],
+                    "tempRotor": float(temp_rotor[index]) if index < len(temp_rotor) else previous["tempRotor"],
                 }
             )
         self._joint_rows = rows
@@ -613,7 +681,14 @@ class ConsoleController(QObject):
         self._gripper_target = (
             float(target) if isinstance(target, (int, float)) else None
         )
-        self._estopped = bool(status.get("estopped", False))
+        if "estopped" in status:
+            self._estopped = bool(status["estopped"])
+        if "running" in status:
+            self._robot_running = bool(status["running"])
+        if "faulted" in status:
+            self._faulted = bool(status["faulted"])
+        if "fault_message" in status:
+            self._fault_message = str(status.get("fault_message", "") or "")
 
     def _append_log(self, message: str) -> None:
         cleaned = str(message).strip()
@@ -644,6 +719,8 @@ class ConsoleController(QObject):
                 "minimum": 0.0,
                 "maximum": 0.0,
                 "errorCode": 0,
+                "errorStatus": "原始 0" if index < 3 else "禁用",
+                "errorIsFault": False,
                 "tempMos": -1.0,
                 "tempRotor": -1.0,
             }
@@ -663,6 +740,10 @@ class ConsoleController(QObject):
             return "控制服务未连接或后端身份不匹配"
         if not self.telemetryFresh:
             return "遥测已过期"
+        if self._faulted:
+            return self._fault_message or "机械臂控制循环已故障"
+        if not self._robot_running:
+            return "机械臂控制循环未运行"
         if self._estopped and not allow_estop:
             return "机械臂处于软急停状态"
         return ""
@@ -818,15 +899,17 @@ class ConsoleController(QObject):
 
     def _apply_helper_snapshot(self, snapshot: dict[str, Any]) -> None:
         joint_pos = list(snapshot.get("joint_pos_deg", []) or [])
-        status = {
+        status: dict[str, Any] = {
             "pos_deg": joint_pos,
             "vel_rad_s": [0.0] * 6,
             "torque_nm": [0.0] * 6,
             "gripper": snapshot.get("gripper"),
             "gripper_target": snapshot.get("gripper_target"),
             "gripper_measured": snapshot.get("gripper_measured"),
-            "estopped": False,
         }
+        for key in ("estopped", "running", "faulted", "fault_message"):
+            if key in snapshot:
+                status[key] = snapshot[key]
         self._apply_status(status)
         self._backend = str(snapshot.get("backend", self._backend))
         self._control_mode = str(snapshot.get("control_mode", self._control_mode))
@@ -1054,7 +1137,10 @@ class ConsoleController(QObject):
                     ) from exc
             if completed.returncode != 0 or not payload.get("ok"):
                 message = str(payload.get("error") or stderr or "IK helper 执行失败")
-                if payload.get("motion_request_attempted"):
+                if (
+                    payload.get("motion_request_attempted")
+                    and not payload.get("motion_outcome_verified")
+                ):
                     raise AmbiguousCommandError(message)
                 raise ProtocolError(message)
             return {
@@ -1176,12 +1262,12 @@ class ConsoleController(QObject):
             allow_estop=True,
         )
 
-    @Slot(bool, float)
-    def setGravityMode(self, enabled: bool, factor: float) -> None:
+    @Slot(bool)
+    def setGravityMode(self, enabled: bool) -> None:
         self._submit_verified(
             "切换零力漂浮" if enabled else "切换位置保持",
             "gravity_mode",
-            {"enabled": bool(enabled), "factor": float(factor)},
+            {"enabled": bool(enabled)},
             motion=True,
             timeout_s=10.0,
             result_handler="gravity",
@@ -1189,13 +1275,19 @@ class ConsoleController(QObject):
 
     @Slot(float)
     def setGravityFactor(self, factor: float) -> None:
-        self._submit_verified(
-            f"设置重力补偿系数 {float(factor):.2f}",
-            "gravity_factor",
-            {"factor": float(factor)},
-            motion=True,
-            timeout_s=10.0,
-            result_handler="gravity",
+        value = float(factor)
+        if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+            self._set_error("重力补偿系数必须是 0.0–1.0 的有限数值")
+            return
+        action = "restart" if self._connected else "start"
+        script = str(self._repo_root / "scripts" / "manage_a1z_control_server.sh")
+        self._start_process_task(
+            "gravity_factor_restart",
+            f"重启控制服务并应用重力补偿系数 {value:.2f}",
+            script,
+            [action, "--gravity-factor", f"{value:.3f}"],
+            motion=False,
+            completion=lambda code, _output: self.refreshNow() if code == 0 else None,
         )
 
     @Slot(str, float)
@@ -1508,17 +1600,22 @@ class ConsoleController(QObject):
 
     @Slot(str)
     def manageRos(self, action: str) -> None:
-        if action not in {"start", "stop", "restart", "status", "wait"}:
+        if action not in {"start", "ensure", "stop", "restart", "status", "wait"}:
             self._set_error("ROS 操作不在允许列表中")
             return
         script = str(self._repo_root / "scripts" / "run_a1z_ros2_stack_in_container.sh")
+        label = "ROS 2 自动检查并启动" if action == "ensure" else f"ROS 2 {action}"
         self._start_process_task(
             "ros",
-            f"ROS 2 {action}",
+            label,
             script,
             [action],
             motion=False,
         )
+
+    @Slot()
+    def ensureRos(self) -> None:
+        self.manageRos("ensure")
 
     @Slot(str, str, str)
     def computeAnyGrasp(self, instruction: str, planner: str, vision_backend: str) -> None:

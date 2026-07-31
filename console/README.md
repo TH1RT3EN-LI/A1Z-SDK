@@ -11,7 +11,10 @@ Qt 6 / QML 桌面控制台，参考 `duojin_l1w_control_gui` 的控制器与界�
 - 每次运动前重新读取 `info` 并核对后端身份；
 - 运动请求没有自动重试。请求已发出但响应丢失时，GUI 锁定运动，必须现场确认后
   才能人工解除；
-- 关节点动每次读取最新角度后只发送一个 `move`；
+- 关节点动每次读取最新角度后只发送一个 `move`；服务端随后只轮询 SDK
+  `get_joint_pos()`，达到容差才向界面报告完成；
+- 零力补偿 factor 是 SDK 构造参数。界面允许手动配置，但“应用”会重启控制
+  服务并以位置保持模式恢复，不在运行中的控制循环里热切换扭矩比例；
 - 末端点动使用官方 Pinocchio FK/IK，保留 2° 关节裕量，并拒绝超过 15° 的
   单步 IK 分支跳变；Base/Tool 变换与完整 SDK 能力映射见
   `docs/A1Z_CONSOLE_SDK_COVERAGE.md`；
@@ -36,6 +39,11 @@ Python 包目录。
 ./scripts/run_a1z_console.sh --profile real
 ```
 
+正常启动控制台时，会自动检查所选 profile 的 ROS 2 栈：节点和 RGB-D
+帧均健康时直接复用，缺失节点或相机帧过期时才重新启动。调试控制台本身、
+不希望触碰 ROS 运行态时可加 `--no-ros-autostart`；截图和 smoke test
+默认不会自动启动 ROS。
+
 逐页视觉回归可使用 `--page`、`--frame`、`--window-size` 和 `--screenshot`，例如：
 
 ```bash
@@ -49,6 +57,8 @@ QT_QPA_PLATFORM=offscreen ./scripts/run_a1z_console.sh \
 - 真机 AnyGrasp 执行不提供“绕过未验证手眼标定”的入口。
 - `command_joint_pos` / `command_joint_state` 是高频伺服接口，控制台不会把它们做成
   会产生阶跃的单击按钮；手动运动统一使用带速度约束的 `move_joints`。
+- “控制服务在线”不等于“控制循环运行中”；`is_running` 或适配层故障状态异常时，
+  所有运动入口都会锁定并提示重启服务。
 - 电机扫描、夹爪混控测试和零点标定要求先停止 SDK 服务，避免 CAN 双主。
 - 零点标定必须输入 `校零 A1Z`，且当前姿态会被写入电机零点。
 
@@ -84,3 +94,9 @@ A1Z_PROFILE=real ./scripts/run_a1z_ros2_stack_in_container.sh start
 `A1Z_RGBD_*_TOPIC` 约定。`camera_console_bridge` 将这组主题提供给 GUI：
 SIM 使用 `37203`，REAL 使用 `37204`。两个 profile 的端点隔离，且整个 GUI
 链路不引用动态变化的 V4L2 节点编号。
+
+真机 profile 将 librealsense 的控制台阈值设为 `fatal`，避免 USB 断开后
+底层 V4L2 错误无节流刷屏。ROS 聚合日志采用 64 MiB × 4（当前文件加三个
+备份）的轮转上限；相机是否健康仍由相机桥的新鲜 RGB-D 帧状态判断。当前
+640×480×30 真机配置还要求 D405 以至少 5,000 Mb/s 的 USB 3.x 链路枚举，
+USB 2.0 回退会在启动前直接报错，不再留下“节点存在但无图像”的假健康状态。

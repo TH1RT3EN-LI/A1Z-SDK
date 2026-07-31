@@ -10,6 +10,32 @@ Item {
     required property var theme
     required property var controller
     property real motionSpeed: 0.5
+    property real gravityFactorDraft: 0.3
+    property bool gravityFactorDirty: false
+
+    function synchronizeGravityFactorDraft() {
+        if (gravityFactor.pressed)
+            return
+
+        const liveFactor = root.controller.connected
+                         ? root.controller.gravityCompFactor : 0.3
+        if (!root.gravityFactorDirty
+                || Math.abs(root.gravityFactorDraft - liveFactor) < 0.001) {
+            root.gravityFactorDraft = liveFactor
+            gravityFactor.value = liveFactor
+            root.gravityFactorDirty = false
+        }
+    }
+
+    Component.onCompleted: synchronizeGravityFactorDraft()
+
+    Connections {
+        target: root.controller
+
+        function onStateChanged() {
+            root.synchronizeGravityFactorDraft()
+        }
+    }
 
     ScrollView {
         anchors.fill: parent
@@ -19,13 +45,6 @@ Item {
             width: root.width
             spacing: root.theme.spacingM
 
-            SectionHeader {
-                Layout.fillWidth: true
-                theme: root.theme
-                title: qsTr("官方 SDK 功能中心")
-                subtitle: qsTr("控制服务、重力补偿、预置动作、示教回放与 G1Z 夹爪")
-            }
-
             GridLayout {
                 Layout.fillWidth: true
                 columns: 2
@@ -34,17 +53,20 @@ Item {
 
                 GlassCard {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 270
+                    Layout.preferredHeight: 205
                     theme: root.theme
 
                     ColumnLayout {
                         anchors.fill: parent
                         spacing: 10
 
-                        SectionHeader {
+                        Text {
                             Layout.fillWidth: true
-                            theme: root.theme
-                            title: qsTr("SDK 控制服务")
+                            text: qsTr("控制服务")
+                            color: root.theme.text
+                            font.family: root.theme.fontFamily
+                            font.pixelSize: root.theme.typeTitle
+                            font.weight: Font.DemiBold
                         }
 
                         RowLayout {
@@ -55,15 +77,14 @@ Item {
                                 Layout.fillWidth: true
                                 theme: root.theme
                                 kind: "primary"
-                                text: qsTr("启动并保持当前位置")
+                                text: qsTr("启动服务")
                                 enabled: !root.controller.taskBusy && !root.controller.connected
                                 onClicked: root.controller.startServer(
-                                               false, gravityFactor.value)
+                                               false, root.gravityFactorDraft)
                             }
                             AppButton {
                                 Layout.fillWidth: true
                                 theme: root.theme
-                                kind: "danger"
                                 text: qsTr("停止服务")
                                 enabled: root.controller.connected && !root.controller.commandBusy
                                 onClicked: root.controller.stopServer()
@@ -79,20 +100,12 @@ Item {
                             font.pixelSize: root.theme.typeCaption
                         }
 
-                        Text {
-                            Layout.fillWidth: true
-                            text: qsTr("服务是 SDK 与 CAN 的唯一所有者；启动默认使用位置保持，连接后再进入零力模式。")
-                            color: root.theme.secondaryText
-                            wrapMode: Text.WordWrap
-                            font.family: root.theme.fontFamily
-                            font.pixelSize: root.theme.typeCaption
-                        }
                     }
                 }
 
                 GlassCard {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 270
+                    Layout.preferredHeight: 205
                     theme: root.theme
 
                     ColumnLayout {
@@ -102,20 +115,17 @@ Item {
                         SectionHeader {
                             Layout.fillWidth: true
                             theme: root.theme
-                            title: qsTr("机械臂控制模式（二选一）")
-                            subtitle: qsTr("当前状态由机械臂 SDK 持续维护并回读")
+                            title: qsTr("控制模式")
                         }
 
                         ArmControlModeSelector {
                             Layout.fillWidth: true
                             theme: root.theme
                             connected: root.controller.connected
-                            interactive: root.controller.motionEnabled
+                            interactive: root.controller.modeControlEnabled
                             controlMode: root.controller.controlMode
                             onModeRequested: function(zeroGravityEnabled) {
-                                root.controller.setGravityMode(
-                                            zeroGravityEnabled,
-                                            gravityFactor.value)
+                                root.controller.setGravityMode(zeroGravityEnabled)
                             }
                         }
 
@@ -124,21 +134,28 @@ Item {
                             spacing: 10
 
                             Text {
-                                text: qsTr("重力补偿系数")
+                                text: qsTr("补偿系数")
                                 color: root.theme.secondaryText
                                 font.family: root.theme.fontFamily
                                 font.pixelSize: root.theme.typeLabel
                             }
 
-                            Slider {
+                            AppSlider {
                                 id: gravityFactor
+                                objectName: "gravityFactor"
                                 Layout.fillWidth: true
+                                theme: root.theme
                                 from: 0.0
                                 to: 1.0
                                 stepSize: 0.05
-                                value: root.controller.connected
-                                       ? root.controller.gravityCompFactor : 0.3
+                                value: 0.3
                                 snapMode: Slider.SnapAlways
+                                enabled: !root.controller.commandBusy
+                                         && !root.controller.taskBusy
+                                onMoved: {
+                                    root.gravityFactorDraft = value
+                                    root.gravityFactorDirty = true
+                                }
                                 Accessible.name: qsTr("重力补偿系数")
                             }
 
@@ -154,16 +171,19 @@ Item {
 
                             AppButton {
                                 theme: root.theme
-                                text: qsTr("应用系数")
-                                enabled: root.controller.motionEnabled
+                                text: root.controller.connected
+                                      ? qsTr("重启应用") : qsTr("启动应用")
+                                enabled: root.gravityFactorDirty
+                                         && !root.controller.commandBusy
+                                         && !root.controller.taskBusy
                                 onClicked: root.controller.setGravityFactor(
-                                               gravityFactor.value)
+                                               root.gravityFactorDraft)
                             }
                         }
 
                         Text {
                             Layout.fillWidth: true
-                            text: qsTr("SDK 参数 · %1")
+                            text: qsTr("系数不热切换；应用会重启服务并回到位置保持。参数 · %1")
                                   .arg(root.controller.sdkDynamicsSummary)
                             color: root.theme.tertiaryText
                             elide: Text.ElideRight
@@ -172,16 +192,6 @@ Item {
                             ToolTip.visible: dynamicsHover.hovered && truncated
                             ToolTip.text: text
                             HoverHandler { id: dynamicsHover }
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: qsTr("当前补偿回读 %1。零力漂浮仍会输出重力补偿，并非断电；真机首次拖动建议从 0.30 起。")
-                                  .arg(root.controller.gravityCompFactor.toFixed(2))
-                            color: root.theme.tertiaryText
-                            wrapMode: Text.WordWrap
-                            font.family: root.theme.fontFamily
-                            font.pixelSize: root.theme.typeCaption
                         }
                     }
                 }
@@ -199,7 +209,7 @@ Item {
                     SectionHeader {
                         Layout.fillWidth: true
                         theme: root.theme
-                        title: qsTr("关节预置位")
+                        title: qsTr("预置动作")
                     }
 
                     GridLayout {
@@ -242,7 +252,7 @@ Item {
 
                         Text {
                             text: qsTr("动作序列")
-                            color: root.theme.orange
+                            color: root.theme.secondaryText
                             font.family: root.theme.fontFamily
                             font.pixelSize: root.theme.typeCaption
                         }
@@ -288,7 +298,7 @@ Item {
                         SectionHeader {
                             Layout.fillWidth: true
                             theme: root.theme
-                            title: qsTr("零力示教与回放")
+                            title: qsTr("示教与回放")
                         }
 
                         RowLayout {
@@ -299,16 +309,18 @@ Item {
                                 font.family: root.theme.fontFamily
                                 font.pixelSize: root.theme.typeLabel
                             }
-                            SpinBox {
+                            AppSpinBox {
                                 id: sampleHz
+                                theme: root.theme
                                 from: 1
                                 to: 250
                                 value: 50
                                 editable: true
                             }
-                            TextField {
+                            AppTextField {
                                 id: recordingName
                                 Layout.fillWidth: true
+                                theme: root.theme
                                 text: "teach.json"
                                 placeholderText: qsTr("轨迹文件名")
                             }
@@ -320,15 +332,14 @@ Item {
                             AppButton {
                                 Layout.fillWidth: true
                                 theme: root.theme
-                                kind: "success"
-                                text: qsTr("进入零力并开始录制")
-                                enabled: root.controller.motionEnabled
+                                text: qsTr("零力录制")
+                                enabled: root.controller.modeControlEnabled
                                 onClicked: root.controller.startRecording(sampleHz.value)
                             }
                             AppButton {
                                 Layout.fillWidth: true
                                 theme: root.theme
-                                text: qsTr("停止并保存")
+                                text: qsTr("停止保存")
                                 enabled: root.controller.connected && !root.controller.commandBusy
                                 onClicked: root.controller.stopRecording(recordingName.text)
                             }
@@ -342,8 +353,9 @@ Item {
                                 font.family: root.theme.fontFamily
                                 font.pixelSize: root.theme.typeLabel
                             }
-                            SpinBox {
+                            AppSpinBox {
                                 id: playbackSpeed
+                                theme: root.theme
                                 from: 1
                                 to: 30
                                 value: 10
@@ -358,8 +370,8 @@ Item {
                                 Layout.fillWidth: true
                                 theme: root.theme
                                 kind: "primary"
-                                text: qsTr("回放一次")
-                                enabled: root.controller.motionEnabled
+                                text: qsTr("回放")
+                                enabled: root.controller.modeControlEnabled
                                 onClicked: root.controller.playRecording(
                                                recordingName.text,
                                                playbackSpeed.value / 10)
@@ -402,7 +414,7 @@ Item {
                                 text: root.controller.gripperFreeDrive
                                       ? qsTr("恢复夹爪控制")
                                       : qsTr("启用自由拖动")
-                                enabled: root.controller.motionEnabled
+                                enabled: root.controller.modeControlEnabled
                                 onClicked: root.controller.setGripperFreeDrive(
                                                !root.controller.gripperFreeDrive)
                             }
@@ -423,7 +435,7 @@ Item {
                     SectionHeader {
                         Layout.fillWidth: true
                         theme: root.theme
-                        title: qsTr("ROS RGB-D 相机")
+                        title: qsTr("RGB-D 相机")
                     }
 
                     RowLayout {
@@ -436,10 +448,8 @@ Item {
                             Layout.fillHeight: true
                             Layout.minimumWidth: 520
                             radius: root.theme.radiusControl
-                            color: "#FF0B0E13"
-                            border.color: root.controller.cameraReady
-                                          ? root.theme.cyan : root.theme.border
-                            border.width: 1
+                            color: root.theme.mediaCanvas
+                            border.width: 0
                             clip: true
 
                             Image {
@@ -474,8 +484,8 @@ Item {
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: root.controller.cameraBusy
-                                          ? qsTr("正在读取 RGB-D 帧…")
-                                          : qsTr("等待 ROS RGB-D 数据")
+                                          ? qsTr("加载中…")
+                                          : qsTr("暂无画面")
                                     color: root.theme.tertiaryText
                                     font.family: root.theme.fontFamily
                                     font.pixelSize: root.theme.typeBody
@@ -500,7 +510,7 @@ Item {
                                 AppButton {
                                     Layout.fillWidth: true
                                     theme: root.theme
-                                    text: qsTr("链路状态")
+                                    text: qsTr("检查链路")
                                     enabled: !root.controller.cameraBusy
                                     onClicked: root.controller.queryCamera("camera_status")
                                 }
@@ -508,7 +518,7 @@ Item {
                                     Layout.fillWidth: true
                                     theme: root.theme
                                     kind: "primary"
-                                    text: qsTr("刷新画面")
+                                    text: qsTr("刷新")
                                     enabled: !root.controller.cameraBusy
                                     onClicked: root.controller.queryCamera("camera_capture")
                                 }
@@ -517,7 +527,7 @@ Item {
                             AppButton {
                                 Layout.fillWidth: true
                                 theme: root.theme
-                                text: qsTr("读取相机外参")
+                                text: qsTr("读取外参")
                                 enabled: !root.controller.cameraBusy
                                 onClicked: root.controller.queryCamera("camera_extrinsic")
                             }
@@ -526,15 +536,6 @@ Item {
                                 Layout.fillWidth: true
                                 text: root.controller.cameraDetails
                                 color: root.theme.secondaryText
-                                wrapMode: Text.Wrap
-                                font.family: root.theme.fontFamily
-                                font.pixelSize: root.theme.typeCaption
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: qsTr("画面来自配置选定的 ROS 主题；GUI 不直接占用 USB，也不依赖 /dev/video 编号。")
-                                color: root.theme.tertiaryText
                                 wrapMode: Text.Wrap
                                 font.family: root.theme.fontFamily
                                 font.pixelSize: root.theme.typeCaption

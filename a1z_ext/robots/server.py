@@ -85,7 +85,15 @@ DEFAULT_DANCE_ORDER = ["salute", "wave", "nod", "reach", "bow"]
 
 
 class RobotServer:
-    def __init__(self, robot, with_gripper: bool, camera_session=None) -> None:
+    def __init__(
+        self,
+        robot,
+        with_gripper: bool,
+        camera_session=None,
+        *,
+        joint_feedback_tolerance_deg: float = 0.75,
+        joint_feedback_timeout_s: float = 2.0,
+    ) -> None:
         self._robot = robot
         self._with_gripper = with_gripper
         self._camera_session = camera_session
@@ -98,14 +106,144 @@ class RobotServer:
         self._recording_sample_hz = 0
         self._recording_trajectory = []
         self._recording_name = ""
+        self._joint_feedback_tolerance_deg = float(joint_feedback_tolerance_deg)
+        self._joint_feedback_timeout_s = float(joint_feedback_timeout_s)
 
     def _is_estopped(self) -> bool:
         return bool(getattr(self._robot, "is_estopped", False))
+
+    def _is_running(self) -> bool:
+        return bool(getattr(self._robot, "is_running", False))
+
+    def _fault_message(self) -> str:
+        return str(getattr(self._robot, "runtime_fault", "") or "").strip()
+
+    def _is_faulted(self) -> bool:
+        return bool(getattr(self._robot, "is_faulted", False) or self._fault_message())
+
+    def _control_mode(self) -> str:
+        info = self._robot.get_robot_info()
+        mode = info.get("control_mode")
+        if mode:
+            return str(mode)
+        return (
+            "gravity_comp_effort"
+            if bool(info.get("zero_gravity_mode", False))
+            else "position_hold"
+        )
+
+    def _runtime_health(self) -> dict:
+        return {
+            "running": self._is_running(),
+            "faulted": self._is_faulted(),
+            "fault_message": self._fault_message(),
+        }
 
     def _reject_if_estopped(self) -> Optional[dict]:
         if self._is_estopped():
             return {"ok": False, "error": "Robot is in estop."}
         return None
+
+    def _reject_if_not_operational(self) -> Optional[dict]:
+        if self._is_faulted():
+            return {
+                "ok": False,
+                "error": f"Robot control loop faulted: {self._fault_message() or 'unknown fault'}",
+            }
+        if not self._is_running():
+            return {
+                "ok": False,
+                "error": "Robot control loop is not running. Restart the control service.",
+            }
+        return self._reject_if_estopped()
+
+    def _reject_if_not_position_hold(self) -> Optional[dict]:
+        mode = self._control_mode()
+        if mode != "position_hold":
+            return {
+                "ok": False,
+                "error": (
+                    "Position motion requires position-hold mode; "
+                    f"current mode is {mode or 'unknown'}."
+                ),
+            }
+        return None
+
+    def _verify_joint_feedback(self, target_rad: np.ndarray) -> dict:
+        """Read SDK feedback until the one submitted target settles or times out."""
+
+        target = np.asarray(target_rad, dtype=np.float64).reshape(-1)[:6]
+        tolerance = self._joint_feedback_tolerance_deg
+        deadline = time.monotonic() + max(0.0, self._joint_feedback_timeout_s)
+        stable_samples = 0
+        measured = np.asarray(self._robot.get_joint_pos()[:6], dtype=np.float64)
+        while True:
+            if self._is_faulted() or not self._is_running() or self._is_estopped():
+                break
+            measured = np.asarray(
+                self._robot.get_joint_pos()[:6], dtype=np.float64
+            )
+            error_deg = np.abs(np.rad2deg(target - measured))
+            if error_deg.size == 6 and float(np.max(error_deg)) <= tolerance:
+                stable_samples += 1
+                if stable_samples >= 2:
+                    break
+            else:
+                stable_samples = 0
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+
+        error_deg = np.abs(np.rad2deg(target - measured))
+        maximum_error = float(np.max(error_deg)) if error_deg.size else float("inf")
+        reached = (
+            self._is_running()
+            and not self._is_faulted()
+            and not self._is_estopped()
+            and stable_samples >= 2
+            and maximum_error <= tolerance
+        )
+        return {
+            "reached": reached,
+            "target_deg": [round(float(v), 3) for v in np.rad2deg(target)],
+            "measured_deg": [round(float(v), 3) for v in np.rad2deg(measured)],
+            "error_deg": [round(float(v), 3) for v in error_deg],
+            "max_error_deg": round(maximum_error, 3),
+            "tolerance_deg": tolerance,
+            **self._runtime_health(),
+            "estopped": self._is_estopped(),
+        }
+
+    def _move_joints_once_verified(
+        self,
+        target: np.ndarray,
+        *,
+        speed: float,
+    ) -> dict:
+        """Submit exactly one SDK move and verify it from SDK feedback."""
+
+        rejected = self._reject_if_not_position_hold()
+        if rejected is not None:
+            return rejected
+        self._robot.move_joints(target, speed=speed)
+        verification = self._verify_joint_feedback(target)
+        if not verification["reached"]:
+            return {
+                "ok": False,
+                "error": (
+                    "Joint target was not reached from SDK feedback: "
+                    f"max error {verification['max_error_deg']:.3f}° "
+                    f"(tolerance {verification['tolerance_deg']:.3f}°)."
+                ),
+                "data": {"verification": verification},
+            }
+        return {
+            "ok": True,
+            "data": {
+                "pos_deg": list(verification["measured_deg"]),
+                "verification": verification,
+            },
+        }
 
     def _get_gripper_positions(self) -> tuple[Optional[float], Optional[float]]:
         legacy_reader = getattr(self._robot, "get_gripper_pos", None)
@@ -130,6 +268,7 @@ class RobotServer:
             "pos_deg":    [round(v, 2) for v in pos_deg],
             "vel_rad_s":  [round(v, 3) for v in state["vel"].tolist()],
             "torque_nm":  [round(v, 3) for v in state["eff"].tolist()],
+            **self._runtime_health(),
         }
         if self._with_gripper:
             target, measured = self._get_gripper_positions()
@@ -183,13 +322,12 @@ class RobotServer:
         else:
             return {"ok": False, "error": "move requires 'preset' or 'joints'"}
 
-        self._robot.move_joints(target, speed=speed)
-        if self._is_estopped():
-            return {"ok": False, "error": "Motion was interrupted by estop."}
-        pos_deg = np.rad2deg(self._robot.get_joint_pos()[:6]).tolist()
-        return {"ok": True, "data": {"pos_deg": [round(v, 2) for v in pos_deg]}}
+        return self._move_joints_once_verified(target, speed=speed)
 
     def _cmd_command(self, args: dict) -> dict:
+        rejected = self._reject_if_not_position_hold()
+        if rejected is not None:
+            return rejected
         joints = args.get("joints")
         if joints is None:
             return {"ok": False, "error": "command requires 'joints' (6 joint values in degrees)"}
@@ -210,6 +348,12 @@ class RobotServer:
             data["gripper_target"] = round(value, 3)
 
         self._robot.command_joint_pos(target)
+        data.update(
+            {
+                "accepted": True,
+                "completion": "not_verified",
+            }
+        )
         return {"ok": True, "data": data}
 
     def _cmd_gripper(self, args: dict) -> dict:
@@ -267,29 +411,18 @@ class RobotServer:
     def _cmd_gravity_mode(self, args: dict) -> dict:
         if not hasattr(self._robot, "set_gravity_mode"):
             return {"ok": False, "error": "Active backend does not support gravity mode"}
-        factor = None
         if "factor" in args:
-            if not hasattr(self._robot, "set_gravity_comp_factor"):
-                return {
-                    "ok": False,
-                    "error": "Active backend does not support gravity compensation scaling",
-                }
-            factor = float(args["factor"])
-            if not np.isfinite(factor) or not 0.0 <= factor <= 1.0:
-                return {
-                    "ok": False,
-                    "error": "gravity factor must be finite and in [0.0, 1.0]",
-                }
+            return {
+                "ok": False,
+                "error": (
+                    "Gravity factor is a startup parameter. Restart the control "
+                    "service with --gravity-factor instead of changing it live."
+                ),
+            }
         enabled = bool(args.get("enabled", True))
-        if enabled and factor is not None:
-            self._robot.set_gravity_comp_factor(factor)
         self._robot.set_gravity_mode(enabled)
-        if not enabled and factor is not None:
-            self._robot.set_gravity_comp_factor(factor)
         current_factor = float(
-            self._robot.get_robot_info().get(
-                "gravity_comp_factor", factor if factor is not None else 1.0
-            )
+            self._robot.get_robot_info().get("gravity_comp_factor", 1.0)
         )
         return {
             "ok": True,
@@ -297,27 +430,6 @@ class RobotServer:
                 "gravity_mode": enabled,
                 "control_mode": "gravity_comp_effort" if enabled else "position_hold",
                 "gravity_comp_factor": current_factor,
-            },
-        }
-
-    def _cmd_gravity_factor(self, args: dict) -> dict:
-        if not hasattr(self._robot, "set_gravity_comp_factor"):
-            return {
-                "ok": False,
-                "error": "Active backend does not support gravity compensation scaling",
-            }
-        factor = float(args.get("factor", 1.0))
-        if not np.isfinite(factor) or not 0.0 <= factor <= 1.0:
-            return {
-                "ok": False,
-                "error": "gravity factor must be finite and in [0.0, 1.0]",
-            }
-        self._robot.set_gravity_comp_factor(factor)
-        return {
-            "ok": True,
-            "data": {
-                "gravity_comp_factor": factor,
-                "gravity_comp_factor_range": [0.0, 1.0],
             },
         }
 
@@ -412,6 +524,19 @@ class RobotServer:
         self._recording_name = path.name
         data = self._trajectory_summary(trajectory, path=path)
         data["speed_factor"] = speed_factor
+        verification = self._verify_joint_feedback(
+            np.asarray(trajectory[-1][1], dtype=np.float64)[:6]
+        )
+        data["verification"] = verification
+        if not verification["reached"]:
+            return {
+                "ok": False,
+                "error": (
+                    "Playback finished sending frames, but the final joint "
+                    "target was not reached from SDK feedback."
+                ),
+                "data": data,
+            }
         return {"ok": True, "data": data}
 
     def _cmd_record_info(self, _args: dict) -> dict:
@@ -433,23 +558,35 @@ class RobotServer:
             avail = ", ".join(DANCE_MOVES)
             return {"ok": False, "error": f"Unknown moves: {unknown}. Available: {avail}"}
 
-        if self._is_estopped():
-            return {"ok": False, "error": "Robot is in estop."}
-        self._robot.move_joints(PRESETS["home"], speed=speed * 0.7)
+        result = self._move_joints_once_verified(
+            PRESETS["home"], speed=speed * 0.7
+        )
+        if not result["ok"]:
+            return result
         time.sleep(0.4)
         for move_name in moves_list:
             print(f"[a1z] dance: {move_name}")
             for pose_key, spd_mul, pause in DANCE_MOVES[move_name]:
-                if self._is_estopped():
-                    return {"ok": False, "error": "Dance was interrupted by estop."}
-                self._robot.move_joints(PRESETS[pose_key], speed=speed * spd_mul)
+                result = self._move_joints_once_verified(
+                    PRESETS[pose_key], speed=speed * spd_mul
+                )
+                if not result["ok"]:
+                    return result
                 if pause > 0:
                     time.sleep(pause)
             time.sleep(0.2)
-        if self._is_estopped():
-            return {"ok": False, "error": "Dance was interrupted by estop."}
-        self._robot.move_joints(PRESETS["home"], speed=speed * 0.6)
-        return {"ok": True, "data": {"moves": moves_list}}
+        result = self._move_joints_once_verified(
+            PRESETS["home"], speed=speed * 0.6
+        )
+        if not result["ok"]:
+            return result
+        return {
+            "ok": True,
+            "data": {
+                "moves": moves_list,
+                "verification": result["data"]["verification"],
+            },
+        }
 
     def _cmd_stop(self, _args: dict) -> dict:
         self._shutdown.set()
@@ -478,7 +615,12 @@ class RobotServer:
             "estopped": self._is_estopped(),
             "gravity_comp_factor": float(info.get("gravity_comp_factor", 1.0)),
             "gravity_comp_factor_range": [0.0, 1.0],
+            **self._runtime_health(),
         }
+        if info.get("motor_a_status_codes") is not None:
+            data["motor_a_status_codes"] = [
+                int(value) for value in info["motor_a_status_codes"]
+            ]
         if info.get("control_freq_hz") is not None:
             data["control_freq_hz"] = int(info["control_freq_hz"])
         for source_key in ("default_kp", "default_kd"):
@@ -674,7 +816,6 @@ class RobotServer:
         "estop": _cmd_estop,
         "estop_release": _cmd_estop_release,
         "gravity_mode": _cmd_gravity_mode,
-        "gravity_factor": _cmd_gravity_factor,
         "gripper_free_drive": _cmd_gripper_free_drive,
         "record_start": _cmd_record_start,
         "record_stop": _cmd_record_stop,
@@ -702,7 +843,6 @@ class RobotServer:
             "grasp_close",
             "grasp_release",
             "gravity_mode",
-            "gravity_factor",
             "gripper_free_drive",
             "record_start",
             "record_play",
@@ -715,7 +855,7 @@ class RobotServer:
         if handler is None:
             return {"ok": False, "error": f"Unknown command '{cmd}'"}
         if cmd in self._MOTION_COMMANDS:
-            rejected = self._reject_if_estopped()
+            rejected = self._reject_if_not_operational()
             if rejected is not None:
                 return rejected
         if cmd in self._EMERGENCY_COMMANDS:

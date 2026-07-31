@@ -7,20 +7,22 @@ Button {
 
     required property var theme
     required property bool selected
-    property string glyph: "●"
+    property string iconName: "activity"
 
     implicitHeight: 44
     focusPolicy: Qt.StrongFocus
     hoverEnabled: true
 
     contentItem: RowLayout {
-        spacing: 11
+        spacing: 10
 
-        Text {
-            Layout.leftMargin: 13
-            text: root.glyph
-            color: root.selected ? root.theme.accent : root.theme.tertiaryText
-            font.pixelSize: 14
+        AppIcon {
+            Layout.leftMargin: 12
+            Layout.preferredWidth: 18
+            Layout.preferredHeight: 18
+            name: root.iconName
+            color: root.selected ? root.theme.accent
+                                 : root.theme.secondaryText
         }
 
         Text {
@@ -40,6 +42,9 @@ Button {
                : root.hovered ? root.theme.controlHover
                : "transparent"
         border.color: root.activeFocus ? root.theme.accent : "transparent"
-        border.width: 1
+        border.width: root.activeFocus ? 2 : 0
+        Behavior on color {
+            ColorAnimation { duration: root.theme.motionFast }
+        }
     }
 }

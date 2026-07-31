@@ -30,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=["sim", "real"], default="sim")
     parser.add_argument(
+        "--no-ros-autostart",
+        action="store_true",
+        help="Do not ensure the selected profile's ROS 2 stack is running at startup.",
+    )
+    parser.add_argument(
         "--smoke-test",
         action="store_true",
         help="Load the complete QML scene offscreen and exit after 1.5 seconds.",
@@ -98,6 +103,12 @@ def main() -> int:
         roots[0].setProperty("height", args.window_size[1])
 
     app.aboutToQuit.connect(controller.shutdown)
+    if (
+        not args.no_ros_autostart
+        and not args.smoke_test
+        and args.screenshot is None
+    ):
+        QTimer.singleShot(300, controller.ensureRos)
     if args.screenshot is not None:
         destination = args.screenshot.expanduser().resolve()
 

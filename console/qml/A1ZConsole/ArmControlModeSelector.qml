@@ -18,7 +18,13 @@ Item {
     readonly property bool zeroGravityActive: controlMode === "gravity_comp_effort"
     readonly property bool modeKnown: positionHoldActive || zeroGravityActive
 
-    implicitHeight: modeRow.implicitHeight
+    implicitHeight: 60
+
+    Rectangle {
+        anchors.fill: parent
+        radius: root.theme.radiusControl + 2
+        color: root.theme.control
+    }
 
     component ModeButton: Button {
         id: modeButton
@@ -31,7 +37,7 @@ Item {
         required property string stateLabel
 
         Layout.fillWidth: true
-        Layout.preferredHeight: 68
+        Layout.preferredHeight: 54
         padding: 10
         focusPolicy: Qt.StrongFocus
         hoverEnabled: true
@@ -47,41 +53,34 @@ Item {
         contentItem: RowLayout {
             spacing: 9
 
-            Text {
-                Layout.preferredWidth: 20
-                text: modeButton.selected ? "✓" : "○"
-                color: modeButton.selected
-                       ? modeButton.theme.accent : modeButton.theme.tertiaryText
-                horizontalAlignment: Text.AlignHCenter
-                font.family: modeButton.theme.fontFamily
-                font.pixelSize: modeButton.theme.typeTitle
-                font.weight: Font.DemiBold
+            Rectangle {
+                Layout.preferredWidth: 16
+                Layout.preferredHeight: 16
+                radius: 8
+                color: "transparent"
+                border.color: modeButton.selected
+                              ? modeButton.theme.accent
+                              : modeButton.theme.placeholderText
+                border.width: 1.5
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 8
+                    height: 8
+                    radius: 4
+                    visible: modeButton.selected
+                    color: modeButton.theme.accent
+                }
             }
 
-            ColumnLayout {
+            Text {
                 Layout.fillWidth: true
-                spacing: 2
-
-                Text {
-                    Layout.fillWidth: true
-                    text: modeButton.title
-                    color: modeButton.theme.text
-                    elide: Text.ElideRight
-                    font.family: modeButton.theme.fontFamily
-                    font.pixelSize: modeButton.theme.typeLabel
-                    font.weight: Font.DemiBold
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: modeButton.detail
-                    color: modeButton.selected
-                           ? modeButton.theme.secondaryText
-                           : modeButton.theme.tertiaryText
-                    elide: Text.ElideRight
-                    font.family: modeButton.theme.fontFamily
-                    font.pixelSize: modeButton.theme.typeCaption
-                }
+                text: modeButton.title
+                color: modeButton.theme.text
+                elide: Text.ElideRight
+                font.family: modeButton.theme.fontFamily
+                font.pixelSize: modeButton.theme.typeLabel
+                font.weight: Font.DemiBold
             }
 
             Text {
@@ -96,22 +95,25 @@ Item {
 
         background: Rectangle {
             radius: modeButton.theme.radiusControl
-            color: modeButton.selected ? modeButton.theme.accentSoft
-                   : !modeButton.enabled ? modeButton.theme.tile
+            color: modeButton.selected ? modeButton.theme.surface
+                   : !modeButton.enabled ? "transparent"
                    : modeButton.down ? modeButton.theme.controlPressed
                    : modeButton.hovered ? modeButton.theme.controlHover
-                                        : modeButton.theme.tile
-            border.color: modeButton.activeFocus ? modeButton.theme.text
-                          : modeButton.selected ? modeButton.theme.accent
-                                                : modeButton.theme.borderStrong
-            border.width: modeButton.activeFocus || modeButton.selected ? 2 : 1
+                                        : "transparent"
+            border.color: modeButton.activeFocus
+                          ? modeButton.theme.accent : "transparent"
+            border.width: modeButton.activeFocus ? 2 : 0
+            Behavior on color {
+                ColorAnimation { duration: modeButton.theme.motionFast }
+            }
         }
     }
 
     RowLayout {
         id: modeRow
         anchors.fill: parent
-        spacing: 8
+        anchors.margins: 3
+        spacing: 3
 
         ModeButton {
             theme: root.theme

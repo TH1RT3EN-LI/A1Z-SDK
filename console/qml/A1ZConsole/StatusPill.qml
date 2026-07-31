@@ -15,11 +15,7 @@ Rectangle {
            : level === "warn" ? theme.orangeSoft
            : level === "error" ? theme.redSoft
            : theme.control
-    border.color: level === "ok" ? theme.green
-                  : level === "warn" ? theme.orange
-                  : level === "error" ? theme.red
-                  : theme.borderStrong
-    border.width: 1
+    border.width: 0
 
     RowLayout {
         id: row
@@ -38,10 +34,12 @@ Rectangle {
 
         Text {
             text: root.text
-            color: root.theme.text
+            color: root.level === "error" ? root.theme.red
+                   : root.level === "warn" ? Qt.darker(root.theme.orange, 1.35)
+                   : root.theme.text
             font.family: root.theme.fontFamily
             font.pixelSize: root.theme.typeCaption
-            font.weight: Font.DemiBold
+            font.weight: Font.Medium
         }
     }
 }

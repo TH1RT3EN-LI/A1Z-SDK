@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import socket
+import subprocess
+import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -260,6 +262,71 @@ def test_sdk_console_presents_arm_control_mode_as_exclusive_state() -> None:
     assert "ArmControlModeSelector 1.0 ArmControlModeSelector.qml" in qmldir
 
 
+def test_console_uses_pinned_apple_light_visual_system() -> None:
+    qml_root = CONSOLE_ROOT / "qml" / "A1ZConsole"
+    theme = (qml_root / "Theme.qml").read_text()
+    main = (qml_root / "Main.qml").read_text()
+    qmldir = (qml_root / "qmldir").read_text()
+
+    assert 'readonly property color canvas: "#FFF2F2F7"' in theme
+    assert 'readonly property color surface: "#FFFFFFFF"' in theme
+    assert 'readonly property color accent: "#FF007AFF"' in theme
+    assert 'readonly property color accentFill: "#FF1E6EF4"' in theme
+    assert 'readonly property color red: "#FFFF383C"' in theme
+    assert "gradient:" not in main
+    assert "glyph:" not in main
+
+    for component in (
+        "AppIcon",
+        "AppTextField",
+        "AppTextArea",
+        "AppSlider",
+        "AppSpinBox",
+        "AppComboBox",
+        "InlineBanner",
+    ):
+        assert f"{component} 1.0 {component}.qml" in qmldir
+
+    for page_name in (
+        "AnyGraspPage.qml",
+        "DashboardPage.qml",
+        "DiagnosticsPage.qml",
+        "ManualControlPage.qml",
+        "SdkFunctionsPage.qml",
+    ):
+        page = (qml_root / page_name).read_text()
+        assert '"#FF0B0E13"' not in page
+
+    for page_name, redundant_title in (
+        ("DashboardPage.qml", 'title: qsTr("运行总览")'),
+        ("ManualControlPage.qml", 'title: qsTr("手动控制")'),
+        ("AnyGraspPage.qml", 'title: qsTr("AnyGrasp")'),
+        ("SdkFunctionsPage.qml", 'title: qsTr("SDK 功能")'),
+        ("DiagnosticsPage.qml", 'title: qsTr("诊断与维护")'),
+    ):
+        page = (qml_root / page_name).read_text()
+        assert redundant_title not in page
+
+
+def test_gravity_factor_slider_keeps_user_draft_during_live_telemetry() -> None:
+    page = (
+        CONSOLE_ROOT / "qml" / "A1ZConsole" / "SdkFunctionsPage.qml"
+    ).read_text()
+
+    assert "property real gravityFactorDraft: 0.3" in page
+    assert "property bool gravityFactorDirty: false" in page
+    assert "function synchronizeGravityFactorDraft()" in page
+    assert "if (gravityFactor.pressed)" in page
+    assert "root.gravityFactorDirty = true" in page
+    assert 'objectName: "gravityFactor"' in page
+    assert "gravityFactor.value = liveFactor" in page
+    assert "root.controller.setGravityFactor(" in page
+    assert "root.gravityFactorDraft)" in page
+    assert 'qsTr("重启应用")' in page
+    assert "系数不热切换" in page
+    assert "value: root.controller.connected" not in page
+
+
 def test_diagnostics_log_view_can_scroll_without_forced_tail_follow() -> None:
     page = (
         CONSOLE_ROOT / "qml" / "A1ZConsole" / "DiagnosticsPage.qml"
@@ -272,6 +339,56 @@ def test_diagnostics_log_view_can_scroll_without_forced_tail_follow() -> None:
     assert 'qsTr("暂停跟随")' in page
     assert 'qsTr("跟随最新")' in page
     assert "cursorPosition = length" not in page
+
+
+def test_console_autostarts_only_normal_interactive_sessions() -> None:
+    main = (CONSOLE_ROOT / "a1z_console" / "main.py").read_text()
+    controller = (CONSOLE_ROOT / "a1z_console" / "controller.py").read_text()
+
+    assert '"--no-ros-autostart"' in main
+    assert "not args.smoke_test" in main
+    assert "args.screenshot is None" in main
+    assert "QTimer.singleShot(300, controller.ensureRos)" in main
+    assert 'self.manageRos("ensure")' in controller
+
+
+def test_ros_log_rotation_preserves_only_the_bounded_tail(tmp_path: Path) -> None:
+    destination = tmp_path / "ros.log"
+    payload = b"0123456789abcdefghijKLMNOP"
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "rotate_stream_log.py"),
+            "--path",
+            str(destination),
+            "--max-bytes",
+            "10",
+            "--backup-count",
+            "2",
+        ],
+        input=payload,
+        check=True,
+    )
+
+    paths = [
+        destination.with_name("ros.log.2"),
+        destination.with_name("ros.log.1"),
+        destination,
+    ]
+    assert all(path.stat().st_size <= 10 for path in paths)
+    assert b"".join(path.read_bytes() for path in paths) == payload
+
+
+def test_real_ros_runner_suppresses_realsense_error_floods() -> None:
+    real_env = (ROOT / "config" / "real.env").read_text()
+    runner = (ROOT / "scripts" / "run_a1z_ros2_stack_in_container.sh").read_text()
+
+    assert "LRS_LOG_LEVEL=fatal" in real_env
+    assert "A1Z_REALSENSE_MIN_USB_SPEED_MBPS=5000" in real_env
+    assert '-e LRS_LOG_LEVEL="${LRS_LOG_LEVEL:-fatal}"' in runner
+    assert "validate_realsense_usb_link" in runner
+    assert "camera bridge reports stale or incomplete RGB-D data" in runner
+    assert "A1Z_ROS2_MOTION_LOG_MAX_BYTES" in runner
 
 
 def test_anygrasp_summary_outputs_pose_and_joint_degrees(tmp_path: Path) -> None:
@@ -332,6 +449,9 @@ def test_console_safety_contract_is_present_in_sources() -> None:
     controller = (CONSOLE_ROOT / "a1z_console" / "controller.py").read_text()
     helper = (ROOT / "scripts" / "a1z_ee_ik_helper.py").read_text()
     server = (ROOT / "a1z_ext" / "robots" / "server.py").read_text()
+    dashboard = (
+        CONSOLE_ROOT / "qml" / "A1ZConsole" / "DashboardPage.qml"
+    ).read_text()
 
     assert "ThreadPoolExecutor(" in controller
     assert "max_workers=1" in controller
@@ -340,6 +460,8 @@ def test_console_safety_contract_is_present_in_sources() -> None:
     assert "motion_request_attempted" in helper
     assert "record_start" in server
     assert "gravity_mode" in server
+    assert '"errorIsFault": error_is_fault' in controller
+    assert "jointRow.modelData.errorIsFault" in dashboard
 
 
 def test_gripper_slider_draft_is_not_bound_to_periodic_telemetry() -> None:
@@ -362,6 +484,7 @@ def test_status_separates_gripper_target_from_measured_feedback() -> None:
 
     class GripperTelemetrySpy:
         is_estopped = False
+        is_running = True
 
         def get_joint_state(self) -> dict[str, object]:
             return {
@@ -411,7 +534,6 @@ def test_operator_facing_sdk_capabilities_have_protocol_handlers() -> None:
         "estop",
         "estop_release",
         "gravity_mode",
-        "gravity_factor",
         "gripper_free_drive",
         "record_start",
         "record_stop",
@@ -427,7 +549,6 @@ def test_operator_facing_sdk_capabilities_have_protocol_handlers() -> None:
         "grasp_close",
         "grasp_release",
         "gravity_mode",
-        "gravity_factor",
         "gripper_free_drive",
         "record_start",
         "record_play",
@@ -574,7 +695,7 @@ def test_estop_and_status_bypass_a_blocking_move() -> None:
     from a1z_ext.robots.mock_robot import MockArmRobot
     from a1z_ext.robots.server import RobotServer
 
-    robot = MockArmRobot(with_gripper=True)
+    robot = MockArmRobot(with_gripper=True, zero_gravity_mode=False)
     robot.start()
     server = RobotServer(robot, with_gripper=True)
     result: dict = {}
@@ -629,18 +750,19 @@ def test_console_sdk_recording_and_control_modes(
         staticmethod(lambda name: tmp_path / Path(str(name)).name),
     )
 
-    gravity = server._dispatch_request(
+    rejected_hot_factor = server._dispatch_request(
         "gravity_mode", {"enabled": True, "factor": 0.3}
     )
+    assert rejected_hot_factor["ok"] is False
+    assert robot.zero_gravity_mode is False
+    gravity = server._dispatch_request("gravity_mode", {"enabled": True})
     assert gravity["ok"] is True
-    assert gravity["data"]["gravity_comp_factor"] == pytest.approx(0.3)
-    assert server._dispatch_request("info", {})["data"]["gravity_comp_factor"] == pytest.approx(0.3)
-    rejected = server._dispatch_request("gravity_factor", {"factor": 1.2})
+    assert gravity["data"]["gravity_comp_factor"] == pytest.approx(1.0)
+    assert server._dispatch_request("info", {})["data"]["gravity_comp_factor"] == pytest.approx(1.0)
+    rejected = server._dispatch_request("gravity_factor", {"factor": 0.65})
     assert rejected["ok"] is False
-    assert robot.gravity_comp_factor == pytest.approx(0.3)
-    changed = server._dispatch_request("gravity_factor", {"factor": 0.65})
-    assert changed["ok"] is True
-    assert robot.gravity_comp_factor == pytest.approx(0.65)
+    assert "Unknown command" in rejected["error"]
+    assert robot.gravity_comp_factor == pytest.approx(1.0)
     assert server._dispatch_request("gripper_free_drive", {"enabled": True})["ok"] is True
     assert server._dispatch_request("record_start", {"sample_hz": 50})["ok"] is True
     time.sleep(0.05)
@@ -654,41 +776,154 @@ def test_console_sdk_recording_and_control_modes(
     robot.stop()
 
 
-def test_gravity_mode_transition_applies_factor_in_safe_order() -> None:
+def test_gravity_mode_transition_never_mutates_startup_factor() -> None:
     pytest.importorskip("numpy")
     from a1z_ext.robots.server import RobotServer
 
     class GravitySpy:
         is_estopped = False
+        is_running = True
 
         def __init__(self) -> None:
             self.factor = 1.0
             self.enabled = False
             self.calls: list[tuple[str, float | bool]] = []
 
-        def set_gravity_comp_factor(self, factor: float) -> None:
-            self.factor = float(factor)
-            self.calls.append(("factor", self.factor))
-
         def set_gravity_mode(self, enabled: bool) -> None:
             self.enabled = bool(enabled)
             self.calls.append(("mode", self.enabled))
 
-        def get_robot_info(self) -> dict[str, float]:
-            return {"gravity_comp_factor": self.factor}
+        def get_robot_info(self) -> dict[str, object]:
+            return {
+                "gravity_comp_factor": self.factor,
+                "control_mode": (
+                    "gravity_comp_effort" if self.enabled else "position_hold"
+                ),
+            }
 
     robot = GravitySpy()
     server = RobotServer(robot, with_gripper=False)
-    assert server._dispatch_request(
+    rejected = server._dispatch_request(
         "gravity_mode", {"enabled": True, "factor": 0.3}
-    )["ok"]
-    assert robot.calls == [("factor", 0.3), ("mode", True)]
+    )
+    assert rejected["ok"] is False
+    assert "startup parameter" in rejected["error"]
+    assert robot.calls == []
+    assert robot.factor == pytest.approx(1.0)
 
-    robot.calls.clear()
-    assert server._dispatch_request(
-        "gravity_mode", {"enabled": False, "factor": 0.8}
-    )["ok"]
-    assert robot.calls == [("mode", False), ("factor", 0.8)]
+    assert server._dispatch_request("gravity_mode", {"enabled": True})["ok"]
+    assert robot.calls == [("mode", True)]
+    assert robot.factor == pytest.approx(1.0)
+
+
+def test_move_is_submitted_once_and_fails_when_sdk_feedback_does_not_reach() -> None:
+    np = pytest.importorskip("numpy")
+    from a1z_ext.robots.server import RobotServer
+
+    class MotionFeedbackSpy:
+        is_estopped = False
+        is_running = True
+
+        def __init__(self) -> None:
+            self.move_calls = 0
+
+        def get_robot_info(self) -> dict[str, object]:
+            return {"control_mode": "position_hold"}
+
+        def get_joint_pos(self):
+            return np.zeros(6, dtype=np.float64)
+
+        def move_joints(self, target, speed: float) -> None:
+            del target, speed
+            self.move_calls += 1
+
+    robot = MotionFeedbackSpy()
+    server = RobotServer(
+        robot,
+        with_gripper=False,
+        joint_feedback_timeout_s=0.0,
+    )
+    result = server._dispatch_request(
+        "move",
+        {"joints": [5.0, 0.0, 0.0, 0.0, 0.0, 0.0], "speed": 0.5},
+    )
+    assert result["ok"] is False
+    assert robot.move_calls == 1
+    verification = result["data"]["verification"]
+    assert verification["reached"] is False
+    assert verification["max_error_deg"] == pytest.approx(5.0)
+
+
+def test_socketcan_adapter_holds_measured_pose_when_leaving_zero_gravity() -> None:
+    np = pytest.importorskip("numpy")
+    monkeypatch_path = str(ROOT / "vendor" / "GALAXEA-A1Z")
+    if monkeypatch_path not in sys.path:
+        sys.path.insert(0, monkeypatch_path)
+    from a1z.robots.arm_robot import JointCommand, JointState
+    from a1z_ext.robots.socketcan_robot import SocketCANArmRobot
+
+    robot = SocketCANArmRobot.__new__(SocketCANArmRobot)
+    measured = np.array([0.2, 0.3, -0.4, 0.1, -0.2, 0.05])
+    robot._num_joints = 6
+    robot._running = True
+    robot._estop_latch = threading.Event()
+    robot._state_lock = threading.Lock()
+    robot._command_lock = threading.Lock()
+    robot._state = JointState(
+        pos=measured.copy(),
+        vel=np.zeros(6),
+        eff=np.zeros(6),
+    )
+    robot._command = JointCommand(
+        pos=np.zeros(6),
+        vel=np.ones(6),
+        acc=np.ones(6),
+        kp=np.zeros(6),
+        kd=np.zeros(6),
+        torque_ff=np.ones(6),
+    )
+    robot._default_kp = np.arange(1.0, 7.0)
+    robot._default_kd = np.arange(0.1, 0.7, 0.1)
+    robot.gripper = None
+    robot.zero_gravity_mode = True
+
+    robot.set_gravity_mode(False)
+
+    assert robot.zero_gravity_mode is False
+    assert robot._command.pos == pytest.approx(measured)
+    assert robot._command.vel == pytest.approx(np.zeros(6))
+    assert robot._command.acc == pytest.approx(np.zeros(6))
+    assert robot._command.torque_ff == pytest.approx(np.zeros(6))
+    assert robot._command.kp == pytest.approx(robot._default_kp)
+    assert robot._command.kd == pytest.approx(robot._default_kd)
+    robot._running = False
+
+
+def test_socketcan_adapter_does_not_apply_motor_b_codes_to_motor_a() -> None:
+    np = pytest.importorskip("numpy")
+    sdk_path = str(ROOT / "vendor" / "GALAXEA-A1Z")
+    if sdk_path not in sys.path:
+        sys.path.insert(0, sdk_path)
+    from a1z.robots.arm_robot import JointState
+    from a1z_ext.robots.socketcan_robot import SocketCANArmRobot
+
+    robot = SocketCANArmRobot.__new__(SocketCANArmRobot)
+    robot._running = False
+    robot._state_lock = threading.Lock()
+    robot._state = JointState(
+        pos=np.zeros(6),
+        vel=np.zeros(6),
+        eff=np.zeros(6),
+        error_codes=np.array([4, 4, 4, 1, 1, 1]),
+    )
+    robot._motor_a_status_codes = [0, 0, 0]
+
+    robot._check_motor_errors()
+    assert robot._motor_a_status_codes == [4, 4, 4]
+
+    robot._state.error_codes = np.array([4, 4, 4, 8, 1, 1])
+    with pytest.raises(RuntimeError, match="MotorB fault on joint4"):
+        robot._check_motor_errors()
 
 
 def test_robot_factory_rejects_unsafe_gravity_scale_before_backend_creation() -> None:

@@ -229,6 +229,9 @@ class D405PayloadPerformanceTests(unittest.TestCase):
                 return {"ready": True}
 
         class Robot:
+            is_running = True
+            is_estopped = False
+
             @staticmethod
             def get_joint_state():
                 return {
@@ -236,6 +239,10 @@ class D405PayloadPerformanceTests(unittest.TestCase):
                     "vel": np.zeros(6),
                     "eff": np.zeros(6),
                 }
+
+            @staticmethod
+            def get_robot_info():
+                return {"control_mode": "position_hold"}
 
         class RaisingLock:
             def __enter__(self):

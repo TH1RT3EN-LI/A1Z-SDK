@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 
+from a1z.motor_drivers.motor_b_driver import MOTOR_B_ERROR_CODES
 from a1z.robots.arm_robot import ArmRobot
 
 
-class SocketCANArmRobot(ArmRobot):
-    """Add the backend-neutral grasp contract to the official hardware SDK.
+logger = logging.getLogger(__name__)
 
-    The upstream gripper already performs force-position hybrid control in the
-    motor.  This adapter only waits for real position feedback and determines
-    whether the jaws stopped on an object; it does not estimate contact force.
+
+class SocketCANArmRobot(ArmRobot):
+    """Safety adapter around the official SocketCAN hardware SDK.
+
+    The adapter deliberately leaves the official 250 Hz control loop in charge.
+    It only fixes state transitions and fault interpretation at the SDK
+    boundary, and adds the backend-neutral grasp contract.
     """
 
     def __init__(
@@ -35,6 +40,69 @@ class SocketCANArmRobot(ArmRobot):
         self._grasp_stable_samples = int(stable_samples)
         self._grasp_lock = threading.Lock()
         self._grasp_status: Dict[str, Any] = self._idle_grasp_status()
+        self._runtime_fault_lock = threading.Lock()
+        self._runtime_fault = ""
+        self._motor_a_status_codes = [0, 0, 0]
+
+    @property
+    def runtime_fault(self) -> str:
+        with self._runtime_fault_lock:
+            return self._runtime_fault
+
+    @property
+    def is_faulted(self) -> bool:
+        return bool(self.runtime_fault)
+
+    def _set_runtime_fault(self, message: object) -> None:
+        text = str(message).strip() or "A1Z SDK control loop stopped unexpectedly."
+        with self._runtime_fault_lock:
+            if not self._runtime_fault:
+                self._runtime_fault = text
+
+    def start(
+        self,
+        initial_kp: Optional[np.ndarray] = None,
+        initial_kd: Optional[np.ndarray] = None,
+    ) -> None:
+        with self._runtime_fault_lock:
+            self._runtime_fault = ""
+        super().start(initial_kp=initial_kp, initial_kd=initial_kd)
+
+    def _update(self) -> None:
+        try:
+            super()._update()
+        except Exception as exc:
+            self._set_runtime_fault(exc)
+            raise
+
+    def _control_loop(self) -> None:
+        super()._control_loop()
+        if not self._stop_event.is_set() and not self.runtime_fault:
+            self._set_runtime_fault("A1Z SDK control loop stopped unexpectedly.")
+
+    def _check_motor_errors(self) -> None:
+        """Apply MotorB fault semantics only to the MotorB joints.
+
+        The official diagnostic tool intentionally excludes MotorA from its
+        MotorB error-code table.  MotorA values are therefore exposed as raw
+        status telemetry instead of being misclassified as fatal faults.
+        """
+
+        with self._state_lock:
+            errors = np.asarray(self._state.error_codes, dtype=np.int64).copy()
+        motor_a_count = min(3, errors.size)
+        self._motor_a_status_codes = [
+            int(value) for value in errors[:motor_a_count].tolist()
+        ]
+        for joint_index in range(motor_a_count, errors.size):
+            code = int(errors[joint_index])
+            if code in (0x0, 0x1):
+                continue
+            message = MOTOR_B_ERROR_CODES.get(code, f"unknown({code})")
+            raise RuntimeError(
+                f"MotorB fault on joint{joint_index + 1}: "
+                f"error_code=0x{code:X} ({message})"
+            )
 
     def _idle_grasp_status(self) -> Dict[str, Any]:
         return {
@@ -62,21 +130,47 @@ class SocketCANArmRobot(ArmRobot):
                     self._gripper_max_torque_nm if self.gripper is not None else None
                 ),
                 "gripper_free_drive": bool(self._gripper_free_drive),
+                "running": bool(self.is_running),
+                "faulted": self.is_faulted,
+                "fault_message": self.runtime_fault,
+                "motor_a_status_codes": list(self._motor_a_status_codes),
             }
         )
         return info
 
-    def set_gravity_comp_factor(self, factor: float) -> None:
-        """Apply the official SDK gravity scale without replacing the SDK owner."""
+    def set_gravity_mode(self, enabled: bool) -> None:
+        """Switch modes atomically while holding the current measured pose.
+
+        The official implementation only changes Kp/Kd.  If the arm was moved
+        in zero-gravity mode, restoring Kp would then chase the stale command
+        position.  This adapter pins the command to measured feedback and clears
+        all dynamic/feedforward terms before changing the gains.
+        """
+
         if not self.is_running:
             raise RuntimeError("Robot not running. Call start() first.")
         if self.is_estopped:
             raise RuntimeError("Robot is in estop.")
-        value = float(factor)
-        if not np.isfinite(value) or not 0.0 <= value <= 1.0:
-            raise ValueError("gravity_comp_factor must be finite and in [0.0, 1.0]")
+        measured = np.asarray(
+            self.get_joint_pos()[: self._num_joints], dtype=np.float64
+        ).copy()
         with self._command_lock:
-            self.gravity_comp_factor = value
+            self._command.pos = measured
+            self._command.vel = np.zeros(self._num_joints, dtype=np.float64)
+            self._command.acc = np.zeros(self._num_joints, dtype=np.float64)
+            self._command.torque_ff = np.zeros(self._num_joints, dtype=np.float64)
+            if enabled:
+                self._command.kp = np.zeros(self._num_joints, dtype=np.float64)
+                self._command.kd = self._default_kd.copy() * 0.5
+            else:
+                self._command.kp = self._default_kp.copy()
+                self._command.kd = self._default_kd.copy()
+            self.zero_gravity_mode = bool(enabled)
+        logger.info(
+            "Control mode switched to %s at measured pose %s rad",
+            "zero-gravity" if enabled else "position-hold",
+            np.round(measured, 3).tolist(),
+        )
 
     def get_gripper_target_pos(self) -> Optional[float]:
         """Return the normalized target last accepted by the official SDK."""

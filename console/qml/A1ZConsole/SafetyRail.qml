@@ -34,9 +34,7 @@ GlassCard {
             color: root.controller.motionEnabled ? root.theme.greenSoft
                    : root.controller.commandOutcomeUncertain ? root.theme.redSoft
                    : root.theme.orangeSoft
-            border.color: root.controller.motionEnabled ? root.theme.green
-                          : root.controller.commandOutcomeUncertain ? root.theme.red
-                          : root.theme.orange
+            border.width: 0
 
             ColumnLayout {
                 id: gateColumn
@@ -55,7 +53,7 @@ GlassCard {
                            : root.theme.orange
                     font.family: root.theme.fontFamily
                     font.pixelSize: root.theme.typeCaption
-                    font.weight: Font.Bold
+                    font.weight: Font.DemiBold
                 }
 
                 Text {
@@ -92,41 +90,15 @@ GlassCard {
             font.pixelSize: root.theme.typeLabel
         }
 
-        Slider {
+        AppSlider {
             id: speedSlider
             Layout.fillWidth: true
+            theme: root.theme
             from: 0.05
             to: 1.5
             value: 0.5
             stepSize: 0.05
             snapMode: Slider.SnapAlways
-
-            background: Rectangle {
-                x: speedSlider.leftPadding
-                y: speedSlider.topPadding + speedSlider.availableHeight / 2 - height / 2
-                width: speedSlider.availableWidth
-                height: 5
-                radius: 3
-                color: root.theme.control
-
-                Rectangle {
-                    width: speedSlider.visualPosition * parent.width
-                    height: parent.height
-                    radius: parent.radius
-                    color: root.theme.accent
-                }
-            }
-
-            handle: Rectangle {
-                x: speedSlider.leftPadding + speedSlider.visualPosition
-                   * (speedSlider.availableWidth - width)
-                y: speedSlider.topPadding + speedSlider.availableHeight / 2 - height / 2
-                implicitWidth: 18
-                implicitHeight: 18
-                radius: 9
-                color: speedSlider.pressed ? root.theme.accent : root.theme.text
-                border.color: root.theme.accent
-            }
         }
 
         GridLayout {
@@ -141,9 +113,10 @@ GlassCard {
                 font.family: root.theme.fontFamily
                 font.pixelSize: root.theme.typeCaption
             }
-            SpinBox {
+            AppSpinBox {
                 id: jointStepBox
                 Layout.fillWidth: true
+                theme: root.theme
                 from: 1
                 to: 200
                 value: 20
@@ -159,9 +132,10 @@ GlassCard {
                 font.family: root.theme.fontFamily
                 font.pixelSize: root.theme.typeCaption
             }
-            SpinBox {
+            AppSpinBox {
                 id: linearStepBox
                 Layout.fillWidth: true
+                theme: root.theme
                 from: 1
                 to: 100
                 value: 10
@@ -176,9 +150,10 @@ GlassCard {
                 font.family: root.theme.fontFamily
                 font.pixelSize: root.theme.typeCaption
             }
-            SpinBox {
+            AppSpinBox {
                 id: angularStepBox
                 Layout.fillWidth: true
+                theme: root.theme
                 from: 1
                 to: 450
                 value: 50
@@ -195,23 +170,33 @@ GlassCard {
             font.pixelSize: root.theme.typeCaption
         }
 
-        RowLayout {
+        Rectangle {
             Layout.fillWidth: true
-            spacing: 6
+            Layout.preferredHeight: 40
+            radius: root.theme.radiusControl + 2
+            color: root.theme.control
 
-            AppButton {
-                Layout.fillWidth: true
-                theme: root.theme
-                kind: root.frameMode === "base" ? "primary" : "secondary"
-                text: qsTr("基座 Base")
-                onClicked: root.frameModeRequested("base")
-            }
-            AppButton {
-                Layout.fillWidth: true
-                theme: root.theme
-                kind: root.frameMode === "tool" ? "primary" : "secondary"
-                text: qsTr("工具 TCP")
-                onClicked: root.frameModeRequested("tool")
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 3
+                spacing: 3
+
+                AppButton {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    theme: root.theme
+                    kind: root.frameMode === "base" ? "selected" : "quiet"
+                    text: qsTr("基座 Base")
+                    onClicked: root.frameModeRequested("base")
+                }
+                AppButton {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    theme: root.theme
+                    kind: root.frameMode === "tool" ? "selected" : "quiet"
+                    text: qsTr("工具 TCP")
+                    onClicked: root.frameModeRequested("tool")
+                }
             }
         }
 
@@ -221,8 +206,8 @@ GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: estopColumn.implicitHeight + 24
             radius: root.theme.radiusControl
-            color: root.theme.redSoft
-            border.color: root.theme.red
+            color: root.theme.control
+            border.width: 0
 
             ColumnLayout {
                 id: estopColumn
@@ -233,11 +218,12 @@ GlassCard {
                 Text {
                     Layout.fillWidth: true
                     text: root.controller.estopped ? qsTr("软急停已锁定") : qsTr("软件紧急停止")
-                    color: root.theme.red
+                    color: root.controller.estopped ? root.theme.red
+                           : root.theme.secondaryText
                     horizontalAlignment: Text.AlignHCenter
                     font.family: root.theme.fontFamily
                     font.pixelSize: root.theme.typeLabel
-                    font.weight: Font.Bold
+                    font.weight: Font.DemiBold
                 }
 
                 AppButton {

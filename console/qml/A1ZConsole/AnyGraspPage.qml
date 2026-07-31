@@ -18,16 +18,9 @@ Item {
             width: root.width
             spacing: root.theme.spacingM
 
-            SectionHeader {
-                Layout.fillWidth: true
-                theme: root.theme
-                title: qsTr("AnyGrasp 抓取链路")
-                subtitle: qsTr("先计算并审阅安全检查，再通过确认短语执行当前计划")
-            }
-
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 230
+                Layout.preferredHeight: 190
                 theme: root.theme
 
                 ColumnLayout {
@@ -37,25 +30,17 @@ Item {
                     SectionHeader {
                         Layout.fillWidth: true
                         theme: root.theme
-                        title: qsTr("1. 只计算")
+                        title: qsTr("1. 计算")
                     }
 
-                    TextArea {
+                    AppTextArea {
                         id: instruction
                         Layout.fillWidth: true
                         Layout.preferredHeight: 70
-                        placeholderText: qsTr("例如：抓取桌面上的红色杯子")
-                        text: qsTr("抓取桌面上的目标物体")
-                        color: root.theme.text
-                        placeholderTextColor: root.theme.tertiaryText
+                        theme: root.theme
+                        placeholderText: qsTr("输入抓取目标")
+                        text: qsTr("抓取目标物体")
                         wrapMode: TextArea.Wrap
-                        selectByMouse: true
-                        background: Rectangle {
-                            radius: root.theme.radiusControl
-                            color: root.theme.tile
-                            border.color: instruction.activeFocus
-                                          ? root.theme.accent : root.theme.border
-                        }
                     }
 
                     RowLayout {
@@ -63,14 +48,15 @@ Item {
                         spacing: 10
 
                         Text {
-                            text: qsTr("规划器")
+                            text: qsTr("规划")
                             color: root.theme.secondaryText
                             font.family: root.theme.fontFamily
                             font.pixelSize: root.theme.typeLabel
                         }
-                        ComboBox {
+                        AppComboBox {
                             id: planner
                             Layout.preferredWidth: 150
+                            theme: root.theme
                             model: [
                                 { text: qsTr("适配器规划"), value: "adapter" },
                                 { text: qsTr("最优候选"), value: "best" }
@@ -80,14 +66,15 @@ Item {
                         }
 
                         Text {
-                            text: qsTr("视觉执行")
+                            text: qsTr("视觉")
                             color: root.theme.secondaryText
                             font.family: root.theme.fontFamily
                             font.pixelSize: root.theme.typeLabel
                         }
-                        ComboBox {
+                        AppComboBox {
                             id: visionBackend
                             Layout.preferredWidth: 170
+                            theme: root.theme
                             model: [
                                 { text: qsTr("配置默认"), value: "auto" },
                                 { text: qsTr("本机 GPU"), value: "local" },
@@ -102,7 +89,7 @@ Item {
                         AppButton {
                             theme: root.theme
                             kind: "primary"
-                            text: root.controller.taskBusy ? qsTr("计算中…") : qsTr("启动只计算")
+                            text: root.controller.taskBusy ? qsTr("计算中…") : qsTr("开始计算")
                             enabled: !root.controller.taskBusy && !root.controller.commandBusy
                             onClicked: root.controller.computeAnyGrasp(
                                            instruction.text,
@@ -113,7 +100,7 @@ Item {
                         AppButton {
                             theme: root.theme
                             kind: "danger"
-                            text: qsTr("中止任务")
+                            text: qsTr("中止")
                             visible: root.controller.taskBusy
                             onClicked: root.controller.cancelTask()
                         }
@@ -123,9 +110,16 @@ Item {
 
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: root.controller.planSegments.length === 0
-                                        ? 220
-                                        : Math.max(300, 192 + root.controller.planSegments.length * 38)
+                Layout.preferredHeight: Math.max(
+                                            root.controller.planSegments.length === 0
+                                            ? 158
+                                            : Math.max(
+                                                  260,
+                                                  170
+                                                  + root.controller.planSegments.length
+                                                  * 38),
+                                            root.height - 190 - 120
+                                            - 2 * root.theme.spacingM)
                 theme: root.theme
 
                 ColumnLayout {
@@ -135,7 +129,7 @@ Item {
                     SectionHeader {
                         Layout.fillWidth: true
                         theme: root.theme
-                        title: qsTr("2. 审阅计算结果")
+                        title: qsTr("2. 审阅")
                     }
 
                     Rectangle {
@@ -143,7 +137,7 @@ Item {
                         Layout.preferredHeight: 58
                         radius: root.theme.radiusControl
                         color: root.theme.tile
-                        border.color: root.theme.border
+                        border.width: 0
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -251,8 +245,18 @@ Item {
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 38
-                            radius: root.theme.radiusSmall
-                            color: segmentRow.index % 2 ? root.theme.tile : "transparent"
+                            radius: 0
+                            color: "transparent"
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 1
+                                visible: segmentRow.index
+                                         < root.controller.planSegments.length - 1
+                                color: root.theme.separator
+                            }
 
                             RowLayout {
                                 anchors.fill: parent
@@ -295,7 +299,7 @@ Item {
                         visible: root.controller.planSegments.length === 0
                         radius: root.theme.radiusControl
                         color: "transparent"
-                        border.color: root.theme.border
+                        border.width: 0
 
                         Column {
                             anchors.centerIn: parent
@@ -303,18 +307,11 @@ Item {
 
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                text: qsTr("尚无待审阅计划")
+                                text: qsTr("暂无计划")
                                 color: root.theme.secondaryText
                                 font.family: root.theme.fontFamily
                                 font.pixelSize: root.theme.typeLabel
                                 font.weight: Font.DemiBold
-                            }
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: qsTr("完成“只计算”后，这里将显示轨迹段与安全检查")
-                                color: root.theme.tertiaryText
-                                font.family: root.theme.fontFamily
-                                font.pixelSize: root.theme.typeCaption
                             }
                         }
                     }
@@ -325,7 +322,7 @@ Item {
 
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 205
+                Layout.preferredHeight: 120
                 theme: root.theme
 
                 ColumnLayout {
@@ -335,31 +332,24 @@ Item {
                     SectionHeader {
                         Layout.fillWidth: true
                         theme: root.theme
-                        title: qsTr("3. 执行已审阅计划")
+                        title: qsTr("3. 执行")
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
 
-                        TextField {
+                        AppTextField {
                             id: executePhrase
                             Layout.fillWidth: true
-                            placeholderText: qsTr("实际执行请输入：执行 %1")
+                            theme: root.theme
+                            placeholderText: qsTr("输入：执行 %1")
                                              .arg(root.controller.profile.toUpperCase())
-                            color: root.theme.text
-                            selectByMouse: true
-                            background: Rectangle {
-                                radius: root.theme.radiusControl
-                                color: root.theme.tile
-                                border.color: executePhrase.activeFocus
-                                              ? root.theme.accent : root.theme.border
-                            }
                         }
 
                         AppButton {
                             theme: root.theme
-                            text: qsTr("仅演练计划")
+                            text: qsTr("演练")
                             enabled: root.controller.latestPlanPath.length > 0
                                      && !root.controller.taskBusy && !root.controller.commandBusy
                             onClicked: root.controller.executePlan(true, "")
@@ -368,7 +358,7 @@ Item {
                         AppButton {
                             theme: root.theme
                             kind: "danger"
-                            text: qsTr("真实执行当前计划")
+                            text: qsTr("执行计划")
                             enabled: root.controller.latestPlanPath.length > 0
                                      && root.controller.planSafetyPassed
                                      && root.controller.motionEnabled

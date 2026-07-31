@@ -72,16 +72,9 @@ Item {
             width: root.width
             spacing: root.theme.spacingM
 
-            SectionHeader {
-                Layout.fillWidth: true
-                theme: root.theme
-                title: qsTr("手动控制")
-                subtitle: qsTr("单次点动；Tool 增量始终相对 grasp_tcp 当前姿态计算")
-            }
-
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 132
+                Layout.preferredHeight: 112
                 theme: root.theme
 
                 RowLayout {
@@ -92,7 +85,7 @@ Item {
                         Layout.fillWidth: true
                         spacing: 3
                         Text {
-                            text: qsTr("末端 grasp_tcp 回读")
+                            text: qsTr("末端位姿")
                             color: root.theme.tertiaryText
                             font.family: root.theme.fontFamily
                             font.pixelSize: root.theme.typeCaption
@@ -126,7 +119,7 @@ Item {
 
                     AppButton {
                         theme: root.theme
-                        text: qsTr("读取一次 FK")
+                        text: qsTr("读取 FK")
                         enabled: root.controller.connected && !root.controller.commandBusy
                         onClicked: root.controller.refreshKinematics()
                     }
@@ -148,12 +141,12 @@ Item {
                         SectionHeader {
                             Layout.fillWidth: true
                             theme: root.theme
-                            title: qsTr("单关节点动与绝对目标")
+                            title: qsTr("关节控制")
                         }
 
                         AppButton {
                             theme: root.theme
-                            text: qsTr("载入当前值")
+                            text: qsTr("载入当前")
                             enabled: !root.controller.commandBusy
                             onClicked: root.loadCurrentDrafts()
                         }
@@ -161,7 +154,7 @@ Item {
                         AppButton {
                             theme: root.theme
                             kind: "primary"
-                            text: qsTr("执行绝对目标")
+                            text: qsTr("发送目标")
                             enabled: root.controller.motionEnabled
                             onClicked: root.submitDrafts()
                         }
@@ -182,11 +175,11 @@ Item {
                             Repeater {
                                 model: [
                                     qsTr("关节"),
-                                    qsTr("回读角度"),
-                                    qsTr("软限位"),
-                                    qsTr("负向一步"),
-                                    qsTr("目标草稿"),
-                                    qsTr("正向一步")
+                                    qsTr("当前 °"),
+                                    qsTr("限位 °"),
+                                    qsTr("−"),
+                                    qsTr("目标 °"),
+                                    qsTr("+")
                                 ]
                                 Text {
                                     required property string modelData
@@ -212,8 +205,17 @@ Item {
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 44
-                            radius: root.theme.radiusSmall
-                            color: jointRow.index % 2 ? root.theme.tile : "transparent"
+                            radius: 0
+                            color: "transparent"
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 1
+                                visible: jointRow.index < 5
+                                color: root.theme.separator
+                            }
 
                             RowLayout {
                                 anchors.fill: parent
@@ -259,12 +261,11 @@ Item {
                                     onClicked: root.controller.jogJoint(jointRow.index, -root.jointStepDeg,
                                                                 root.motionSpeed)
                                 }
-                                TextField {
+                                AppTextField {
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
+                                    theme: root.theme
                                     text: draftModel.get(jointRow.index).target
-                                    color: root.theme.text
-                                    selectByMouse: true
                                     horizontalAlignment: Text.AlignHCenter
                                     validator: DoubleValidator {
                                         bottom: Number(jointRow.modelData.minimum)
@@ -273,12 +274,6 @@ Item {
                                         notation: DoubleValidator.StandardNotation
                                     }
                                     onTextEdited: draftModel.setProperty(jointRow.index, "target", text)
-                                    background: Rectangle {
-                                        radius: root.theme.radiusSmall
-                                        color: root.theme.control
-                                        border.color: parent.activeFocus
-                                                      ? root.theme.accent : root.theme.border
-                                    }
                                 }
                                 AppButton {
                                     Layout.fillWidth: true
@@ -314,8 +309,8 @@ Item {
                             Layout.fillWidth: true
                             theme: root.theme
                             title: root.frameMode === "tool"
-                                   ? qsTr("末端平移 · Tool / grasp_tcp")
-                                   : qsTr("末端平移 · Base")
+                                   ? qsTr("Tool 平移")
+                                   : qsTr("Base 平移")
                         }
 
                         GridLayout {
@@ -330,8 +325,7 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: root.frameMode === "tool"
-                                      ? qsTr("+X · 工具前向") : qsTr("+X · 基座轴")
+                                text: qsTr("+X")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "x",
@@ -344,8 +338,7 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: root.frameMode === "tool"
-                                      ? qsTr("+Y · 夹爪开合轴") : qsTr("+Y · 基座轴")
+                                text: qsTr("+Y")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "y",
@@ -356,8 +349,7 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: root.frameMode === "tool"
-                                      ? qsTr("+Z · 工具法向") : qsTr("+Z · 基座轴")
+                                text: qsTr("+Z")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "z",
@@ -368,8 +360,7 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: root.frameMode === "tool"
-                                      ? qsTr("−Y · 夹爪开合轴") : qsTr("−Y · 基座轴")
+                                text: qsTr("−Y")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "y",
@@ -382,8 +373,7 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: root.frameMode === "tool"
-                                      ? qsTr("−X · 工具后向") : qsTr("−X · 基座轴")
+                                text: qsTr("−X")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "x",
@@ -397,8 +387,7 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 theme: root.theme
-                                text: root.frameMode === "tool"
-                                      ? qsTr("−Z · 工具法向") : qsTr("−Z · 基座轴")
+                                text: qsTr("−Z")
                                 enabled: root.controller.motionEnabled
                                 onClicked: root.controller.jogCartesian(
                                                "translation", "z",
@@ -423,8 +412,8 @@ Item {
                             Layout.fillWidth: true
                             theme: root.theme
                             title: root.frameMode === "tool"
-                                   ? qsTr("末端姿态 · 绕 Tool 轴")
-                                   : qsTr("末端姿态 · 绕 Base 轴")
+                                   ? qsTr("Tool 旋转")
+                                   : qsTr("Base 旋转")
                         }
 
                         Repeater {
@@ -490,7 +479,6 @@ Item {
                         Layout.fillWidth: true
                         theme: root.theme
                         title: qsTr("G1Z 夹爪")
-                        subtitle: qsTr("拖动编辑目标，点击发送后执行；0 为全关，1 为全开")
                     }
 
                     RowLayout {
@@ -507,10 +495,11 @@ Item {
                             font.pixelSize: root.theme.typeLabel
                         }
 
-                        Slider {
+                        AppSlider {
                             id: gripperDraft
                             objectName: "gripperTargetSlider"
                             Layout.fillWidth: true
+                            theme: root.theme
                             from: 0.0
                             to: 1.0
                             value: root.gripperTargetDraft
@@ -547,7 +536,6 @@ Item {
                         }
                         AppButton {
                             theme: root.theme
-                            kind: "success"
                             text: qsTr("夹持检测")
                             enabled: root.controller.motionEnabled
                             onClicked: root.controller.graspClose()

@@ -25,6 +25,11 @@ separate profile-isolated ROS bridge (`37203` for simulation, `37204` for
 hardware), so it does not depend on the robot-control service or a
 `/dev/video*` number.
 
+The console automatically ensures the explicitly selected profile's ROS 2 stack
+is healthy at startup. It reuses a stack only when all expected processes and
+fresh synchronized RGB-D frames are present. Use `--no-ros-autostart` for GUI-only
+diagnostics; screenshot and smoke-test modes never start ROS automatically.
+
 Run the read-only profile checks independently with:
 
 ```bash

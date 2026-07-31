@@ -125,6 +125,15 @@ class A1ZProtocolClient:
         motion: bool,
     ) -> tuple[dict[str, Any], VerifiedEndpoint]:
         endpoint = self.verify_backend(timeout_s=min(5.0, timeout_s))
+        if motion:
+            if endpoint.info.get("faulted"):
+                detail = str(endpoint.info.get("fault_message", "")).strip()
+                raise ProtocolError(
+                    "机械臂控制循环已故障"
+                    + (f"：{detail}" if detail else "；请重启控制服务")
+                )
+            if endpoint.info.get("running") is not True:
+                raise ProtocolError("机械臂控制循环未运行；请重启控制服务")
         data = self.request(
             command,
             args,

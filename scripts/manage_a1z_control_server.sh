@@ -45,7 +45,7 @@ LOG_DIR="$ROOT_DIR/runtime/logs"
 LOG_PATH="$LOG_DIR/a1z-control-${PROFILE_NAME}.log"
 mkdir -p "$LOG_DIR"
 
-probe_backend() {
+probe_identity() {
   local output
   if ! output="$(
     A1Z_PROFILE="$PROFILE_NAME" \
@@ -60,6 +60,29 @@ import sys
 expected = sys.argv[1]
 payload = json.loads(sys.argv[2])
 raise SystemExit(0 if payload.get("backend") == expected else 3)
+PY
+}
+
+probe_healthy() {
+  local output
+  if ! output="$(
+    A1Z_PROFILE="$PROFILE_NAME" \
+      "$ROOT_DIR/scripts/a1zctl_in_container.sh" --json info 2>/dev/null
+  )"; then
+    return 1
+  fi
+  python3 - "$EXPECTED_BACKEND" "$output" <<'PY'
+import json
+import sys
+
+expected = sys.argv[1]
+payload = json.loads(sys.argv[2])
+healthy = (
+    payload.get("backend") == expected
+    and payload.get("running") is True
+    and not payload.get("faulted", False)
+)
+raise SystemExit(0 if healthy else 3)
 PY
 }
 
@@ -91,7 +114,7 @@ stop_native_kit() {
 stop_service() {
   local native_pid=""
   native_pid="$(find_native_kit_pid || true)"
-  if ! probe_backend; then
+  if ! probe_identity; then
     if [[ -n "$native_pid" ]]; then
       stop_native_kit "$native_pid"
       echo "A1Z ${PROFILE_NAME} native Isaac runtime stopped."
@@ -103,7 +126,7 @@ stop_service() {
   A1Z_PROFILE="$PROFILE_NAME" \
     "$ROOT_DIR/scripts/a1zctl_in_container.sh" --json stop
   for _ in $(seq 1 30); do
-    if ! probe_backend; then
+    if ! probe_identity; then
       if [[ -n "$native_pid" ]]; then
         stop_native_kit "$native_pid"
       fi
@@ -117,9 +140,13 @@ stop_service() {
 }
 
 if [[ "$ACTION" == "status" ]]; then
-  if probe_backend; then
+  if probe_healthy; then
     echo "A1Z ${PROFILE_NAME} control service is online: ${EXPECTED_BACKEND} at ${A1Z_TCP_HOST}:${A1Z_TCP_PORT}"
     exit 0
+  fi
+  if probe_identity; then
+    echo "A1Z ${PROFILE_NAME} endpoint is reachable, but its robot control loop is not healthy." >&2
+    exit 1
   fi
   echo "A1Z ${PROFILE_NAME} control service is offline or has the wrong backend." >&2
   exit 1
@@ -134,9 +161,13 @@ if [[ "$ACTION" == "restart" ]]; then
   stop_service
 fi
 
-if probe_backend; then
+if probe_healthy; then
   echo "Reusing verified A1Z ${PROFILE_NAME} service at ${A1Z_TCP_HOST}:${A1Z_TCP_PORT}."
   exit 0
+fi
+if probe_identity; then
+  echo "Stopping reachable but unhealthy A1Z ${PROFILE_NAME} service before restart."
+  stop_service
 fi
 
 if [[ "$PROFILE_NAME" == "sim" ]]; then
@@ -211,7 +242,7 @@ fi
 
 READY_COUNT=0
 for _ in $(seq 1 90); do
-  if probe_backend; then
+  if probe_healthy; then
     READY_COUNT=$((READY_COUNT + 1))
     if [[ "$READY_COUNT" -ge 3 ]]; then
       echo "A1Z ${PROFILE_NAME} control service ready: ${EXPECTED_BACKEND} at ${A1Z_TCP_HOST}:${A1Z_TCP_PORT}"

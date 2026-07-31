@@ -18,13 +18,6 @@ Item {
             width: root.width
             spacing: root.theme.spacingM
 
-            SectionHeader {
-                Layout.fillWidth: true
-                theme: root.theme
-                title: qsTr("A1Z 运行总览")
-                subtitle: qsTr("集中查看关节遥测、RGB-D 链路与示教状态")
-            }
-
             GlassCard {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 366
@@ -37,7 +30,7 @@ Item {
                     SectionHeader {
                         Layout.fillWidth: true
                         theme: root.theme
-                        title: qsTr("六轴实时状态")
+                        title: qsTr("关节状态")
                     }
 
                     Rectangle {
@@ -59,7 +52,7 @@ Item {
                                     qsTr("速度 rad/s"),
                                     qsTr("力矩 Nm"),
                                     qsTr("MOS °C"),
-                                    qsTr("错误")
+                                    qsTr("电机状态")
                                 ]
                                 Text {
                                     required property string modelData
@@ -86,8 +79,17 @@ Item {
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 36
-                            radius: root.theme.radiusSmall
-                            color: jointRow.index % 2 === 0 ? "transparent" : root.theme.tile
+                            radius: 0
+                            color: "transparent"
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: 1
+                                visible: jointRow.index < 5
+                                color: root.theme.separator
+                            }
 
                             RowLayout {
                                 anchors.fill: parent
@@ -146,9 +148,13 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    text: Number(jointRow.modelData.errorCode)
-                                    color: Number(jointRow.modelData.errorCode) === 0
-                                           ? root.theme.green : root.theme.red
+                                    text: jointRow.modelData.errorStatus
+                                    color: jointRow.modelData.errorIsFault
+                                           ? root.theme.red
+                                           : jointRow.index >= 3
+                                             && Number(jointRow.modelData.errorCode) === 1
+                                             ? root.theme.green
+                                             : root.theme.secondaryText
                                     horizontalAlignment: Text.AlignHCenter
                                     font.family: "monospace"
                                     font.pixelSize: root.theme.typeLabel
@@ -163,7 +169,10 @@ Item {
 
             GlassCard {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 230
+                Layout.preferredHeight: Math.max(
+                                            230,
+                                            root.height - 366
+                                            - root.theme.spacingM)
                 theme: root.theme
 
                 ColumnLayout {
@@ -186,10 +195,8 @@ Item {
                             Layout.fillHeight: true
                             Layout.preferredWidth: 2
                             radius: root.theme.radiusControl
-                            color: "#FF0B0E13"
-                            border.color: root.controller.cameraReady
-                                          ? root.theme.cyan : root.theme.border
-                            border.width: 1
+                            color: root.theme.mediaCanvas
+                            border.width: 0
                             clip: true
 
                             Image {
@@ -212,7 +219,7 @@ Item {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: qsTr("等待 ROS RGB-D 预览")
+                                text: qsTr("暂无画面")
                                 visible: root.controller.cameraPreviewSource.length === 0
                                 color: root.theme.tertiaryText
                                 font.family: root.theme.fontFamily
@@ -232,7 +239,6 @@ Item {
                                 theme: root.theme
                                 label: qsTr("RGB-D 相机")
                                 value: root.controller.cameraSummary
-                                accentColor: root.theme.cyan
                             }
 
                             MetricTile {
@@ -241,7 +247,6 @@ Item {
                                 theme: root.theme
                                 label: qsTr("示教轨迹")
                                 value: root.controller.recordingSummary
-                                accentColor: root.theme.purple
                             }
                         }
                     }

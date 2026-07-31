@@ -25,13 +25,6 @@ Item {
                 width: diagnosticsScroll.availableWidth
                 spacing: root.theme.spacingM
 
-                SectionHeader {
-                    Layout.fillWidth: true
-                    theme: root.theme
-                    title: qsTr("连接诊断与维护")
-                    subtitle: qsTr("先预检、再维护；校零与总线扫描要求控制服务离线")
-                }
-
                 GlassCard {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.max(250, checkColumn.implicitHeight + 34)
@@ -70,8 +63,18 @@ Item {
 
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: detailText.implicitHeight + 22
-                                radius: root.theme.radiusSmall
-                                color: preflightRow.index % 2 ? root.theme.tile : "transparent"
+                                radius: 0
+                                color: "transparent"
+
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    height: 1
+                                    visible: preflightRow.index
+                                             < root.controller.preflightItems.length - 1
+                                    color: root.theme.separator
+                                }
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -107,14 +110,23 @@ Item {
                             }
                         }
 
-                        Text {
+                        Item {
                             Layout.fillWidth: true
+                            Layout.fillHeight: true
                             visible: root.controller.preflightItems.length === 0
-                            text: qsTr("尚未运行预检")
-                            color: root.theme.tertiaryText
-                            horizontalAlignment: Text.AlignHCenter
-                            font.family: root.theme.fontFamily
-                            font.pixelSize: root.theme.typeLabel
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: qsTr("暂无结果")
+                                color: root.theme.tertiaryText
+                                font.family: root.theme.fontFamily
+                                font.pixelSize: root.theme.typeLabel
+                            }
+                        }
+
+                        Item {
+                            Layout.fillHeight: true
+                            visible: root.controller.preflightItems.length > 0
                         }
                     }
                 }
@@ -133,6 +145,8 @@ Item {
                             theme: root.theme
                             title: qsTr("ROS 2 链路")
                         }
+
+                        Item { Layout.fillHeight: true }
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -170,7 +184,7 @@ Item {
                         SectionHeader {
                             Layout.fillWidth: true
                             theme: root.theme
-                            title: qsTr("CAN / 电机工具")
+                            title: qsTr("CAN / 电机")
                         }
 
                         GridLayout {
@@ -182,14 +196,14 @@ Item {
                             AppButton {
                                 Layout.fillWidth: true
                                 theme: root.theme
-                                text: qsTr("检查 CAN 接口")
+                                text: qsTr("检查 CAN")
                                 enabled: root.controller.profile === "real" && !root.controller.taskBusy
                                 onClicked: root.controller.runMaintenance("can_check", "")
                             }
                             AppButton {
                                 Layout.fillWidth: true
                                 theme: root.theme
-                                text: qsTr("被动监听 5 秒")
+                                text: qsTr("监听 5 秒")
                                 enabled: root.controller.profile === "real"
                                          && !root.controller.connected && !root.controller.taskBusy
                                 onClicked: root.controller.runMaintenance("motor_listen", "")
@@ -197,7 +211,7 @@ Item {
                             AppButton {
                                 Layout.fillWidth: true
                                 theme: root.theme
-                                text: qsTr("扫描全部电机")
+                                text: qsTr("扫描电机")
                                 enabled: root.controller.profile === "real"
                                          && !root.controller.connected && !root.controller.taskBusy
                                 onClicked: root.controller.runMaintenance("motor_scan", "")
@@ -211,6 +225,8 @@ Item {
                                 onClicked: root.controller.runMaintenance("gripper_test", "")
                             }
                         }
+
+                        Item { Layout.fillHeight: true }
 
                         Rectangle {
                             Layout.fillWidth: true
@@ -231,18 +247,12 @@ Item {
                             Layout.fillWidth: true
                             spacing: 8
 
-                            TextField {
+                            AppTextField {
                                 id: calibrationPhrase
                                 Layout.fillWidth: true
+                                theme: root.theme
+                                dangerFocus: true
                                 placeholderText: qsTr("输入：校零 A1Z")
-                                color: root.theme.text
-                                selectByMouse: true
-                                background: Rectangle {
-                                    radius: root.theme.radiusControl
-                                    color: root.theme.tile
-                                    border.color: calibrationPhrase.activeFocus
-                                                  ? root.theme.red : root.theme.border
-                                }
                             }
                             AppButton {
                                 theme: root.theme
@@ -303,6 +313,7 @@ Item {
 
                     AppButton {
                         theme: root.theme
+                        kind: "quiet"
                         text: logPanel.followTail ? qsTr("暂停跟随")
                                                   : qsTr("跟随最新")
                         onClicked: {
@@ -314,6 +325,7 @@ Item {
 
                     AppButton {
                         theme: root.theme
+                        kind: "quiet"
                         text: qsTr("清空")
                         onClicked: root.controller.clearLogs()
                     }
@@ -324,8 +336,8 @@ Item {
                     Layout.fillHeight: true
                     clip: true
                     radius: root.theme.radiusControl
-                    color: root.theme.tile
-                    border.color: root.theme.border
+                    color: root.theme.logCanvas
+                    border.width: 0
 
                     ScrollView {
                         id: logScroll
@@ -335,7 +347,7 @@ Item {
                         ScrollBar.horizontal.policy: ScrollBar.AsNeeded
                         ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-                        TextArea {
+                        AppTextArea {
                             id: logs
                             width: Math.max(
                                        logScroll.availableWidth,
@@ -344,9 +356,9 @@ Item {
                                         logScroll.availableHeight,
                                         contentHeight + topPadding + bottomPadding)
                             readOnly: true
-                            selectByMouse: true
+                            theme: root.theme
+                            dark: true
                             text: root.controller.logs
-                            color: root.theme.secondaryText
                             wrapMode: TextArea.NoWrap
                             font.family: "monospace"
                             font.pixelSize: root.theme.typeCaption

@@ -3,6 +3,13 @@ Main 1.0 Main.qml
 Theme 1.0 Theme.qml
 GlassCard 1.0 GlassCard.qml
 AppButton 1.0 AppButton.qml
+AppIcon 1.0 AppIcon.qml
+AppTextField 1.0 AppTextField.qml
+AppTextArea 1.0 AppTextArea.qml
+AppSlider 1.0 AppSlider.qml
+AppSpinBox 1.0 AppSpinBox.qml
+AppComboBox 1.0 AppComboBox.qml
+InlineBanner 1.0 InlineBanner.qml
 StatusPill 1.0 StatusPill.qml
 NavButton 1.0 NavButton.qml
 MetricTile 1.0 MetricTile.qml

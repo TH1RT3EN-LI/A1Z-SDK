@@ -34,6 +34,7 @@ from a1z_ext.control_client import send_control_request
 from a1z_ext.robots.cartesian_jog import apply_rotation, apply_translation, pose_error
 
 _MOTION_REQUEST_ATTEMPTED = False
+_MOTION_OUTCOME_VERIFIED = False
 
 
 def _emit(payload: dict[str, Any], *, exit_code: int = 0) -> None:
@@ -156,7 +157,7 @@ def _snapshot_payload(
     transform = kinematics.fk(q, frame_name=end_effector_frame)
     status = _ok_or_raise(_send("status"))
     info = _verified_info(expected_backend)
-    return {
+    payload = {
         "ok": True,
         "backend": info.get("backend"),
         "control_mode": info.get("control_mode"),
@@ -172,6 +173,12 @@ def _snapshot_payload(
         "gripper_measured": status.get("gripper_measured"),
         "pose": _pose_dict(transform),
     }
+    for key in ("running", "faulted", "fault_message", "estopped"):
+        if key in status:
+            payload[key] = status[key]
+        elif key in info:
+            payload[key] = info[key]
+    return payload
 
 
 def _execute_motion(
@@ -180,10 +187,10 @@ def _execute_motion(
     speed: float,
     motion_mode: str,
 ) -> dict[str, Any]:
-    global _MOTION_REQUEST_ATTEMPTED
+    global _MOTION_OUTCOME_VERIFIED, _MOTION_REQUEST_ATTEMPTED
     _MOTION_REQUEST_ATTEMPTED = True
     if motion_mode == "move":
-        return _ok_or_raise(
+        result = _ok_or_raise(
             _send(
                 "move",
                 {
@@ -192,6 +199,9 @@ def _execute_motion(
                 },
             )
         )
+        verification = dict(result.get("verification", {}) or {})
+        _MOTION_OUTCOME_VERIFIED = bool(verification.get("reached"))
+        return result
     if motion_mode == "command":
         return _ok_or_raise(_send("command", {"joints": joint_target_deg}))
     raise ValueError(f"Unsupported motion mode: {motion_mode}")
@@ -255,7 +265,7 @@ def _handle_step(args: argparse.Namespace) -> None:
             f"{max_joint_step_deg:.2f} > {args.max_joint_step_deg:.2f} deg"
         )
     joint_target_deg = [float(v) for v in np.rad2deg(target_q).tolist()]
-    _execute_motion(
+    motion_result = _execute_motion(
         joint_target_deg=joint_target_deg,
         speed=args.speed,
         motion_mode=args.motion_mode,
@@ -288,9 +298,23 @@ def _handle_step(args: argparse.Namespace) -> None:
             "verification": {
                 "translation_error_mm": translation_error_m * 1000.0,
                 "orientation_error_deg": orientation_error_deg,
+                "translation_tolerance_mm": args.verify_translation_mm,
+                "orientation_tolerance_deg": args.verify_orientation_deg,
             },
+            "joint_verification": motion_result.get("verification"),
         }
     )
+    if (
+        translation_error_m * 1000.0 > args.verify_translation_mm
+        or orientation_error_deg > args.verify_orientation_deg
+    ):
+        raise RuntimeError(
+            "End-effector target was not reached from SDK joint feedback: "
+            f"FK error {translation_error_m * 1000.0:.3f} mm / "
+            f"{orientation_error_deg:.3f} deg exceeds "
+            f"{args.verify_translation_mm:.3f} mm / "
+            f"{args.verify_orientation_deg:.3f} deg."
+        )
     _emit(payload)
 
 
@@ -315,7 +339,7 @@ def _handle_joint_step(args: argparse.Namespace) -> None:
 
     target_deg = [float(v) for v in current_deg[:6]]
     target_deg[joint_index] = applied_deg
-    _execute_motion(
+    motion_result = _execute_motion(
         joint_target_deg=target_deg,
         speed=args.speed,
         motion_mode=args.motion_mode,
@@ -343,6 +367,7 @@ def _handle_joint_step(args: argparse.Namespace) -> None:
                 "motion_mode": args.motion_mode,
             },
             "status_message": status_message,
+            "joint_verification": motion_result.get("verification"),
         }
     )
     _emit(payload)
@@ -387,6 +412,8 @@ def build_parser() -> argparse.ArgumentParser:
     step.add_argument("--ori-threshold-deg", type=float, default=1.0)
     step.add_argument("--joint-margin-deg", type=float, default=2.0)
     step.add_argument("--max-joint-step-deg", type=float, default=15.0)
+    step.add_argument("--verify-translation-mm", type=float, default=2.0)
+    step.add_argument("--verify-orientation-deg", type=float, default=1.0)
 
     joint_step = sub.add_parser("joint-step", help="Apply one incremental step to a single joint.")
     joint_step.add_argument("--joint-index", type=int, required=True, help="1-based joint index (J1..J6).")
@@ -415,6 +442,7 @@ def main() -> None:
                 "ok": False,
                 "error": str(exc),
                 "motion_request_attempted": _MOTION_REQUEST_ATTEMPTED,
+                "motion_outcome_verified": _MOTION_OUTCOME_VERIFIED,
             },
             exit_code=1,
         )

@@ -13,14 +13,49 @@ fi
 
 RUN_LOG_PATH="${A1Z_ROS2_MOTION_LOG_PATH:-/tmp/a1z_ros2_motion.log}"
 RUN_PID_PATH="${A1Z_ROS2_MOTION_PID_PATH:-/tmp/a1z_ros2_motion.pid}"
+RUN_LOG_MAX_BYTES="${A1Z_ROS2_MOTION_LOG_MAX_BYTES:-67108864}"
+RUN_LOG_BACKUP_COUNT="${A1Z_ROS2_MOTION_LOG_BACKUP_COUNT:-3}"
 
 case "$ACTION" in
-  run|start|stop|restart|status|wait) ;;
+  run|start|ensure|stop|restart|status|wait) ;;
   *)
-    echo "usage: $0 [run|start|stop|restart|status|wait]" >&2
+    echo "usage: $0 [run|start|ensure|stop|restart|status|wait]" >&2
     exit 2
     ;;
 esac
+
+realsense_usb_speed_mbps() {
+  local device
+  local speed
+  local max_speed=0
+  for device in /sys/bus/usb/devices/*; do
+    [[ -r "$device/idVendor" && -r "$device/idProduct" && -r "$device/speed" ]] || continue
+    [[ "$(<"$device/idVendor")" == "8086" && "$(<"$device/idProduct")" == "0b5b" ]] || continue
+    speed="$(<"$device/speed")"
+    speed="${speed%%.*}"
+    if [[ "$speed" =~ ^[0-9]+$ ]] && (( speed > max_speed )); then
+      max_speed="$speed"
+    fi
+  done
+  (( max_speed > 0 )) || return 1
+  printf '%s\n' "$max_speed"
+}
+
+validate_realsense_usb_link() {
+  local actual_speed
+  local minimum_speed="${A1Z_REALSENSE_MIN_USB_SPEED_MBPS:-5000}"
+  [[ "$A1Z_PROFILE" == "real" ]] || return 0
+  if ! actual_speed="$(realsense_usb_speed_mbps)"; then
+    echo "RealSense D405 is not present on the host USB bus" >&2
+    return 1
+  fi
+  if (( actual_speed < minimum_speed )); then
+    echo "RealSense D405 USB link is ${actual_speed} Mb/s; this profile requires at least ${minimum_speed} Mb/s" >&2
+    echo "Reconnect the D405 through its USB 3.x cable/port before starting the ROS 2 stack" >&2
+    return 1
+  fi
+  echo "RealSense D405 USB link: ${actual_speed} Mb/s"
+}
 
 if ! docker inspect "$ROS_CONTAINER_NAME" >/dev/null 2>&1; then
   case "$ACTION" in
@@ -50,6 +85,82 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$ROS_CONTAINER_NAME" 2>/dev/nul
       docker start "$ROS_CONTAINER_NAME" >/dev/null
       ;;
   esac
+fi
+
+if [[ "$ACTION" != "stop" ]]; then
+  validate_realsense_usb_link
+fi
+
+check_a1z_ros_stack() {
+  local process_status=0
+  local camera_response=""
+  docker exec -i "$ROS_CONTAINER_NAME" bash -s -- "$A1Z_CAMERA_SOURCE" <<'EOF' || process_status=$?
+set -uo pipefail
+
+case "$1" in
+  isaac)
+    camera_pattern="/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/isaac_d405_bridge"
+    ;;
+  realsense)
+    camera_pattern="/opt/ros/humble/lib/realsense2_camera/realsense2_camera_node"
+    ;;
+  *)
+    echo "Unsupported ROS camera source: $1" >&2
+    exit 2
+    ;;
+esac
+
+missing=0
+for item in \
+  "camera:$camera_pattern" \
+  "console_bridge:/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/camera_console_bridge" \
+  "robot_state:/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state" \
+  "motion_executor:/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor"
+do
+  label="${item%%:*}"
+  pattern="${item#*:}"
+  line="$(ps -eo pid=,stat=,args= | grep -F "$pattern" | grep -v -F "grep -F" | head -n 1 || true)"
+  if [[ -z "$line" ]]; then
+    echo "MISSING $label: $pattern" >&2
+    missing=1
+  else
+    echo "RUNNING $label: $line"
+  fi
+done
+exit "$missing"
+EOF
+  if [[ "$process_status" -ne 0 ]]; then
+    return "$process_status"
+  fi
+
+  if ! camera_response="$(
+    exec 3<>"/dev/tcp/${A1Z_CAMERA_BRIDGE_HOST}/${A1Z_CAMERA_BRIDGE_PORT}"
+    printf '%s\n' '{"cmd":"camera_status","args":{}}' >&3
+    IFS= read -r -t 3 response <&3
+    printf '%s' "$response"
+  )"; then
+    echo "MISSING camera_frames: camera bridge is unreachable at ${A1Z_CAMERA_BRIDGE_HOST}:${A1Z_CAMERA_BRIDGE_PORT}" >&2
+    return 1
+  fi
+  if [[ "$camera_response" != *'"ready":true'* ]]; then
+    echo "MISSING camera_frames: camera bridge reports stale or incomplete RGB-D data" >&2
+    return 1
+  fi
+  echo "RUNNING camera_frames: fresh synchronized RGB-D data"
+}
+
+if [[ "$ACTION" == "status" ]]; then
+  check_a1z_ros_stack
+  exit $?
+fi
+
+if [[ "$ACTION" == "ensure" ]]; then
+  if check_a1z_ros_stack; then
+    echo "ROS 2 stack is already healthy: $ROS_CONTAINER_NAME"
+    exit 0
+  fi
+  echo "ROS 2 stack is incomplete; starting it in $ROS_CONTAINER_NAME"
+  ACTION="start"
 fi
 
 if [[ "$ACTION" == "wait" ]]; then
@@ -96,7 +207,7 @@ if [[ "$ACTION" == "run" && -t 0 && -t 1 ]]; then
   DOCKER_TTY_ARGS=(-it)
 fi
 
-if [[ "$ACTION" == "stop" || "$ACTION" == "restart" || "$ACTION" == "status" ]]; then
+if [[ "$ACTION" == "stop" || "$ACTION" == "restart" ]]; then
   docker exec "$ROS_CONTAINER_NAME" bash -lc "
     set -euo pipefail
     cleanup_a1z_motion() {
@@ -109,7 +220,8 @@ if [[ "$ACTION" == "stop" || "$ACTION" == "restart" || "$ACTION" == "status" ]];
         '/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/camera_console_bridge' \
         '/opt/ros/humble/lib/realsense2_camera/realsense2_camera_node' \
         '/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state' \
-        '/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor'
+        '/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor' \
+        '/workspace/A1Z/scripts/run_ros2_launch_with_rotating_log.sh'
       do
         while IFS= read -r line; do
           read -r pid _ <<<\"\$line\"
@@ -124,9 +236,8 @@ if [[ "$ACTION" == "stop" || "$ACTION" == "restart" || "$ACTION" == "status" ]];
       rm -f '$RUN_PID_PATH'
       exit 0
     fi
-    ps -eo pid=,args= | grep -E 'a1z_stack.launch.py|a1z_motion/robot_state|a1z_motion/motion_executor|a1z_d405/isaac_d405_bridge|a1z_d405/camera_console_bridge|realsense2_camera_node' | grep -v grep
   "
-  [[ "$ACTION" == "status" || "$ACTION" == "stop" ]] && exit 0
+  [[ "$ACTION" == "stop" ]] && exit 0
 fi
 
 DOCKER_EXEC_ARGS=()
@@ -162,6 +273,7 @@ docker exec \
   -e A1Z_REALSENSE_CAMERA_NAME="${A1Z_REALSENSE_CAMERA_NAME:-d405}" \
   -e A1Z_REALSENSE_BASE_FRAME_ID="${A1Z_REALSENSE_BASE_FRAME_ID:-link}" \
   -e A1Z_REALSENSE_INITIAL_RESET="${A1Z_REALSENSE_INITIAL_RESET:-0}" \
+  -e LRS_LOG_LEVEL="${LRS_LOG_LEVEL:-fatal}" \
   -e A1Z_D405_WIDTH="${A1Z_D405_WIDTH:-640}" \
   -e A1Z_D405_HEIGHT="${A1Z_D405_HEIGHT:-480}" \
   -e A1Z_D405_FPS="${A1Z_D405_FPS:-30}" \
@@ -183,7 +295,8 @@ docker exec \
         "/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/camera_console_bridge" \
         "/opt/ros/humble/lib/realsense2_camera/realsense2_camera_node" \
         "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state" \
-        "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor"
+        "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor" \
+        "/workspace/A1Z/scripts/run_ros2_launch_with_rotating_log.sh"
       do
         while IFS= read -r line; do
           read -r pid _ <<<"$line"
@@ -199,7 +312,8 @@ docker exec \
         "/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/camera_console_bridge" \
         "/opt/ros/humble/lib/realsense2_camera/realsense2_camera_node" \
         "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state" \
-        "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor"
+        "/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor" \
+        "/workspace/A1Z/scripts/run_ros2_launch_with_rotating_log.sh"
       do
         while IFS= read -r line; do
           read -r pid _ <<<"$line"
@@ -223,7 +337,11 @@ docker exec \
     sleep 1
     if [[ "'"$ACTION"'" == "start" || "'"$ACTION"'" == "restart" ]]; then
       : > "'"$RUN_LOG_PATH"'"
-      nohup ros2 launch a1z_motion a1z_stack.launch.py >"'"$RUN_LOG_PATH"'" 2>&1 &
+      nohup /workspace/A1Z/scripts/run_ros2_launch_with_rotating_log.sh \
+        "'"$RUN_LOG_PATH"'" \
+        "'"$RUN_LOG_MAX_BYTES"'" \
+        "'"$RUN_LOG_BACKUP_COUNT"'" \
+        >/dev/null 2>&1 &
       echo "$!" >"'"$RUN_PID_PATH"'"
       disown || true
       exit 0

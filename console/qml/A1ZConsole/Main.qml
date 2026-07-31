@@ -19,7 +19,7 @@ ApplicationWindow {
     minimumHeight: 760
     visible: true
     title: qsTr("A1Z SDK Console")
-    color: theme.windowBottom
+    color: theme.canvas
     flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowSystemMenuHint
            | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
            | Qt.WindowCloseButtonHint
@@ -40,10 +40,7 @@ ApplicationWindow {
 
     Rectangle {
         anchors.fill: parent
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: theme.windowTop }
-            GradientStop { position: 1.0; color: theme.windowBottom }
-        }
+        color: theme.canvas
     }
 
     ColumnLayout {
@@ -53,28 +50,26 @@ ApplicationWindow {
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 62
+            Layout.preferredHeight: 56
             radius: theme.radiusCard
             color: theme.toolbar
-            border.color: theme.border
-            border.width: 1
+            border.width: 0
 
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: theme.spacingL
                 anchors.rightMargin: theme.spacingM
-                spacing: 9
+                spacing: theme.spacingS
 
                 ColumnLayout {
-                    Layout.preferredWidth: 190
+                    Layout.preferredWidth: 168
                     spacing: 0
                     Text {
-                        text: qsTr("A1Z SDK CONSOLE")
+                        text: qsTr("A1Z Console")
                         color: theme.text
                         font.family: theme.fontFamily
                         font.pixelSize: theme.typeTitle
-                        font.weight: Font.Bold
-                        font.letterSpacing: 0.8
+                        font.weight: Font.DemiBold
                     }
                 }
 
@@ -84,31 +79,56 @@ ApplicationWindow {
                     color: theme.borderStrong
                 }
 
-                AppButton {
-                    Layout.preferredWidth: 86
-                    theme: window.appTheme
-                    kind: window.controller.profile === "sim" ? "primary" : "secondary"
-                    text: qsTr("SIM 仿真")
-                    enabled: !window.controller.taskBusy && !window.controller.commandBusy
-                    onClicked: window.controller.setProfile("sim")
-                }
-                AppButton {
-                    Layout.preferredWidth: 86
-                    theme: window.appTheme
-                    kind: window.controller.profile === "real" ? "danger" : "secondary"
-                    text: qsTr("REAL 真机")
-                    enabled: !window.controller.taskBusy && !window.controller.commandBusy
-                    onClicked: window.controller.setProfile("real")
+                Rectangle {
+                    Layout.preferredWidth: 180
+                    Layout.preferredHeight: 40
+                    radius: theme.radiusControl + 2
+                    color: theme.control
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 3
+                        spacing: 3
+
+                        AppButton {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            theme: window.appTheme
+                            kind: window.controller.profile === "sim"
+                                  ? "selected" : "quiet"
+                            text: qsTr("SIM 仿真")
+                            enabled: !window.controller.taskBusy
+                                     && !window.controller.commandBusy
+                            onClicked: window.controller.setProfile("sim")
+                        }
+                        AppButton {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            theme: window.appTheme
+                            kind: window.controller.profile === "real"
+                                  ? "selected" : "quiet"
+                            text: qsTr("REAL 真机")
+                            enabled: !window.controller.taskBusy
+                                     && !window.controller.commandBusy
+                            onClicked: window.controller.setProfile("real")
+                        }
+                    }
                 }
 
                 StatusPill {
                     theme: window.appTheme
                     text: !window.controller.connected ? qsTr("控制服务离线")
-                          : window.controller.backendMatched
-                            ? qsTr("%1在线").arg(window.controller.backendLabel)
-                            : qsTr("控制身份未通过")
-                    level: window.controller.connected && window.controller.backendMatched
-                           ? "ok" : "error"
+                          : !window.controller.backendMatched
+                            ? qsTr("控制身份未通过")
+                          : window.controller.faulted
+                            ? qsTr("控制循环故障")
+                          : !window.controller.robotRunning
+                            ? qsTr("服务在线 · 控制停止")
+                            : qsTr("%1运行中").arg(window.controller.backendLabel)
+                    level: window.controller.connected
+                           && window.controller.backendMatched
+                           && window.controller.robotRunning
+                           && !window.controller.faulted ? "ok" : "error"
                 }
                 StatusPill {
                     theme: window.appTheme
@@ -122,6 +142,9 @@ ApplicationWindow {
                 }
                 StatusPill {
                     theme: window.appTheme
+                    Layout.minimumWidth: 100
+                    Layout.preferredWidth: 100
+                    Layout.maximumWidth: 100
                     text: window.controller.telemetryAgeMs < 0 ? qsTr("无遥测")
                           : qsTr("%1 ms").arg(window.controller.telemetryAgeMs)
                     level: window.controller.telemetryFresh ? "ok" : "warn"
@@ -134,13 +157,10 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 80
-                    text: window.controller.lastError.length > 0
-                          ? window.controller.lastError
-                          : window.controller.commandBusy || window.controller.taskBusy
+                    text: window.controller.commandBusy || window.controller.taskBusy
                             ? window.controller.statusText : ""
-                    color: window.controller.lastError.length > 0 ? theme.red
-                           : window.controller.commandBusy || window.controller.taskBusy
-                             ? theme.orange : theme.secondaryText
+                    color: window.controller.commandBusy || window.controller.taskBusy
+                           ? theme.secondaryText : theme.tertiaryText
                     elide: Text.ElideRight
                     font.family: theme.fontFamily
                     font.pixelSize: theme.typeCaption
@@ -151,11 +171,21 @@ ApplicationWindow {
 
                 AppButton {
                     theme: window.appTheme
+                    kind: "quiet"
                     text: qsTr("刷新")
                     enabled: !window.controller.commandBusy
                     onClicked: window.controller.refreshNow()
                 }
             }
+        }
+
+        InlineBanner {
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
+            visible: window.controller.lastError.length > 0
+            theme: window.appTheme
+            text: window.controller.lastError
+            level: "error"
         }
 
         RowLayout {
@@ -168,21 +198,20 @@ ApplicationWindow {
                 Layout.preferredWidth: 190
                 radius: theme.radiusPanel
                 color: theme.sidebar
-                border.color: theme.border
-                border.width: 1
+                border.width: 0
 
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: theme.spacingM
-                    spacing: 7
+                    spacing: theme.spacingXs
 
                     Repeater {
                         model: [
-                            { label: qsTr("运行总览"), glyph: "◈" },
-                            { label: qsTr("手动控制"), glyph: "✣" },
-                            { label: qsTr("AnyGrasp"), glyph: "◎" },
-                            { label: qsTr("SDK 功能"), glyph: "◇" },
-                            { label: qsTr("诊断与日志"), glyph: "≋" }
+                            { label: qsTr("运行总览"), icon: "activity" },
+                            { label: qsTr("手动控制"), icon: "sliders" },
+                            { label: qsTr("AnyGrasp"), icon: "target" },
+                            { label: qsTr("SDK 功能"), icon: "command" },
+                            { label: qsTr("诊断与日志"), icon: "waveform" }
                         ]
 
                         NavButton {
@@ -191,7 +220,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             theme: window.appTheme
                             text: modelData.label
-                            glyph: modelData.glyph
+                            iconName: modelData.icon
                             selected: window.currentPage === index
                             onClicked: window.currentPage = index
                         }

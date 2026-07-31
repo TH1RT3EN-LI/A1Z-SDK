@@ -8,7 +8,7 @@ RowLayout {
     property string title: ""
     property string subtitle: ""
 
-    spacing: 10
+    spacing: 8
 
     ColumnLayout {
         Layout.fillWidth: true

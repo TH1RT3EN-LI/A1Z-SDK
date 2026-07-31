@@ -13,23 +13,12 @@ Rectangle {
     implicitHeight: 92
     radius: theme.radiusControl
     color: theme.tile
-    border.color: theme.border
-    border.width: 1
-
-    Rectangle {
-        anchors.left: parent.left
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        width: 3
-        radius: 2
-        color: root.accentColor
-    }
+    border.width: 0
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 13
-        anchors.leftMargin: 16
-        spacing: 3
+        anchors.margins: 12
+        spacing: 4
 
         Text {
             text: root.label
