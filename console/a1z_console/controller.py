@@ -46,6 +46,7 @@ class _ThreadBridge(QObject):
 
 class ConsoleController(QObject):
     stateChanged = Signal()
+    cameraPreviewChanged = Signal()
     logsChanged = Signal()
     planChanged = Signal()
     preflightChanged = Signal()
@@ -309,7 +310,7 @@ class ConsoleController(QObject):
     def cameraDetails(self) -> str:
         return self._camera_details
 
-    @Property(str, notify=stateChanged)
+    @Property(str, notify=cameraPreviewChanged)
     def cameraPreviewSource(self) -> str:
         return self._camera_preview_source
 
@@ -433,7 +434,7 @@ class ConsoleController(QObject):
         self._info = {}
         self._camera_summary = "相机桥未连接"
         self._camera_details = "正在核验所选配置的 ROS RGB-D 链路"
-        self._camera_preview_source = ""
+        self._set_camera_preview_source("")
         self._camera_bridge_online = False
         self._camera_ready = False
         self._camera_busy = False
@@ -1313,6 +1314,13 @@ class ConsoleController(QObject):
             self._camera_poll_counter = 0
             self._request_camera("camera_status", manual=False)
 
+    def _set_camera_preview_source(self, source: str) -> None:
+        source = str(source)
+        if source == self._camera_preview_source:
+            return
+        self._camera_preview_source = source
+        self.cameraPreviewChanged.emit()
+
     def _request_camera(
         self,
         command: str,
@@ -1421,7 +1429,7 @@ class ConsoleController(QObject):
             preview_b64 = str(data.pop("preview_png_b64", ""))
             preview_mime = str(data.pop("preview_mime", "image/png"))
             if preview_b64:
-                self._camera_preview_source = (
+                self._set_camera_preview_source(
                     f"data:{preview_mime};base64,{preview_b64}"
                 )
             depth_range = data.get("depth_range_m")

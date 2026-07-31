@@ -195,10 +195,15 @@ Item {
                             Image {
                                 anchors.fill: parent
                                 anchors.margins: 6
-                                source: root.controller.cameraPreviewSource
+                                source: root.visible
+                                        ? root.controller.cameraPreviewSource : ""
+                                sourceSize.width: Math.min(
+                                                      960,
+                                                      Math.max(1, Math.ceil(width)))
                                 fillMode: Image.PreserveAspectFit
                                 asynchronous: true
                                 cache: false
+                                retainWhileLoading: true
                                 smooth: true
                                 visible: root.controller.cameraPreviewSource.length > 0
                             }
