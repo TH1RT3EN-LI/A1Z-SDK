@@ -444,6 +444,7 @@ Item {
 
                             Image {
                                 id: cameraPreview
+                                objectName: "sdkCameraPreview"
                                 anchors.fill: parent
                                 anchors.margins: 8
                                 source: root.visible

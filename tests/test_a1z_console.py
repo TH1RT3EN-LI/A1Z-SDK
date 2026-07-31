@@ -185,9 +185,36 @@ def test_rgbd_preview_is_generated_without_video_node_dependencies(
     assert height > 0
 
 
+def test_rgbd_preview_depth_colors_use_a_stable_physical_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    np = pytest.importorskip("numpy")
+    monkeypatch.syspath_prepend(str(ROOT / "ros2_ws" / "src" / "a1z_d405"))
+    from a1z_d405.console_bridge import _depth_colormap
+
+    first = np.array([[0.1, 0.5, 0.9]], dtype=np.float32)
+    with_far_outlier = np.array([[0.1, 0.5, 5.0]], dtype=np.float32)
+    depth_range_m = (0.1, 1.0)
+
+    first_colors = _depth_colormap(first, depth_range_m=depth_range_m)
+    outlier_colors = _depth_colormap(
+        with_far_outlier,
+        depth_range_m=depth_range_m,
+    )
+
+    assert np.array_equal(first_colors[0, 1], outlier_colors[0, 1])
+    with pytest.raises(ValueError, match="finite and increasing"):
+        _depth_colormap(first, depth_range_m=(1.0, 0.1))
+
+
 def test_console_camera_path_uses_ros_topics_not_video_node_numbers() -> None:
     preview = (ROOT / "scripts" / "d405_mosaic_preview.py").read_text()
-    qml = (CONSOLE_ROOT / "qml" / "A1ZConsole" / "SdkFunctionsPage.qml").read_text()
+    dashboard_qml = (
+        CONSOLE_ROOT / "qml" / "A1ZConsole" / "DashboardPage.qml"
+    ).read_text()
+    sdk_qml = (
+        CONSOLE_ROOT / "qml" / "A1ZConsole" / "SdkFunctionsPage.qml"
+    ).read_text()
     main_qml = (CONSOLE_ROOT / "qml" / "A1ZConsole" / "Main.qml").read_text()
     controller = (
         CONSOLE_ROOT / "a1z_console" / "controller.py"
@@ -202,7 +229,13 @@ def test_console_camera_path_uses_ros_topics_not_video_node_numbers() -> None:
     ).read_text()
 
     assert "/dev/video" not in preview
-    assert "cameraPreviewSource" in qml
+    for qml in (dashboard_qml, sdk_qml):
+        assert "cameraPreviewSource" in qml
+        assert "retainWhileLoading: true" in qml
+        assert "sourceSize.width:" in qml
+        assert "source: root.visible" in qml
+    assert "cameraPreviewChanged = Signal()" in controller
+    assert "notify=cameraPreviewChanged" in controller
     assert "cameraBridgeOnline" in main_qml
     assert "控制服务离线" in main_qml
     assert "if self._camera_ready:" in controller

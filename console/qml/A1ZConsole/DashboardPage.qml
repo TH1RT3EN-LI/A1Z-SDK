@@ -193,6 +193,7 @@ Item {
                             clip: true
 
                             Image {
+                                objectName: "dashboardCameraPreview"
                                 anchors.fill: parent
                                 anchors.margins: 6
                                 source: root.visible
