@@ -46,9 +46,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--page",
-        choices=["dashboard", "manual", "anygrasp", "sdk", "diagnostics"],
-        default="dashboard",
+        choices=[
+            "overview",
+            "manual",
+            "vision",
+            "grasp",
+            "teaching",
+            "settings",
+            "diagnostics",
+        ],
+        default="overview",
         help="Initial page, including for screenshot validation.",
+    )
+    parser.add_argument(
+        "--manual-section",
+        choices=["movement", "tool"],
+        default="movement",
+        help="Initial manual-control activity when --page manual is selected.",
     )
     parser.add_argument(
         "--window-size",
@@ -89,20 +103,15 @@ def main() -> int:
     if not roots:
         controller.shutdown()
         return 2
-    page_index = {
-        "dashboard": 0,
-        "manual": 1,
-        "anygrasp": 2,
-        "sdk": 3,
-        "diagnostics": 4,
-    }[args.page]
-    roots[0].setProperty("currentPage", page_index)
+    roots[0].setProperty("currentPage", args.page)
+    roots[0].setProperty("manualSection", args.manual_section)
     roots[0].setProperty("frameMode", args.frame)
     if args.window_size is not None:
         roots[0].setProperty("width", args.window_size[0])
         roots[0].setProperty("height", args.window_size[1])
 
     app.aboutToQuit.connect(controller.shutdown)
+    controller.startMonitoring()
     if (
         not args.no_ros_autostart
         and not args.smoke_test

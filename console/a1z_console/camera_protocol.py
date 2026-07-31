@@ -6,6 +6,7 @@ import json
 import socket
 from typing import Any
 
+from .cancellable_socket import CancellableSocket
 from .profiles import RuntimeProfile
 
 
@@ -46,6 +47,10 @@ def _read_json_line(
 class CameraProtocolClient:
     def __init__(self, profile: RuntimeProfile) -> None:
         self.profile = profile
+        self._request_socket = CancellableSocket()
+
+    def cancel_pending_requests(self) -> None:
+        self._request_socket.cancel()
 
     def request(
         self,
@@ -63,9 +68,10 @@ class CameraProtocolClient:
             + "\n"
         ).encode("utf-8")
         try:
-            sock = socket.create_connection(
-                (self.profile.camera_host, self.profile.camera_port),
-                timeout=float(timeout_s),
+            sock = self._request_socket.open_connection(
+                self.profile.camera_host,
+                self.profile.camera_port,
+                timeout_s=timeout_s,
             )
         except OSError as exc:
             raise CameraProtocolError(
@@ -80,7 +86,7 @@ class CameraProtocolClient:
         except (TimeoutError, socket.timeout, EOFError, ConnectionError, OSError) as exc:
             raise CameraProtocolError(f"{command} 请求失败：{exc}") from exc
         finally:
-            sock.close()
+            self._request_socket.release(sock)
 
         if not payload.get("ok"):
             raise CameraProtocolError(

@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls.Basic
 import QtQuick.Layouts
 
 Item {
@@ -9,13 +8,26 @@ Item {
 
     required property var theme
     required property var controller
+    readonly property var jointSnapshot:
+        root.visible ? root.controller.joints : []
+    readonly property var emptyJointData: ({
+        name: "—",
+        position: 0,
+        velocity: 0,
+        torque: 0,
+        tempMos: -1,
+        errorStatus: "—",
+        errorIsFault: false,
+        errorCode: 0
+    })
 
-    ScrollView {
+    PageScrollView {
+        id: dashboardScroll
+
         anchors.fill: parent
-        clip: true
 
         ColumnLayout {
-            width: root.width
+            width: dashboardScroll.availableWidth
             spacing: root.theme.spacingM
 
             GlassCard {
@@ -70,12 +82,15 @@ Item {
                     }
 
                     Repeater {
-                        model: root.controller.joints
+                        model: 6
 
                         Rectangle {
                             id: jointRow
-                            required property var modelData
                             required property int index
+                            readonly property var jointData:
+                                root.jointSnapshot.length > jointRow.index
+                                ? root.jointSnapshot[jointRow.index]
+                                : root.emptyJointData
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 36
@@ -100,7 +115,7 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    text: jointRow.modelData.name
+                                    text: jointRow.jointData.name
                                     color: root.theme.text
                                     horizontalAlignment: Text.AlignHCenter
                                     font.family: root.theme.fontFamily
@@ -110,7 +125,7 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    text: Number(jointRow.modelData.position).toFixed(2)
+                                    text: Number(jointRow.jointData.position).toFixed(2)
                                     color: root.theme.text
                                     horizontalAlignment: Text.AlignHCenter
                                     font.family: "monospace"
@@ -119,7 +134,7 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    text: Number(jointRow.modelData.velocity).toFixed(3)
+                                    text: Number(jointRow.jointData.velocity).toFixed(3)
                                     color: root.theme.secondaryText
                                     horizontalAlignment: Text.AlignHCenter
                                     font.family: "monospace"
@@ -128,7 +143,7 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    text: Number(jointRow.modelData.torque).toFixed(3)
+                                    text: Number(jointRow.jointData.torque).toFixed(3)
                                     color: root.theme.secondaryText
                                     horizontalAlignment: Text.AlignHCenter
                                     font.family: "monospace"
@@ -137,9 +152,9 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    text: Number(jointRow.modelData.tempMos) < 0 ? "—"
-                                          : Number(jointRow.modelData.tempMos).toFixed(1)
-                                    color: Number(jointRow.modelData.tempMos) >= 70
+                                    text: Number(jointRow.jointData.tempMos) < 0 ? "—"
+                                          : Number(jointRow.jointData.tempMos).toFixed(1)
+                                    color: Number(jointRow.jointData.tempMos) >= 70
                                            ? root.theme.red : root.theme.secondaryText
                                     horizontalAlignment: Text.AlignHCenter
                                     font.family: "monospace"
@@ -148,11 +163,11 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    text: jointRow.modelData.errorStatus
-                                    color: jointRow.modelData.errorIsFault
+                                    text: jointRow.jointData.errorStatus
+                                    color: jointRow.jointData.errorIsFault
                                            ? root.theme.red
                                            : jointRow.index >= 3
-                                             && Number(jointRow.modelData.errorCode) === 1
+                                             && Number(jointRow.jointData.errorCode) === 1
                                              ? root.theme.green
                                              : root.theme.secondaryText
                                     horizontalAlignment: Text.AlignHCenter
@@ -200,6 +215,7 @@ Item {
                             clip: true
 
                             Image {
+                                id: dashboardCameraPreview
                                 objectName: "dashboardCameraPreview"
                                 readonly property int loadStatus: status
                                 anchors.fill: parent
@@ -214,13 +230,18 @@ Item {
                                 cache: false
                                 retainWhileLoading: true
                                 smooth: true
-                                visible: root.controller.cameraPreviewSource.length > 0
+                                visible: root.controller.cameraPreviewAvailable
+                                         && status !== Image.Error
                             }
 
                             Text {
+                                objectName: "dashboardCameraFallback"
                                 anchors.centerIn: parent
-                                text: qsTr("暂无画面")
-                                visible: root.controller.cameraPreviewSource.length === 0
+                                text: dashboardCameraPreview.status === Image.Error
+                                      ? qsTr("画面解码失败，请刷新")
+                                      : qsTr("暂无画面")
+                                visible: !root.controller.cameraPreviewAvailable
+                                         || dashboardCameraPreview.status === Image.Error
                                 color: root.theme.tertiaryText
                                 font.family: root.theme.fontFamily
                                 font.pixelSize: root.theme.typeBody

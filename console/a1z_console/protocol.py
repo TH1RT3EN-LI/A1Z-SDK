@@ -12,6 +12,7 @@ import socket
 from dataclasses import dataclass
 from typing import Any
 
+from .cancellable_socket import CancellableSocket
 from .profiles import RuntimeProfile
 
 
@@ -57,6 +58,10 @@ def _read_json_line(sock: socket.socket, *, limit: int = 4 * 1024 * 1024) -> dic
 class A1ZProtocolClient:
     def __init__(self, profile: RuntimeProfile) -> None:
         self.profile = profile
+        self._request_socket = CancellableSocket()
+
+    def cancel_pending_requests(self) -> None:
+        self._request_socket.cancel()
 
     def request(
         self,
@@ -71,9 +76,10 @@ class A1ZProtocolClient:
         ).encode("utf-8")
         sent = False
         try:
-            sock = socket.create_connection(
-                (self.profile.host, self.profile.port),
-                timeout=float(timeout_s),
+            sock = self._request_socket.open_connection(
+                self.profile.host,
+                self.profile.port,
+                timeout_s=timeout_s,
             )
         except OSError as exc:
             raise ProtocolError(
@@ -82,23 +88,53 @@ class A1ZProtocolClient:
 
         try:
             sock.settimeout(float(timeout_s))
-            sock.sendall(request)
             sent = True
+            sock.sendall(request)
             payload = _read_json_line(sock)
-        except (TimeoutError, socket.timeout, EOFError, ConnectionError, OSError) as exc:
+        except (
+            TimeoutError,
+            socket.timeout,
+            EOFError,
+            ConnectionError,
+            OSError,
+            ProtocolError,
+        ) as exc:
             if sent and ambiguous_after_send:
                 raise AmbiguousCommandError(
                     f"{command} 已发出，但未收到确定响应；禁止自动重发：{exc}"
                 ) from exc
+            if isinstance(exc, ProtocolError):
+                raise
             raise ProtocolError(f"{command} 请求失败：{exc}") from exc
         finally:
-            sock.close()
+            self._request_socket.release(sock)
 
-        if not payload.get("ok"):
-            raise ProtocolError(str(payload.get("error", "A1Z 服务返回未知错误")))
+        response_ok = payload.get("ok")
+        if response_ok is False:
+            error = ProtocolError(
+                str(payload.get("error", "A1Z 服务返回未知错误"))
+            )
+            execution_state = str(payload.get("execution_state", ""))
+            if ambiguous_after_send and execution_state != "rejected":
+                raise AmbiguousCommandError(
+                    f"{command} 已发出，服务端未确认动作在执行前被拒绝：{error}"
+                ) from error
+            raise error
+        if response_ok is not True:
+            error = ProtocolError(f"{command} 响应缺少有效的 ok 字段")
+            if ambiguous_after_send:
+                raise AmbiguousCommandError(
+                    f"{command} 已发出，但响应格式无法确认结果：{error}"
+                ) from error
+            raise error
         data = payload.get("data", {})
         if not isinstance(data, dict):
-            raise ProtocolError(f"{command} 的 data 字段不是对象")
+            error = ProtocolError(f"{command} 的 data 字段不是对象")
+            if ambiguous_after_send:
+                raise AmbiguousCommandError(
+                    f"{command} 已发出，但响应格式无法确认结果：{error}"
+                ) from error
+            raise error
         return data
 
     def verify_backend(self, *, timeout_s: float = 3.0) -> VerifiedEndpoint:
@@ -122,10 +158,11 @@ class A1ZProtocolClient:
         args: dict[str, Any] | None = None,
         *,
         timeout_s: float,
-        motion: bool,
+        require_running: bool,
+        ambiguous_after_send: bool,
     ) -> tuple[dict[str, Any], VerifiedEndpoint]:
         endpoint = self.verify_backend(timeout_s=min(5.0, timeout_s))
-        if motion:
+        if require_running:
             if endpoint.info.get("faulted"):
                 detail = str(endpoint.info.get("fault_message", "")).strip()
                 raise ProtocolError(
@@ -138,6 +175,6 @@ class A1ZProtocolClient:
             command,
             args,
             timeout_s=timeout_s,
-            ambiguous_after_send=motion,
+            ambiguous_after_send=ambiguous_after_send,
         )
         return data, endpoint

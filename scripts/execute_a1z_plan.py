@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -27,6 +29,11 @@ from a1z_ext.config import (
     validate_arm_motion_speed,
 )
 from a1z_ext.control_client import send_control_request
+from a1z_ext.grasping.types import (
+    REQUIRED_PLAN_SAFETY_CHECKS,
+    normalize_plan_segments,
+    validate_physical_segment_sequence,
+)
 
 ARM_SPEED_LIMITS = get_arm_motion_speed_limits()
 
@@ -34,6 +41,11 @@ ARM_SPEED_LIMITS = get_arm_motion_speed_limits()
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", required=True, help="Path to selected_plan.json")
+    parser.add_argument(
+        "--expected-plan-sha256",
+        default="",
+        help="Fail closed unless the plan bytes match this reviewed SHA-256.",
+    )
     parser.add_argument("--socket-path", default=get_socket_path())
     parser.add_argument("--tcp-host", default=get_tcp_host())
     parser.add_argument("--tcp-port", type=int, default=get_tcp_port())
@@ -104,26 +116,67 @@ def _wait_for_joint_target(
 
 
 def _validate_plan(plan: dict[str, Any]) -> list[dict[str, Any]]:
-    segments = plan.get("joint_trajectory_segments")
-    if not isinstance(segments, list) or not segments:
-        raise ValueError("plan must contain non-empty joint_trajectory_segments")
-    validated: list[dict[str, Any]] = []
-    for index, raw in enumerate(segments):
-        if not isinstance(raw, dict):
-            raise ValueError(f"segment {index} must be an object")
-        target = raw.get("target_joint_rad")
-        if not isinstance(target, list) or len(target) != 6:
-            raise ValueError(f"segment {index} target_joint_rad must contain 6 values")
-        validated.append(
-            {
-                "segment_type": str(raw.get("segment_type", "move")),
-                "target_joint_rad": [float(value) for value in target],
-                "timeout_s": float(raw.get("timeout_s", 30.0)),
-            }
+    return normalize_plan_segments(plan)
+
+
+def _load_reviewed_plan(
+    plan_path: Path,
+    expected_sha256: str,
+) -> dict[str, Any]:
+    plan_bytes = plan_path.read_bytes()
+    actual_sha256 = hashlib.sha256(plan_bytes).hexdigest()
+    expected = str(expected_sha256).strip().lower()
+    if expected and actual_sha256 != expected:
+        raise ValueError(
+            "plan content no longer matches the reviewed SHA-256"
         )
-    if not any(segment["segment_type"] == "approach" for segment in validated):
-        raise ValueError("plan must contain an approach segment")
-    return validated
+    plan = json.loads(plan_bytes)
+    if not isinstance(plan, dict):
+        raise ValueError("plan root must be an object")
+    return plan
+
+
+def _validate_execution_safety(plan: dict[str, Any]) -> None:
+    summary = plan.get("safety_summary")
+    if not isinstance(summary, dict) or not summary:
+        raise ValueError("physical execution requires a non-empty safety_summary")
+    for required in REQUIRED_PLAN_SAFETY_CHECKS:
+        if summary.get(required) is not True:
+            raise ValueError(f"physical execution safety check failed: {required}")
+    failed = [name for name, passed in summary.items() if passed is not True]
+    if failed:
+        raise ValueError(
+            "physical execution safety checks failed: " + ", ".join(failed)
+        )
+
+
+def _validate_backend_joint_limits(
+    segments: list[dict[str, Any]],
+    info: dict[str, Any],
+) -> None:
+    raw_limits = info.get("joint_limits_deg")
+    if not isinstance(raw_limits, dict):
+        raise ValueError("backend info is missing joint_limits_deg")
+    limits: list[tuple[float, float]] = []
+    for index in range(6):
+        pair = raw_limits.get(f"J{index + 1}")
+        if not isinstance(pair, list) or len(pair) != 2:
+            raise ValueError(f"backend info is missing J{index + 1} limits")
+        lower, upper = (float(pair[0]), float(pair[1]))
+        if not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper:
+            raise ValueError(f"backend J{index + 1} limits are invalid")
+        limits.append((lower, upper))
+    for segment_index, segment in enumerate(segments):
+        target_deg = np.rad2deg(
+            np.asarray(segment["target_joint_rad"], dtype=np.float64)
+        )
+        for joint_index, value in enumerate(target_deg):
+            lower, upper = limits[joint_index]
+            if not lower <= float(value) <= upper:
+                raise ValueError(
+                    f"segment {segment_index} J{joint_index + 1} target "
+                    f"{float(value):.3f}° is outside [{lower:.3f}, {upper:.3f}]"
+                )
 
 
 def main() -> int:
@@ -138,13 +191,20 @@ def main() -> int:
     }
 
     try:
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        plan = _load_reviewed_plan(plan_path, args.expected_plan_sha256)
         segments = _validate_plan(plan)
+        if not args.dry_run:
+            _validate_execution_safety(plan)
+            validate_physical_segment_sequence(segments)
         policy = dict(plan.get("execution_policy", {}) or {})
         close_timeout_s = float(policy.get("grasp_timeout_s", 15.0))
         release_timeout_s = float(policy.get("release_timeout_s", 3.0))
 
-        if not args.dry_run and args.expected_backend:
+        if not args.dry_run:
+            if not args.expected_backend:
+                raise ValueError(
+                    "physical execution requires --expected-backend"
+                )
             info = _request(args, "info", timeout_s=10.0)
             actual_backend = str(info.get("backend", ""))
             if actual_backend != args.expected_backend:
@@ -154,6 +214,7 @@ def main() -> int:
                     f"actual={actual_backend or 'unknown'}"
                 )
             result["verified_backend"] = actual_backend
+            _validate_backend_joint_limits(segments, info)
 
         if args.pre_open:
             step: dict[str, Any] = {"type": "gripper_open"}

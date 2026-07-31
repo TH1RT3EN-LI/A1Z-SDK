@@ -34,6 +34,7 @@ Rectangle {
 
         Text {
             text: root.text
+            textFormat: Text.PlainText
             color: root.level === "error" ? root.theme.red
                    : root.level === "warn" ? Qt.darker(root.theme.orange, 1.35)
                    : root.theme.text

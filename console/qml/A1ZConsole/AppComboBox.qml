@@ -47,6 +47,7 @@ ComboBox {
     }
 
     indicator: Canvas {
+        id: dropdownIndicator
         x: root.width - width - 10
         y: (root.height - height) / 2
         width: 14
@@ -67,6 +68,14 @@ ComboBox {
             ctx.lineTo(width / 2, height - 2)
             ctx.lineTo(width - 2, 2)
             ctx.stroke()
+        }
+    }
+
+    Connections {
+        target: root
+
+        function onEnabledChanged() {
+            dropdownIndicator.requestPaint()
         }
     }
 

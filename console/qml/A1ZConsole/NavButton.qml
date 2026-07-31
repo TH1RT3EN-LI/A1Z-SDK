@@ -12,6 +12,9 @@ Button {
     implicitHeight: 44
     focusPolicy: Qt.StrongFocus
     hoverEnabled: true
+    Accessible.role: Accessible.PageTab
+    Accessible.name: text
+    Accessible.checked: root.selected
 
     contentItem: RowLayout {
         spacing: 10

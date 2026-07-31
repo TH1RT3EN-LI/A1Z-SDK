@@ -9,7 +9,11 @@ Button {
     property color customColor: "transparent"
 
     implicitHeight: 40
-    implicitWidth: 104
+    leftPadding: 12
+    rightPadding: 12
+    implicitWidth: Math.max(
+                       104,
+                       implicitContentWidth + leftPadding + rightPadding)
     focusPolicy: Qt.StrongFocus
     hoverEnabled: true
     autoRepeat: false
@@ -28,7 +32,7 @@ Button {
 
     contentItem: Text {
         text: root.text
-        color: root.enabled ? root.foreground
+        color: root.enabled || root.kind === "selected" ? root.foreground
                : root.kind === "danger" ? root.theme.red
                                         : root.theme.tertiaryText
         horizontalAlignment: Text.AlignHCenter
@@ -41,7 +45,9 @@ Button {
 
     background: Rectangle {
         radius: root.theme.radiusControl
-        color: !root.enabled ? (root.kind === "danger"
+        color: !root.enabled ? (root.kind === "selected"
+                                ? root.theme.accentSoft
+                                : root.kind === "danger"
                                 ? root.theme.redSoft
                                 : root.kind === "quiet"
                                   ? "transparent" : root.theme.control)

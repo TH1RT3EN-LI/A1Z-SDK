@@ -9,8 +9,10 @@ Item {
 
     required property var theme
     required property string controlMode
-    property bool connected: false
     property bool interactive: false
+    property string confirmationState: "unconfirmed"
+    readonly property bool stateConfirmed:
+        root.confirmationState === "confirmed"
 
     signal modeRequested(bool zeroGravityEnabled)
 
@@ -46,7 +48,7 @@ Item {
         Accessible.role: Accessible.RadioButton
         Accessible.checked: selected
         Accessible.name: selected
-                         ? qsTr("%1，当前模式").arg(title)
+                         ? qsTr("%1，%2").arg(title).arg(stateLabel)
                          : qsTr("切换到%1").arg(title)
         Accessible.description: detail
 
@@ -110,7 +112,6 @@ Item {
     }
 
     RowLayout {
-        id: modeRow
         anchors.fill: parent
         anchors.margins: 3
         spacing: 3
@@ -121,8 +122,12 @@ Item {
             detail: qsTr("锁定当前姿态")
             selected: root.positionHoldActive
             modeAvailable: root.interactive && root.modeKnown
-            stateLabel: selected ? qsTr("当前")
-                        : !root.connected ? qsTr("未连接")
+            stateLabel: root.confirmationState === "pending" ? qsTr("切换中")
+                        : root.confirmationState === "uncertain"
+                          ? qsTr("结果不确定")
+                        : selected && root.stateConfirmed ? qsTr("当前")
+                        : selected ? qsTr("最后显示")
+                        : !root.stateConfirmed ? qsTr("未确认")
                         : root.modeKnown ? qsTr("切换") : qsTr("状态未知")
             onClicked: {
                 if (!selected)
@@ -136,8 +141,12 @@ Item {
             detail: qsTr("重力补偿，可手动拖动")
             selected: root.zeroGravityActive
             modeAvailable: root.interactive && root.modeKnown
-            stateLabel: selected ? qsTr("当前")
-                        : !root.connected ? qsTr("未连接")
+            stateLabel: root.confirmationState === "pending" ? qsTr("切换中")
+                        : root.confirmationState === "uncertain"
+                          ? qsTr("结果不确定")
+                        : selected && root.stateConfirmed ? qsTr("当前")
+                        : selected ? qsTr("最后显示")
+                        : !root.stateConfirmed ? qsTr("未确认")
                         : root.modeKnown ? qsTr("切换") : qsTr("状态未知")
             onClicked: {
                 if (!selected)

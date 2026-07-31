@@ -4,9 +4,32 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
+import math
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+
+REQUIRED_PLAN_SAFETY_CHECKS = (
+    "topdown_ok",
+    "table_clearance_ok",
+    "camera_keepout_ok",
+    "joint_margin_ok",
+    "continuity_ok",
+)
+PLAN_SEGMENT_ORDER = {
+    "move_to_pregrasp": 0,
+    "approach_waypoint": 1,
+    "approach": 2,
+    "lift": 3,
+    "retreat": 4,
+}
+REQUIRED_PHYSICAL_SEGMENTS = (
+    "move_to_pregrasp",
+    "approach",
+    "lift",
+    "retreat",
+)
 
 
 def _uuid() -> str:
@@ -101,6 +124,84 @@ def make_candidate_id() -> str:
 
 def make_plan_id() -> str:
     return _uuid()
+
+
+def normalize_plan_segments(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_segments = plan.get("joint_trajectory_segments")
+    if not isinstance(raw_segments, list) or not raw_segments:
+        raise ValueError("plan must contain non-empty joint_trajectory_segments")
+
+    normalized: list[dict[str, Any]] = []
+    previous_order = -1
+    approach_count = 0
+    for index, raw in enumerate(raw_segments):
+        if not isinstance(raw, dict):
+            raise ValueError(f"segment {index} must be an object")
+        segment_type = str(raw.get("segment_type", ""))
+        order = PLAN_SEGMENT_ORDER.get(segment_type)
+        if order is None:
+            raise ValueError(
+                f"segment {index} has unsupported type {segment_type!r}"
+            )
+        if order < previous_order:
+            raise ValueError(f"segment {index} is out of execution order")
+        previous_order = order
+        approach_count += int(segment_type == "approach")
+
+        raw_target = raw.get("target_joint_rad")
+        if not isinstance(raw_target, list) or len(raw_target) != 6:
+            raise ValueError(
+                f"segment {index} target_joint_rad must contain 6 values"
+            )
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in raw_target
+        ):
+            raise ValueError(
+                f"segment {index} joint target values must be JSON numbers"
+            )
+        raw_timeout = raw.get("timeout_s", 0.0)
+        if isinstance(raw_timeout, bool) or not isinstance(
+            raw_timeout,
+            (int, float),
+        ):
+            raise ValueError(f"segment {index} timeout_s must be a JSON number")
+        try:
+            target = [float(value) for value in raw_target]
+            timeout_s = float(raw_timeout)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"segment {index} contains non-numeric values") from exc
+        if not all(math.isfinite(value) for value in target):
+            raise ValueError(f"segment {index} joint target must be finite")
+        if not math.isfinite(timeout_s) or not 0.0 < timeout_s <= 600.0:
+            raise ValueError(
+                f"segment {index} timeout_s must be finite and in (0, 600]"
+            )
+        normalized.append(
+            {
+                "segment_type": segment_type,
+                "target_joint_rad": target,
+                "timeout_s": timeout_s,
+            }
+        )
+    if approach_count != 1:
+        raise ValueError("plan must contain exactly one approach segment")
+    return normalized
+
+
+def validate_physical_segment_sequence(
+    segments: list[dict[str, Any]],
+) -> None:
+    primary = [
+        str(segment["segment_type"])
+        for segment in segments
+        if segment["segment_type"] != "approach_waypoint"
+    ]
+    if tuple(primary) != REQUIRED_PHYSICAL_SEGMENTS:
+        raise ValueError(
+            "physical execution requires move_to_pregrasp, approach, lift, "
+            "and retreat exactly once in order"
+        )
 
 
 def to_dict(value: Any) -> dict[str, Any]:

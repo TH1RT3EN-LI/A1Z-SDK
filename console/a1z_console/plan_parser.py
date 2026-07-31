@@ -7,6 +7,12 @@ import math
 from pathlib import Path
 from typing import Any
 
+from a1z_ext.grasping.types import (
+    REQUIRED_PLAN_SAFETY_CHECKS,
+    normalize_plan_segments,
+    validate_physical_segment_sequence,
+)
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -34,27 +40,24 @@ def summarize_pipeline(output_dir: Path, repo_root: Path) -> dict[str, Any]:
         plan_path = output_dir / "planning" / "selected_plan.json"
     plan = _load_json(plan_path)
 
-    raw_segments = plan.get("joint_trajectory_segments", [])
-    if not isinstance(raw_segments, list) or not raw_segments:
-        raise ValueError("selected_plan.json 没有可执行关节轨迹")
-
+    raw_segments = normalize_plan_segments(plan)
+    try:
+        validate_physical_segment_sequence(raw_segments)
+    except ValueError:
+        physical_sequence_passed = False
+    else:
+        physical_sequence_passed = True
     segments: list[dict[str, Any]] = []
     for index, segment in enumerate(raw_segments):
-        if not isinstance(segment, dict):
-            continue
-        target_rad = segment.get("target_joint_rad", [])
-        if not isinstance(target_rad, list) or len(target_rad) != 6:
-            continue
+        target_rad = segment["target_joint_rad"]
         segments.append(
             {
                 "index": index + 1,
-                "type": str(segment.get("segment_type", "move")),
+                "type": str(segment["segment_type"]),
                 "jointsDeg": [round(math.degrees(float(value)), 2) for value in target_rad],
-                "timeoutS": float(segment.get("timeout_s", 0.0)),
+                "timeoutS": float(segment["timeout_s"]),
             }
         )
-    if not segments:
-        raise ValueError("selected_plan.json 中没有合法的 6 轴关节目标")
 
     anygrasp_path = _workspace_to_host(
         repo_root,
@@ -91,7 +94,12 @@ def summarize_pipeline(output_dir: Path, repo_root: Path) -> dict[str, Any]:
                 "rotationMatrix": candidate.get("rotation_matrix", []),
             }
 
-    safety = dict(plan.get("safety_summary", {}) or {})
+    raw_safety = plan.get("safety_summary", {})
+    safety = dict(raw_safety) if isinstance(raw_safety, dict) else {}
+    safety_names = [
+        *REQUIRED_PLAN_SAFETY_CHECKS,
+        *sorted(set(safety).difference(REQUIRED_PLAN_SAFETY_CHECKS)),
+    ]
     return {
         "profile": str(manifest.get("profile", "")),
         "instruction": str(manifest.get("instruction", "")),
@@ -103,8 +111,18 @@ def summarize_pipeline(output_dir: Path, repo_root: Path) -> dict[str, Any]:
         "segments": segments,
         "grasp": grasp,
         "safety": [
-            {"name": str(name), "ok": bool(value)}
-            for name, value in safety.items()
+            {"name": str(name), "ok": safety.get(name) is True}
+            for name in safety_names
+        ] + [
+            {
+                "name": "physical_sequence_ok",
+                "ok": physical_sequence_passed,
+            }
         ],
-        "allSafetyPassed": bool(safety) and all(bool(value) for value in safety.values()),
+        "allSafetyPassed": all(
+            safety.get(name) is True
+            for name in REQUIRED_PLAN_SAFETY_CHECKS
+        ) and all(
+            value is True for value in safety.values()
+        ) and physical_sequence_passed,
     }

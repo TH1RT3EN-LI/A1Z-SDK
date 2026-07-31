@@ -182,6 +182,16 @@ class SocketCANArmRobot(ArmRobot):
             return None
         return float(self.gripper.get_feedback_norm())
 
+    def command_gripper(self, value: float) -> None:
+        """Reject states where the upstream setter would only change a draft."""
+        if not self.is_running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        if self.is_estopped:
+            raise RuntimeError("Robot is in estop.")
+        if self._gripper_free_drive:
+            raise RuntimeError("Gripper is in free-drive mode.")
+        super().command_gripper(value)
+
     def _require_live_gripper_feedback(self) -> float:
         if not self.is_running:
             raise RuntimeError("Robot not running. Call start() first.")

@@ -17,6 +17,7 @@ RowLayout {
         Text {
             Layout.fillWidth: true
             text: root.title
+            textFormat: Text.PlainText
             color: root.theme.text
             font.family: root.theme.fontFamily
             font.pixelSize: root.theme.typeTitle
@@ -27,6 +28,7 @@ RowLayout {
             Layout.fillWidth: true
             visible: root.subtitle.length > 0
             text: root.subtitle
+            textFormat: Text.PlainText
             color: root.theme.tertiaryText
             wrapMode: Text.WordWrap
             font.family: root.theme.fontFamily

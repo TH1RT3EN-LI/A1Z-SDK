@@ -86,6 +86,42 @@ raise SystemExit(0 if healthy else 3)
 PY
 }
 
+find_real_server_pids() {
+  [[ "$PROFILE_NAME" == "real" ]] || return 1
+  local container_name="${A1Z_ROS2_CONTAINER_NAME:-}"
+  [[ -n "$container_name" ]] || return 1
+  docker inspect "$container_name" >/dev/null 2>&1 || return 1
+  [[ "$(docker inspect -f '{{.State.Running}}' "$container_name")" == "true" ]] || return 1
+  docker exec "$container_name" \
+    bash -lc "pgrep -f '/workspace/A1Z/tools/[a]1zctl serve'" 2>/dev/null
+}
+
+stop_orphaned_real_servers() {
+  local container_name="${A1Z_ROS2_CONTAINER_NAME:?}"
+  local pids="$1"
+  local pid
+  local pid_args=()
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    pid_args+=("$pid")
+  done <<<"$pids"
+  [[ "${#pid_args[@]}" -gt 0 ]] || return 0
+  docker exec "$container_name" bash -lc '
+    for pid in "$@"; do
+      kill -INT "$pid" 2>/dev/null || true
+    done
+  ' bash "${pid_args[@]}"
+  for _ in $(seq 1 40); do
+    if ! find_real_server_pids >/dev/null; then
+      echo "Stopped orphaned A1Z real control-server process."
+      return 0
+    fi
+    sleep 0.25
+  done
+  echo "Timed out waiting for orphaned A1Z real control-server process to stop." >&2
+  return 1
+}
+
 find_native_kit_pid() {
   [[ "$PROFILE_NAME" == "sim" && "$SIM_LAUNCH_MODE" == "native" ]] || return 1
   [[ "${A1Z_TCP_PORT:-}" =~ ^[0-9]+$ ]] || return 1
@@ -113,8 +149,14 @@ stop_native_kit() {
 
 stop_service() {
   local native_pid=""
+  local real_pids=""
   native_pid="$(find_native_kit_pid || true)"
   if ! probe_identity; then
+    real_pids="$(find_real_server_pids || true)"
+    if [[ -n "$real_pids" ]]; then
+      stop_orphaned_real_servers "$real_pids"
+      return $?
+    fi
     if [[ -n "$native_pid" ]]; then
       stop_native_kit "$native_pid"
       echo "A1Z ${PROFILE_NAME} native Isaac runtime stopped."
@@ -198,6 +240,12 @@ else
   "$ROOT_DIR/scripts/create_a1z_ros2_container.sh"
   CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:?real profile needs a ROS container}"
   docker start "$CONTAINER_NAME" >/dev/null
+  ORPHANED_REAL_PIDS="$(find_real_server_pids || true)"
+  if [[ -n "$ORPHANED_REAL_PIDS" ]]; then
+    echo "Refusing to start a second SDK owner; existing control-server pid(s): $ORPHANED_REAL_PIDS" >&2
+    echo "Run '$0 stop' to terminate the selected profile's stale owner first." >&2
+    exit 1
+  fi
 
   ENV_ARGS=()
   for name in \

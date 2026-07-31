@@ -7,26 +7,48 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Sequence, Tuple
+from typing import Any, Callable, List, Mapping, Sequence, Tuple
 
 import numpy as np
 
 Trajectory = List[Tuple[float, np.ndarray]]
 
 
-def save_trajectory(trajectory: Trajectory, path: str) -> None:
+def save_trajectory(
+    trajectory: Trajectory,
+    path: str,
+    *,
+    metadata: Mapping[str, Any] | None = None,
+) -> None:
     """Save a trajectory to a JSON file."""
     data = {
         "version": 1,
         "num_joints": len(trajectory[0][1]) if trajectory else 6,
         "frames": [[t, pos.tolist()] for t, pos in trajectory],
+        "metadata": dict(metadata or {}),
     }
     Path(path).write_text(json.dumps(data), encoding="utf-8")
 
 
-def load_trajectory(path: str) -> Trajectory:
+def load_trajectory(
+    path: str,
+    *,
+    expected_backend: str | None = None,
+) -> Trajectory:
     """Load a trajectory from a JSON file."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if expected_backend is not None:
+        metadata = dict(data.get("metadata", {}) or {})
+        recorded_backend = str(metadata.get("backend", "")).strip()
+        if not recorded_backend:
+            raise ValueError(
+                "Trajectory has no backend metadata; refusing cross-profile playback."
+            )
+        if recorded_backend != expected_backend:
+            raise ValueError(
+                "Trajectory backend mismatch: "
+                f"recorded={recorded_backend}, active={expected_backend}."
+            )
     return [(float(t), np.array(pos, dtype=np.float64)) for t, pos in data["frames"]]
 
 

@@ -5,12 +5,25 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/load_a1z_env.sh"
 CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:?selected profile must define A1Z_ROS2_CONTAINER_NAME}"
+REQUIRE_CONTROL_SERVER_STOPPED=0
+if [[ "${1:-}" == "--require-control-server-stopped" ]]; then
+  REQUIRE_CONTROL_SERVER_STOPPED=1
+  shift
+fi
 
 if ! docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
   "$ROOT_DIR/scripts/create_a1z_ros2_container.sh"
 fi
 if [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME")" != "true" ]]; then
   docker start "$CONTAINER_NAME" >/dev/null
+fi
+
+if [[ "$REQUIRE_CONTROL_SERVER_STOPPED" == "1" ]] && \
+   docker exec "$CONTAINER_NAME" \
+     bash -lc "pgrep -af '/workspace/A1Z/tools/[a]1zctl serve'"; then
+  echo "Refusing direct CAN access: an A1Z SDK control-server process is still running." >&2
+  echo "Stop the control service and verify its process has exited before retrying." >&2
+  exit 4
 fi
 
 ENV_ARGS=()

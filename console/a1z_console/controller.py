@@ -4,14 +4,8 @@ from __future__ import annotations
 
 import json
 import math
-import os
-import re
-import signal
-import subprocess
 import sys
 import threading
-import time
-from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -19,37 +13,76 @@ from typing import Any, Callable
 from PySide6.QtCore import (
     QObject,
     Property,
-    QProcess,
-    QProcessEnvironment,
     QTimer,
     Signal,
     Slot,
 )
 
-from .camera_protocol import CameraProtocolClient
-from .plan_parser import summarize_pipeline
+from .camera_coordinator import CameraCoordinator, CameraManualResult
+from .device_command_executor import (
+    DeviceCommandExecutor,
+    DeviceCommandRequest,
+    DeviceCommandResult,
+    EmergencyCommandRequest,
+    EmergencyCommandResult,
+)
+from .diagnostics_session import (
+    DiagnosticsSessionCoordinator,
+    DiagnosticsSessionError,
+)
+from .draft_lock_coordinator import (
+    DraftLockCoordinator,
+    DraftResource,
+)
+from .interaction_policy import (
+    InteractionPolicy,
+    OnlineCapability,
+    ProcessAccess,
+    ProcessTaskContract,
+    ResourceEffect,
+    online_capability_effects,
+)
+from .kinematics_command_adapter import KinematicsCommandAdapter
+from .log_model import ConsoleLogModel
+from .plan_session import (
+    PlanSessionCoordinator,
+    PlanSessionError,
+)
+from .process_task_runner import (
+    ProcessTaskRequest,
+    ProcessTaskResult,
+    ProcessTaskRunner,
+    ProcessTaskSemanticResult,
+    ProcessTaskStartFailure,
+)
 from .profiles import RuntimeProfile, load_profiles
 from .protocol import (
     A1ZProtocolClient,
-    AmbiguousCommandError,
-    BackendMismatchError,
     ProtocolError,
 )
-
-
-class _ThreadBridge(QObject):
-    operationFinished = Signal(object)
-    telemetryFinished = Signal(object)
-    emergencyFinished = Signal(object)
-    cameraFinished = Signal(object)
+from .telemetry_coordinator import TelemetryCoordinator, TelemetryResult
+from .teaching_session import (
+    TeachingSessionCoordinator,
+    TeachingSessionError,
+)
 
 
 class ConsoleController(QObject):
     stateChanged = Signal()
+    telemetryTimingChanged = Signal()
+    telemetryRefreshChanged = Signal()
+    jointTelemetryChanged = Signal()
+    gripperTelemetryChanged = Signal()
+    gripperStateInvalidated = Signal()
+    armPoseChanged = Signal()
+    armStateInvalidated = Signal()
+    operationFeedbackChanged = Signal()
+    cameraStateChanged = Signal()
     cameraPreviewChanged = Signal()
-    logsChanged = Signal()
     planChanged = Signal()
     preflightChanged = Signal()
+    draftLocksChanged = Signal()
+    teachingChanged = Signal()
     operationFinished = Signal(str, bool, str)
 
     def __init__(self, repo_root: Path, parent: QObject | None = None) -> None:
@@ -59,93 +92,92 @@ class ConsoleController(QObject):
         self._profile_name = "sim"
         self._connected = False
         self._backend_matched = False
+        self._connection_issue = "unprobed"
         self._backend = ""
         self._control_mode = ""
         self._robot_running = False
         self._faulted = False
         self._fault_message = ""
-        self._command_busy = False
-        self._task_busy = False
-        self._task_motion = False
-        self._task_kind = ""
-        self._task_label = ""
-        self._emergency_busy = False
         self._uncertain = False
+        self._uncertain_ack_pending = False
         self._estopped = False
-        self._telemetry_age_ms = -1
-        self._last_telemetry_monotonic = 0.0
         self._status_text = "等待连接"
         self._last_error = ""
+        self._health_error = ""
+        self._operation_feedback_state = "idle"
+        self._operation_feedback_title = ""
+        self._operation_feedback_message = ""
         self._joint_rows = self._empty_joint_rows()
         self._gripper: float | None = None
         self._gripper_target: float | None = None
         self._info: dict[str, Any] = {}
-        self._camera_summary = "离线"
-        self._camera_details = ""
-        self._camera_preview_source = ""
-        self._camera_bridge_online = False
-        self._camera_ready = False
-        self._camera_busy = False
-        self._camera_pending = False
-        self._camera_preview_enabled = False
-        self._camera_poll_counter = 0
-        self._camera_last_state = ""
-        self._recording_summary = "未录制"
+        self._teaching = TeachingSessionCoordinator(self._profile_name)
         self._gripper_free_drive = False
         self._gravity_comp_factor = 1.0
         self._ee_pose_text = "未读取"
         self._ee_axis_text = ""
         self._ee_motion_text = ""
-        self._logs = ""
-        self._log_lines: list[str] = []
-        self._plan_summary: dict[str, Any] = {}
-        self._preflight_items: list[dict[str, Any]] = []
-        self._pipeline_output_dir = ""
-        self._pending_process_output = bytearray()
-        self._telemetry_pending = False
-        self._info_refresh_counter = 0
-        self._profile_generation = 0
-        self._process: QProcess | None = None
-        self._process_completion: Callable[[int, str], None] | None = None
-        self._operation_sequence = 0
+        self._log_model = ConsoleLogModel(self)
+        self._pending_log_lines: list[str] = []
+        self._draft_locks = DraftLockCoordinator()
+        self._kinematics = KinematicsCommandAdapter(self._repo_root)
         self._state_lock = threading.Lock()
+        self._policy_cache_key: tuple[Any, ...] | None = None
+        self._policy_cache: InteractionPolicy | None = None
+        self._monitoring_started = False
+        self._shutting_down = False
 
-        self._executor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="a1z-console-command",
+        self._commands = DeviceCommandExecutor(self)
+        self._commands.commandFinished.connect(self._on_operation_finished)
+        self._commands.emergencyFinished.connect(self._on_emergency_finished)
+
+        self._camera = CameraCoordinator(self._profile, self)
+        self._camera.stateChanged.connect(self.cameraStateChanged.emit)
+        self._camera.previewChanged.connect(self.cameraPreviewChanged.emit)
+        self._camera.logAvailable.connect(self._append_log)
+        self._camera.manualStarted.connect(self._on_camera_manual_started)
+        self._camera.manualFinished.connect(self._on_camera_manual_finished)
+
+        self._task_runner = ProcessTaskRunner(self)
+        self._task_runner.outputAvailable.connect(self._append_log)
+        self._task_runner.finished.connect(self._on_process_task_finished)
+        self._task_runner.failedToStart.connect(
+            self._on_process_task_start_failure
         )
-        self._emergency_executor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="a1z-console-estop",
+        self._task_runner.stateChanged.connect(
+            self.telemetryRefreshChanged.emit
         )
-        self._camera_executor = ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="a1z-console-camera",
+
+        self._plan = PlanSessionCoordinator(
+            self._repo_root,
+            self._profile,
+            self,
         )
-        self._bridge = _ThreadBridge(self)
-        self._bridge.operationFinished.connect(self._on_operation_finished)
-        self._bridge.telemetryFinished.connect(self._on_telemetry_finished)
-        self._bridge.emergencyFinished.connect(self._on_emergency_finished)
-        self._bridge.cameraFinished.connect(self._on_camera_finished)
+        self._plan.changed.connect(self.planChanged.emit)
 
-        self._telemetry_timer = QTimer(self)
-        self._telemetry_timer.setInterval(700)
-        self._telemetry_timer.timeout.connect(self._poll_telemetry)
-        self._telemetry_timer.start()
+        self._diagnostics = DiagnosticsSessionCoordinator(
+            self._repo_root,
+            self._profile,
+        )
 
-        self._age_timer = QTimer(self)
-        self._age_timer.setInterval(200)
-        self._age_timer.timeout.connect(self._update_telemetry_age)
-        self._age_timer.start()
+        self._telemetry = TelemetryCoordinator(
+            self._profile,
+            self,
+            poll_blocked=lambda: (
+                self._task_runner.busy
+                and self._task_runner.contract.blocks_telemetry
+            ),
+        )
+        self._telemetry.resultAvailable.connect(self._on_telemetry_result)
+        self._telemetry.ageChanged.connect(self._on_telemetry_age_changed)
+        self._telemetry.stateChanged.connect(
+            self.telemetryRefreshChanged.emit
+        )
 
-        self._camera_timer = QTimer(self)
-        self._camera_timer.setInterval(1000)
-        self._camera_timer.timeout.connect(self._poll_camera)
-        self._camera_timer.start()
-
-        self._append_log("A1Z Console 已启动；运动命令自动重发已禁用。")
-        QTimer.singleShot(50, self.refreshNow)
-        QTimer.singleShot(150, self._poll_camera)
+        self._log_flush_timer = QTimer(self)
+        self._log_flush_timer.setSingleShot(True)
+        self._log_flush_timer.setInterval(80)
+        self._log_flush_timer.timeout.connect(self._flush_logs)
 
     # ------------------------------------------------------------------
     # Qt properties
@@ -211,7 +243,7 @@ class ConsoleController(QObject):
         return self._fault_message
 
     @Property(str, notify=stateChanged)
-    def sdkDynamicsSummary(self) -> str:
+    def dynamicsSummary(self) -> str:
         frequency = self._info.get("control_freq_hz")
         kp = list(self._info.get("default_kp", []) or [])
         kd = list(self._info.get("default_kd", []) or [])
@@ -229,87 +261,213 @@ class ConsoleController(QObject):
 
     @Property(bool, notify=stateChanged)
     def commandBusy(self) -> bool:
-        return self._command_busy
+        return self._commands.command_busy
+
+    @Property(bool, notify=draftLocksChanged)
+    def pendingDrafts(self) -> bool:
+        return self._draft_locks.any_pending
+
+    @Property(str, notify=draftLocksChanged)
+    def pendingDraftSummary(self) -> str:
+        return self._draft_locks.summary
 
     @Property(bool, notify=stateChanged)
     def taskBusy(self) -> bool:
-        return self._task_busy
+        return self._task_runner.busy
 
     @Property(bool, notify=stateChanged)
     def taskMotion(self) -> bool:
-        return self._task_motion
+        return self._task_runner.contract.affects_device
 
     @Property(str, notify=stateChanged)
     def taskLabel(self) -> str:
-        return self._task_label
+        return self._task_runner.label
+
+    @Property(str, notify=stateChanged)
+    def taskKind(self) -> str:
+        return self._task_runner.kind
+
+    @Property(bool, notify=stateChanged)
+    def taskCancelable(self) -> bool:
+        return self._task_runner.cancelable
 
     @Property(bool, notify=stateChanged)
     def emergencyBusy(self) -> bool:
-        return self._emergency_busy
+        return self._commands.emergency_busy
 
     @Property(bool, notify=stateChanged)
     def commandOutcomeUncertain(self) -> bool:
         return self._uncertain
 
     @Property(bool, notify=stateChanged)
+    def uncertainRecoveryPending(self) -> bool:
+        return self._uncertain_ack_pending
+
+    @Property(bool, notify=stateChanged)
     def estopped(self) -> bool:
         return self._estopped
 
-    @Property(int, notify=stateChanged)
+    @Property(int, notify=telemetryTimingChanged)
     def telemetryAgeMs(self) -> int:
-        return self._telemetry_age_ms
+        return self._telemetry.age_ms
 
-    @Property(bool, notify=stateChanged)
+    @Property(bool, notify=telemetryTimingChanged)
     def telemetryFresh(self) -> bool:
-        return 0 <= self._telemetry_age_ms <= 2000
+        return self._telemetry.fresh
 
-    @Property(bool, notify=stateChanged)
-    def motionEnabled(self) -> bool:
-        return (
-            self.modeControlEnabled
-            and self._control_mode == "position_hold"
-        )
-
-    @Property(bool, notify=stateChanged)
-    def modeControlEnabled(self) -> bool:
-        return (
-            self._connected
-            and self._backend_matched
-            and self.telemetryFresh
-            and self._robot_running
-            and not self._faulted
-            and not self._command_busy
-            and not self._task_busy
-            and not self._uncertain
-            and not self._estopped
+    @Property(bool, notify=telemetryRefreshChanged)
+    def telemetryRefreshEnabled(self) -> bool:
+        return not (
+            self._shutting_down
+            or self._telemetry.pending
+            or (
+                self._task_runner.busy
+                and self._task_runner.contract.blocks_telemetry
+            )
         )
 
     @Property(str, notify=stateChanged)
+    def armModeState(self) -> str:
+        return self._mode_confirmation_state(
+            ResourceEffect.ARM,
+            "gravity",
+        )
+
+    @Property(str, notify=stateChanged)
+    def gripperModeState(self) -> str:
+        return self._mode_confirmation_state(
+            ResourceEffect.GRIPPER,
+            "gripper_mode",
+        )
+
+    @Property(bool, notify=stateChanged)
+    def hardwareInspectionSupported(self) -> bool:
+        return self._profile.supports_hardware_inspection
+
+    @Property(bool, notify=stateChanged)
+    def offlineMaintenanceSupported(self) -> bool:
+        return self._profile.supports_offline_maintenance
+
+    @Property(float, notify=stateChanged)
+    def manualMotionDefaultSpeed(self) -> float:
+        return self._profile.manual_motion_defaults.speed_rad_s
+
+    @Property(float, notify=stateChanged)
+    def manualMotionDefaultJointStepDeg(self) -> float:
+        return self._profile.manual_motion_defaults.joint_step_deg
+
+    @Property(int, notify=stateChanged)
+    def manualMotionDefaultLinearStepMm(self) -> int:
+        return self._profile.manual_motion_defaults.linear_step_mm
+
+    @Property(float, notify=stateChanged)
+    def manualMotionDefaultAngularStepDeg(self) -> float:
+        return self._profile.manual_motion_defaults.angular_step_deg
+
+    @Property(bool, notify=stateChanged)
+    def motionEnabled(self) -> bool:
+        return not self._policy.online_error(OnlineCapability.ARM_MOTION)
+
+    @Property(bool, notify=stateChanged)
+    def gripperControlEnabled(self) -> bool:
+        return not self._policy.online_error(OnlineCapability.GRIPPER_MOTION)
+
+    @Property(bool, notify=stateChanged)
+    def modeControlEnabled(self) -> bool:
+        return self.armModeControlEnabled
+
+    @Property(bool, notify=stateChanged)
+    def armModeControlEnabled(self) -> bool:
+        return not self._policy.online_error(OnlineCapability.ARM_MODE)
+
+    @Property(bool, notify=stateChanged)
+    def gripperModeControlEnabled(self) -> bool:
+        return not self._policy.online_error(OnlineCapability.GRIPPER_MODE)
+
+    @Property(bool, notify=stateChanged)
+    def estopReleaseEnabled(self) -> bool:
+        return not self._policy.online_error(OnlineCapability.ESTOP_RELEASE)
+
+    @Property(bool, notify=stateChanged)
+    def profileSwitchEnabled(self) -> bool:
+        return not self._policy.profile_switch_error()
+
+    @Property(bool, notify=stateChanged)
+    def planningEnabled(self) -> bool:
+        return not self._policy.task_slot_error()
+
+    @Property(bool, notify=stateChanged)
+    def planExecutionEnabled(self) -> bool:
+        return not self._policy.online_error(
+            OnlineCapability.ARM_GRIPPER_MOTION
+        )
+
+    @Property(bool, notify=stateChanged)
+    def diagnosticsEnabled(self) -> bool:
+        return not self._policy.task_slot_error()
+
+    @Property(bool, notify=stateChanged)
+    def rosManagementEnabled(self) -> bool:
+        return not self._policy.task_slot_error()
+
+    @Property(bool, notify=stateChanged)
+    def kinematicsReadEnabled(self) -> bool:
+        return not self._policy.kinematics_read_error()
+
+    @Property(bool, notify=stateChanged)
+    def hardwareInspectionEnabled(self) -> bool:
+        return not self._policy.hardware_inspection_error()
+
+    @Property(bool, notify=stateChanged)
+    def offlineMaintenanceEnabled(self) -> bool:
+        return not self._policy.offline_device_error()
+
+    @Property(bool, notify=stateChanged)
+    def serviceStartEnabled(self) -> bool:
+        return not self._policy.service_start_error()
+
+    @Property(bool, notify=stateChanged)
+    def serviceStopEnabled(self) -> bool:
+        return not self._policy.service_stop_error()
+
+    @Property(bool, notify=stateChanged)
+    def configurationEnabled(self) -> bool:
+        return not self._policy.configuration_error()
+
+    @Property(bool, notify=stateChanged)
+    def recordingStartEnabled(self) -> bool:
+        return not self._policy.online_error(OnlineCapability.RECORDING_START)
+
+    @Property(bool, notify=stateChanged)
+    def recordingStopEnabled(self) -> bool:
+        return not self._policy.online_error(OnlineCapability.RECORDING_STOP)
+
+    @Property(bool, notify=stateChanged)
+    def recordingRecoveryEnabled(self) -> bool:
+        return not self._policy.recording_recovery_error()
+
+    @Property(bool, notify=stateChanged)
+    def playbackEnabled(self) -> bool:
+        return not self._policy.online_error(OnlineCapability.PLAYBACK)
+
+    @Property(str, notify=stateChanged)
     def motionGateText(self) -> str:
-        if self._uncertain:
-            return "上条命令结果不确定，请先核对现场并解除锁定"
-        if self._estopped:
-            return "软急停已锁定"
-        if self._faulted:
-            return (
-                "控制循环故障："
-                + (self._fault_message or "请重启控制服务")
-            )
-        if self._task_busy:
-            return f"{self._task_label or '任务'}进行中"
-        if self._command_busy:
-            return "单命令事务执行中"
-        if not self._connected:
-            return "控制服务未连接"
-        if not self._backend_matched:
-            return "Real / Sim 后端身份不匹配"
-        if not self.telemetryFresh:
-            return "遥测已过期"
-        if not self._robot_running:
-            return "服务端点在线，但机械臂控制循环未运行"
-        if self._control_mode != "position_hold":
-            return "位置运动已锁定；请先切换到位置保持"
-        return "就绪：一次点击只发送一次运动"
+        if self._uncertain_ack_pending:
+            return "已确认现场状态；等待一轮新鲜遥测后解除互锁"
+        return self._policy.motion_gate_text
+
+    @Property(str, notify=stateChanged)
+    def motionRecoveryAction(self) -> str:
+        return self._policy.motion_recovery_action
+
+    @Property(str, notify=stateChanged)
+    def motionRecoveryLabel(self) -> str:
+        return {
+            "start_server": f"启动 {self._profile_name.upper()} 控制服务",
+            "refresh": "立即刷新控制状态",
+            "restart_server": "重启控制服务",
+            "position_hold": "切换到位置保持",
+        }.get(self.motionRecoveryAction, "")
 
     @Property(str, notify=stateChanged)
     def statusText(self) -> str:
@@ -317,51 +475,79 @@ class ConsoleController(QObject):
 
     @Property(str, notify=stateChanged)
     def lastError(self) -> str:
-        return self._last_error
+        return self._last_error or self._health_error
 
-    @Property("QVariantList", notify=stateChanged)
+    @Property("QVariantList", notify=jointTelemetryChanged)
     def joints(self) -> list[dict[str, Any]]:
         return self._joint_rows
 
-    @Property(float, notify=stateChanged)
+    @Property(float, notify=gripperTelemetryChanged)
     def gripper(self) -> float:
         return -1.0 if self._gripper is None else self._gripper
 
-    @Property(float, notify=stateChanged)
+    @Property(float, notify=gripperTelemetryChanged)
     def gripperMeasured(self) -> float:
         return -1.0 if self._gripper is None else self._gripper
 
-    @Property(float, notify=stateChanged)
+    @Property(float, notify=gripperTelemetryChanged)
     def gripperTarget(self) -> float:
         return -1.0 if self._gripper_target is None else self._gripper_target
 
-    @Property(str, notify=stateChanged)
-    def cameraSummary(self) -> str:
-        return self._camera_summary
+    @Property(str, notify=operationFeedbackChanged)
+    def operationFeedbackState(self) -> str:
+        return self._operation_feedback_state
 
-    @Property(str, notify=stateChanged)
+    @Property(str, notify=operationFeedbackChanged)
+    def operationFeedbackTitle(self) -> str:
+        return self._operation_feedback_title
+
+    @Property(str, notify=operationFeedbackChanged)
+    def operationFeedbackMessage(self) -> str:
+        return self._operation_feedback_message
+
+    @Property(bool, notify=operationFeedbackChanged)
+    def operationFeedbackDismissible(self) -> bool:
+        return self._operation_feedback_state in {"success", "warning", "error"}
+
+    @Property(str, notify=cameraStateChanged)
+    def cameraSummary(self) -> str:
+        return self._camera.summary
+
+    @Property(str, notify=cameraStateChanged)
     def cameraDetails(self) -> str:
-        return self._camera_details
+        return self._camera.details
 
     @Property(str, notify=cameraPreviewChanged)
     def cameraPreviewSource(self) -> str:
-        return self._camera_preview_source
+        return self._camera.preview_source
 
-    @Property(bool, notify=stateChanged)
+    @Property(bool, notify=cameraPreviewChanged)
+    def cameraPreviewAvailable(self) -> bool:
+        return bool(self._camera.preview_source)
+
+    @Property(bool, notify=cameraStateChanged)
     def cameraBridgeOnline(self) -> bool:
-        return self._camera_bridge_online
+        return self._camera.bridge_online
 
-    @Property(bool, notify=stateChanged)
+    @Property(bool, notify=cameraStateChanged)
     def cameraReady(self) -> bool:
-        return self._camera_ready
+        return self._camera.ready
 
-    @Property(bool, notify=stateChanged)
+    @Property(bool, notify=cameraStateChanged)
     def cameraBusy(self) -> bool:
-        return self._camera_busy
+        return self._camera.busy
 
-    @Property(str, notify=stateChanged)
+    @Property(str, notify=teachingChanged)
     def recordingSummary(self) -> str:
-        return self._recording_summary
+        return self._teaching.summary
+
+    @Property(bool, notify=teachingChanged)
+    def recordingActive(self) -> bool:
+        return self._teaching.active
+
+    @Property(str, notify=teachingChanged)
+    def recordingState(self) -> str:
+        return self._teaching.state
 
     @Property(bool, notify=stateChanged)
     def gripperFreeDrive(self) -> bool:
@@ -383,57 +569,181 @@ class ConsoleController(QObject):
     def eeMotionText(self) -> str:
         return self._ee_motion_text
 
-    @Property(str, notify=logsChanged)
-    def logs(self) -> str:
-        return self._logs
+    @Property(QObject, constant=True)
+    def logModel(self) -> ConsoleLogModel:
+        return self._log_model
 
     @Property(str, notify=planChanged)
-    def latestPlanPath(self) -> str:
-        return str(self._plan_summary.get("planPath", ""))
+    def planState(self) -> str:
+        return self._plan.state
 
     @Property(str, notify=planChanged)
-    def pipelineOutputDir(self) -> str:
-        return self._pipeline_output_dir
+    def planStatus(self) -> str:
+        return self._plan.status
 
     @Property(str, notify=planChanged)
     def planId(self) -> str:
-        return str(self._plan_summary.get("planId", ""))
+        return self._plan.plan_id
 
     @Property(str, notify=planChanged)
     def planFrame(self) -> str:
-        return str(self._plan_summary.get("frameId", ""))
+        return self._plan.frame_id
+
+    @Property(str, notify=planChanged)
+    def planProfile(self) -> str:
+        return self._plan.profile_name
+
+    @Property(str, notify=planChanged)
+    def planInstruction(self) -> str:
+        return self._plan.instruction
+
+    @Property(bool, notify=planChanged)
+    def planCurrent(self) -> bool:
+        return self._plan.current
 
     @Property(str, notify=planChanged)
     def graspSummary(self) -> str:
-        grasp = dict(self._plan_summary.get("grasp", {}) or {})
-        if not grasp:
-            return "暂无抓取位姿"
-        xyz = grasp.get("translationMm", [])
-        xyz_text = ", ".join(f"{float(value):.1f}" for value in xyz)
-        return (
-            f"候选 #{grasp.get('rank', '—')} · score {float(grasp.get('score', 0.0)):.4f} · "
-            f"宽度 {float(grasp.get('widthMm', 0.0)):.1f} mm · 相机坐标 [{xyz_text}] mm"
-        )
+        return self._plan.grasp_summary
 
     @Property("QVariantList", notify=planChanged)
     def planSegments(self) -> list[dict[str, Any]]:
-        return list(self._plan_summary.get("segments", []) or [])
+        return self._plan.segments
 
     @Property("QVariantList", notify=planChanged)
     def planSafety(self) -> list[dict[str, Any]]:
-        return list(self._plan_summary.get("safety", []) or [])
+        return self._plan.safety
 
     @Property(bool, notify=planChanged)
     def planSafetyPassed(self) -> bool:
-        return bool(self._plan_summary.get("allSafetyPassed", False))
+        return self._plan.safety_passed
 
     @Property("QVariantList", notify=preflightChanged)
     def preflightItems(self) -> list[dict[str, Any]]:
-        return self._preflight_items
+        return self._diagnostics.items
+
+    @Property(str, notify=preflightChanged)
+    def preflightState(self) -> str:
+        return self._diagnostics.state
+
+    @Property(str, notify=preflightChanged)
+    def preflightStatus(self) -> str:
+        return self._diagnostics.status
 
     @property
     def _profile(self) -> RuntimeProfile:
         return self._profiles[self._profile_name]
+
+    @property
+    def _policy(self) -> InteractionPolicy:
+        cache_key = (
+            self._connected,
+            self._backend_matched,
+            self._connection_issue,
+            self.telemetryFresh,
+            self._robot_running,
+            self._faulted,
+            self._fault_message,
+            self._control_mode,
+            self._gripper_free_drive,
+            self._commands.command_busy,
+            self._task_runner.busy,
+            self._task_runner.label,
+            self._commands.emergency_busy,
+            self._teaching.active,
+            self._uncertain,
+            self._estopped,
+            self._uncertain_ack_pending,
+            self._teaching.state,
+            self._profile.supports_hardware_inspection,
+            self._profile.supports_offline_maintenance,
+        )
+        if (
+            self._policy_cache is not None
+            and cache_key == self._policy_cache_key
+        ):
+            return self._policy_cache
+        self._policy_cache_key = cache_key
+        self._policy_cache = InteractionPolicy(
+            connected=self._connected,
+            backend_matched=self._backend_matched,
+            connection_issue=self._connection_issue,
+            telemetry_fresh=self.telemetryFresh,
+            robot_running=self._robot_running,
+            faulted=self._faulted,
+            fault_message=self._fault_message,
+            control_mode=self._control_mode,
+            gripper_free_drive=self._gripper_free_drive,
+            command_busy=self._commands.command_busy,
+            task_busy=self._task_runner.busy,
+            task_label=self._task_runner.label,
+            emergency_busy=self._commands.emergency_busy,
+            recording_active=self._teaching.active,
+            outcome_uncertain=self._uncertain,
+            estopped=self._estopped,
+            outcome_recheck_requested=self._uncertain_ack_pending,
+            recording_state=self._teaching.state,
+            supports_hardware_inspection=(
+                self._profile.supports_hardware_inspection
+            ),
+            supports_offline_maintenance=(
+                self._profile.supports_offline_maintenance
+            ),
+        )
+        return self._policy_cache
+
+    def _mode_confirmation_state(
+        self,
+        effect: ResourceEffect,
+        result_handler: str,
+    ) -> str:
+        if self._uncertain:
+            return "uncertain"
+        if (
+            self._commands.command_busy
+            and self._commands.current_effects & effect
+            and self._commands.current_result_handler == result_handler
+        ):
+            return "pending"
+        if (
+            self._connected
+            and self._backend_matched
+            and self.telemetryFresh
+        ):
+            return "confirmed"
+        return "unconfirmed"
+
+    def _state_fingerprint(self) -> tuple[Any, ...]:
+        return (
+            self._profile_name,
+            self._connected,
+            self._backend_matched,
+            self._connection_issue,
+            self._backend,
+            self._control_mode,
+            self._robot_running,
+            self._faulted,
+            self._fault_message,
+            self._commands.command_busy,
+            self._task_runner.busy,
+            self._task_runner.contract,
+            self._task_runner.kind,
+            self._task_runner.label,
+            self._commands.emergency_busy,
+            self._uncertain,
+            self._uncertain_ack_pending,
+            self._estopped,
+            self.telemetryFresh,
+            self._status_text,
+            self._last_error,
+            self._draft_locks.fingerprint,
+            self._teaching.fingerprint,
+            self._gripper_free_drive,
+            self._gravity_comp_factor,
+            self._ee_pose_text,
+            self._ee_axis_text,
+            self._ee_motion_text,
+            self.dynamicsSummary,
+        )
 
     # ------------------------------------------------------------------
     # Profile, telemetry, and logging
@@ -443,67 +753,114 @@ class ConsoleController(QObject):
     def setProfile(self, name: str) -> None:
         if name not in self._profiles or name == self._profile_name:
             return
-        if self._command_busy or self._task_busy:
-            self._set_error("命令或任务进行中，不能切换 Real / Sim 配置")
+        draft_error = self._draft_locks.error_for_all()
+        if draft_error:
+            self._set_error(f"{draft_error}，不能切换 Real / Sim 配置")
+            return
+        reason = self._policy.profile_switch_error()
+        if reason:
+            self._set_error(f"{reason}，不能切换 Real / Sim 配置")
             return
         self._profile_name = name
-        self._profile_generation += 1
+        self._commands.select_profile()
         self._connected = False
         self._backend_matched = False
+        self._connection_issue = (
+            "checking" if self._monitoring_started else "unprobed"
+        )
         self._backend = ""
         self._control_mode = ""
         self._robot_running = False
         self._faulted = False
         self._fault_message = ""
-        self._last_telemetry_monotonic = 0.0
-        self._telemetry_age_ms = -1
         self._last_error = ""
+        self._health_error = ""
+        self._set_operation_feedback("idle", "", "")
         self._status_text = f"已选择{self._profile.label}，正在核验后端"
         self._joint_rows = self._empty_joint_rows()
         self._gripper = None
         self._gripper_target = None
+        if self._teaching.select_profile(name):
+            self.teachingChanged.emit()
         self._gripper_free_drive = False
         self._gravity_comp_factor = 1.0
         self._ee_pose_text = "未读取"
         self._ee_axis_text = ""
         self._ee_motion_text = ""
         self._info = {}
-        self._camera_summary = "离线"
-        self._camera_details = "检查中…"
-        self._set_camera_preview_source("")
-        self._camera_bridge_online = False
-        self._camera_ready = False
-        self._camera_busy = False
-        self._camera_pending = False
-        self._camera_poll_counter = 0
-        self._camera_last_state = ""
+        self._telemetry.select_profile(self._profile, notify=False)
+        self._camera.select_profile(self._profile, notify=False)
+        self._plan.select_profile(self._profile)
+        if self._diagnostics.select_profile(self._profile):
+            self.preflightChanged.emit()
         self._append_log(
             f"运行配置切换为 {self._profile.label}："
             f"{self._profile.expected_backend} @ {self.endpoint}"
         )
+        self.jointTelemetryChanged.emit()
+        self.gripperTelemetryChanged.emit()
+        self.telemetryTimingChanged.emit()
+        self.cameraStateChanged.emit()
         self.stateChanged.emit()
-        self.refreshNow()
-        QTimer.singleShot(100, self._poll_camera)
+        if self._monitoring_started:
+            self.refreshNow()
+
+    @Slot(bool, bool, bool)
+    def setDraftLocks(
+        self,
+        arm_target: bool,
+        gripper_target: bool,
+        configuration: bool,
+    ) -> None:
+        if self._draft_locks.update(
+            arm_target=bool(arm_target),
+            gripper_target=bool(gripper_target),
+            configuration=bool(configuration),
+        ):
+            self.draftLocksChanged.emit()
+
+    @Slot()
+    def startMonitoring(self) -> None:
+        if self._monitoring_started or self._shutting_down:
+            return
+        self._monitoring_started = True
+        if self._connection_issue == "unprobed":
+            self._connection_issue = "checking"
+            self.stateChanged.emit()
+        self._telemetry.start_monitoring()
+        self._camera.start_monitoring()
+        self._append_log("A1Z Console 已启动；运动命令自动重发已禁用。")
 
     @Slot()
     def refreshNow(self) -> None:
-        self._poll_telemetry(force_info=True)
+        if self._telemetry.refresh(force_info=True):
+            return
+        if (
+            self._task_runner.busy
+            and self._task_runner.contract.blocks_telemetry
+        ):
+            label = self._task_runner.label or "当前设备任务"
+            self._set_operation_feedback(
+                "warning",
+                "刷新暂不可用",
+                f"{label}执行期间遥测读取已暂停",
+            )
 
     @Slot()
     def acknowledgeUncertain(self) -> None:
         if not self._uncertain:
             return
-        self._uncertain = False
-        self._status_text = "结果不确定锁已由操作员解除；请先刷新并确认机械臂状态"
-        self._append_log("操作员解除“命令结果不确定”互锁。")
+        self._uncertain_ack_pending = True
+        self._status_text = "现场确认已记录；等待一轮新鲜遥测后解除互锁"
+        self._append_log("操作员已确认现场；结果不确定锁等待新鲜遥测。")
         self.stateChanged.emit()
         self.refreshNow()
 
     @Slot()
     def clearLogs(self) -> None:
-        self._log_lines.clear()
-        self._logs = ""
-        self.logsChanged.emit()
+        self._log_flush_timer.stop()
+        self._pending_log_lines.clear()
+        self._log_model.clear()
 
     @Slot()
     def neutralizeUi(self) -> None:
@@ -512,96 +869,106 @@ class ConsoleController(QObject):
         # cannot leave a QML timer or key-repeat producer alive.
         self._append_log("窗口失焦：已确认不存在保持式运动输入。")
 
-    def _poll_telemetry(self, force_info: bool = False) -> None:
-        if self._telemetry_pending or self._command_busy:
-            return
-        if self._task_busy and self._task_motion:
-            return
-        self._telemetry_pending = True
-        generation = self._profile_generation
-        profile = self._profile
-        self._info_refresh_counter += 1
-        include_info = force_info or not self._info or self._info_refresh_counter >= 8
-        if include_info:
-            self._info_refresh_counter = 0
-
-        def operation() -> dict[str, Any]:
-            client = A1ZProtocolClient(profile)
-            info: dict[str, Any] | None = None
-            if include_info:
-                info = client.request("info", timeout_s=2.5)
-                actual = str(info.get("backend", ""))
-                if actual != profile.expected_backend:
-                    raise BackendMismatchError(
-                        f"后端身份不匹配：期望 {profile.expected_backend}，实际 {actual or 'unknown'}"
-                    )
-            status = client.request("status", timeout_s=2.5)
-            return {
-                "generation": generation,
-                "status": status,
-                "info": info,
-                "profile": profile.name,
-            }
-
-        future = self._executor.submit(operation)
-        future.add_done_callback(self._telemetry_future_done)
-
-    def _telemetry_future_done(self, future: Future[dict[str, Any]]) -> None:
-        try:
-            payload = {"ok": True, "data": future.result()}
-        except Exception as exc:
-            payload = {
-                "ok": False,
-                "error": str(exc),
-                "mismatch": isinstance(exc, BackendMismatchError),
-                "generation": self._profile_generation,
-            }
-        self._bridge.telemetryFinished.emit(payload)
-
     @Slot(object)
-    def _on_telemetry_finished(self, payload: object) -> None:
-        self._telemetry_pending = False
-        result = dict(payload)
-        if not result.get("ok"):
+    def _on_telemetry_result(self, payload: object) -> None:
+        if self._shutting_down:
+            return
+        if not isinstance(payload, TelemetryResult):
+            self._set_error("遥测通道返回了无效结果")
+            return
+        previous_state = self._state_fingerprint()
+        if not payload.success:
+            message = payload.error
+            next_status = (
+                "后端身份冲突" if payload.mismatch else "控制服务离线"
+            )
+            teaching_changed = self._teaching.mark_endpoint_unavailable()
+            if teaching_changed:
+                self.teachingChanged.emit()
+            changed = (
+                self._connected
+                or self._backend_matched
+                or self._status_text != next_status
+                or self._health_error != message
+                or teaching_changed
+            )
             self._connected = False
             self._backend_matched = False
-            self._status_text = "后端身份冲突" if result.get("mismatch") else "控制服务离线"
-            self._last_error = str(result.get("error", ""))
-            self.stateChanged.emit()
+            self._connection_issue = (
+                "backend_mismatch" if payload.mismatch else "offline"
+            )
+            self._status_text = next_status
+            self._health_error = message
+            if changed:
+                self.stateChanged.emit()
             return
 
-        data = dict(result["data"])
-        if int(data.get("generation", -1)) != self._profile_generation:
-            return
-        info = data.get("info")
-        if isinstance(info, dict):
+        info = payload.info
+        has_info_snapshot = info is not None
+        if has_info_snapshot:
             self._apply_info(info)
-        self._apply_status(dict(data.get("status", {})))
+        status = payload.status
+        self._apply_status(status)
         self._connected = True
         self._backend_matched = self._backend == self._profile.expected_backend
+        self._connection_issue = (
+            "" if self._backend_matched else "backend_mismatch"
+        )
+        if not self._backend_matched and self._teaching.mark_endpoint_unavailable():
+            self.teachingChanged.emit()
         if self._faulted:
-            self._last_error = self._fault_message or "机械臂控制循环故障"
+            self._health_error = self._fault_message or "机械臂控制循环故障"
             self._status_text = "控制服务在线 · 控制循环故障"
         elif not self._robot_running:
-            self._last_error = "机械臂控制循环未运行，请重启控制服务"
+            self._health_error = "机械臂控制循环未运行，请重启控制服务"
             self._status_text = "控制服务在线 · 控制循环停止"
         else:
-            self._last_error = ""
+            self._health_error = ""
             self._status_text = "遥测在线 · 控制循环运行中"
-        self._last_telemetry_monotonic = time.monotonic()
-        self._telemetry_age_ms = 0
-        self.stateChanged.emit()
+        positions = list(status.get("pos_deg", []) or [])
+        if (
+            self._uncertain
+            and self._uncertain_ack_pending
+            and self._backend_matched
+            and has_info_snapshot
+            and len(positions) >= 6
+        ):
+            self._uncertain = False
+            self._uncertain_ack_pending = False
+            self._append_log("新鲜遥测已确认，结果不确定互锁解除。")
+            if not self._faulted and self._robot_running:
+                self._status_text = "现场状态与新鲜遥测已确认 · 控制入口恢复"
+            self._set_operation_feedback(
+                "success",
+                "状态重新确认",
+                "已收到同一配置的新鲜关节遥测，结果不确定互锁解除",
+            )
+        if payload.timing_changed:
+            self.telemetryTimingChanged.emit()
+        if (
+            self._state_fingerprint() != previous_state
+            or payload.freshness_changed
+        ):
+            self.stateChanged.emit()
+        if (
+            self._uncertain
+            and self._uncertain_ack_pending
+            and not has_info_snapshot
+        ):
+            QTimer.singleShot(0, self.refreshNow)
 
-    def _update_telemetry_age(self) -> None:
-        if self._last_telemetry_monotonic <= 0.0:
-            age = -1
-        else:
-            age = int((time.monotonic() - self._last_telemetry_monotonic) * 1000.0)
-        if age != self._telemetry_age_ms:
-            self._telemetry_age_ms = age
-            if age > 3000 and self._connected:
-                self._connected = False
-                self._status_text = "遥测超时，运动已锁定"
+    @Slot(bool)
+    def _on_telemetry_age_changed(self, freshness_changed: bool) -> None:
+        state_changed = False
+        if self.telemetryAgeMs > 3000 and self._connected:
+            self._connected = False
+            self._connection_issue = "stale"
+            self._status_text = "遥测超时，运动已锁定"
+            if self._teaching.mark_endpoint_unavailable():
+                self.teachingChanged.emit()
+            state_changed = True
+        self.telemetryTimingChanged.emit()
+        if state_changed or freshness_changed:
             self.stateChanged.emit()
 
     def _apply_info(self, info: dict[str, Any]) -> None:
@@ -614,6 +981,8 @@ class ConsoleController(QObject):
             self._faulted = bool(info["faulted"])
         if "fault_message" in info:
             self._fault_message = str(info.get("fault_message", "") or "")
+        if self._teaching.apply_info(info):
+            self.teachingChanged.emit()
         self._gripper_free_drive = bool(info.get("gripper_free_drive", False))
         self._gravity_comp_factor = float(info.get("gravity_comp_factor", 1.0))
         limits = dict(info.get("joint_limits_deg", {}) or {})
@@ -627,7 +996,9 @@ class ConsoleController(QObject):
                     "maximum": float(pair[1]),
                 }
             )
-        self._joint_rows = rows
+        if rows != self._joint_rows:
+            self._joint_rows = rows
+            self.jointTelemetryChanged.emit()
 
     def _apply_status(self, status: dict[str, Any]) -> None:
         positions = list(status.get("pos_deg", []) or [])
@@ -671,16 +1042,25 @@ class ConsoleController(QObject):
                     "tempRotor": float(temp_rotor[index]) if index < len(temp_rotor) else previous["tempRotor"],
                 }
             )
-        self._joint_rows = rows
+        if rows != self._joint_rows:
+            self._joint_rows = rows
+            self.jointTelemetryChanged.emit()
         legacy_gripper = status.get("gripper")
         measured = status.get("gripper_measured", legacy_gripper)
         target = status.get("gripper_target", legacy_gripper)
-        self._gripper = (
+        next_gripper = (
             float(measured) if isinstance(measured, (int, float)) else None
         )
-        self._gripper_target = (
+        next_gripper_target = (
             float(target) if isinstance(target, (int, float)) else None
         )
+        if (
+            next_gripper != self._gripper
+            or next_gripper_target != self._gripper_target
+        ):
+            self._gripper = next_gripper
+            self._gripper_target = next_gripper_target
+            self.gripperTelemetryChanged.emit()
         if "estopped" in status:
             self._estopped = bool(status["estopped"])
         if "running" in status:
@@ -696,17 +1076,71 @@ class ConsoleController(QObject):
             return
         stamp = datetime.now().strftime("%H:%M:%S")
         for line in cleaned.splitlines():
-            self._log_lines.append(f"[{stamp}] {line.rstrip()}")
-        if len(self._log_lines) > 1200:
-            self._log_lines = self._log_lines[-1000:]
-        self._logs = "\n".join(self._log_lines)
-        self.logsChanged.emit()
+            self._pending_log_lines.append(f"[{stamp}] {line.rstrip()}")
+        if not self._log_flush_timer.isActive():
+            self._log_flush_timer.start()
+
+    def _flush_logs(self) -> None:
+        if not self._pending_log_lines:
+            return
+        pending = self._pending_log_lines
+        self._pending_log_lines = []
+        self._log_model.append_lines(pending)
+
+    def _set_operation_feedback(
+        self,
+        state: str,
+        title: str,
+        message: str,
+    ) -> None:
+        state = str(state)
+        title = str(title)
+        message = str(message)
+        if (
+            state == self._operation_feedback_state
+            and title == self._operation_feedback_title
+            and message == self._operation_feedback_message
+        ):
+            return
+        self._operation_feedback_state = state
+        self._operation_feedback_title = title
+        self._operation_feedback_message = message
+        self.operationFeedbackChanged.emit()
+
+    @Slot()
+    def dismissOperationFeedback(self) -> None:
+        if not self.operationFeedbackDismissible:
+            return
+        self._last_error = ""
+        self._set_operation_feedback("idle", "", "")
+        self.stateChanged.emit()
 
     def _set_error(self, message: str) -> None:
         self._last_error = str(message)
         self._status_text = "操作失败"
         self._append_log(f"错误：{message}")
+        self._set_operation_feedback("error", "操作未执行", self._last_error)
         self.stateChanged.emit()
+
+    def _invalidate_resource_state(self, effects: ResourceEffect) -> None:
+        if effects & ResourceEffect.ARM:
+            self.armStateInvalidated.emit()
+        if effects & ResourceEffect.GRIPPER:
+            self._gripper = None
+            self._gripper_target = None
+            self.gripperTelemetryChanged.emit()
+            self.gripperStateInvalidated.emit()
+
+    def _apply_authoritative_command_state(
+        self,
+        data: dict[str, Any],
+    ) -> None:
+        """Project state explicitly confirmed by a successful command reply."""
+
+        if "estopped" in data:
+            self._estopped = bool(data["estopped"])
+        if "gripper_free_drive" in data:
+            self._gripper_free_drive = bool(data["gripper_free_drive"])
 
     @staticmethod
     def _empty_joint_rows() -> list[dict[str, Any]]:
@@ -731,22 +1165,129 @@ class ConsoleController(QObject):
     # Serialized SDK operations
     # ------------------------------------------------------------------
 
-    def _motion_gate_error(self, *, allow_estop: bool = False) -> str:
-        if self._command_busy or self._task_busy:
-            return "已有命令或任务正在执行"
-        if self._uncertain:
-            return "上条命令结果不确定，运动入口保持锁定"
-        if not self._connected or not self._backend_matched:
-            return "控制服务未连接或后端身份不匹配"
-        if not self.telemetryFresh:
-            return "遥测已过期"
-        if self._faulted:
-            return self._fault_message or "机械臂控制循环已故障"
-        if not self._robot_running:
-            return "机械臂控制循环未运行"
-        if self._estopped and not allow_estop:
-            return "机械臂处于软急停状态"
-        return ""
+    def _motion_gate_error(
+        self,
+        capability: OnlineCapability = OnlineCapability.ARM_MOTION,
+    ) -> str:
+        return self._policy.online_error(capability)
+
+    def _exclusive_task_gate_error(
+        self,
+        *,
+        allow_recording: bool = False,
+    ) -> str:
+        return self._policy.task_slot_error(allow_recording=allow_recording)
+
+    @staticmethod
+    def _friendly_operation_error(message: object) -> str:
+        text = str(message).strip() or "未知错误"
+        mappings = (
+            (
+                "Robot control loop is not running",
+                "机械臂控制循环未运行，请重启控制服务",
+            ),
+            (
+                "Position motion requires position-hold mode",
+                "位置运动要求位置保持模式，请先切换到位置保持",
+            ),
+            (
+                "Server was started without --with-gripper",
+                "控制服务启动时未启用 G1Z 夹爪",
+            ),
+            (
+                "Gripper is in free-drive mode",
+                "夹爪处于自由拖动模式，请先恢复夹爪控制",
+            ),
+            (
+                "No live gripper CAN feedback",
+                "没有收到 G1Z 的实时 CAN 位置反馈",
+            ),
+            (
+                "Joint target was not reached from SDK feedback",
+                "控制服务已接收关节目标，但实际反馈未到位",
+            ),
+            (
+                "Gripper target was not reached from SDK feedback",
+                "控制服务已接收夹爪目标，但实际开度未到位",
+            ),
+            (
+                "Recording is active",
+                "示教录制仍在进行；请先停止并保存",
+            ),
+            (
+                "Trajectory backend mismatch",
+                "轨迹来源与当前后端不一致，已禁止回放",
+            ),
+            (
+                "Trajectory has no backend metadata",
+                "旧轨迹缺少后端来源信息，已禁止回放",
+            ),
+        )
+        for source, replacement in mappings:
+            if source in text:
+                detail = text.split(":", 1)[1].strip() if ":" in text else ""
+                return replacement + (f"：{detail}" if detail else "")
+        return text
+
+    def _set_success_feedback(
+        self,
+        label: str,
+        handler: str,
+        data: dict[str, Any],
+    ) -> None:
+        state = "success"
+        message = f"{label}完成"
+
+        if handler == "motion":
+            motion_data = dict(data.get("response", data) or {})
+            verification = dict(motion_data.get("verification", {}) or {})
+            if motion_data.get("motion_performed") is False:
+                state = "warning"
+                message = f"{label}未产生运动：目标已经在当前位置"
+            elif verification:
+                message = (
+                    f"{label}已到位 · 最大误差 "
+                    f"{float(verification.get('max_error_deg', 0.0)):.3f}°"
+                )
+        elif handler == "gripper":
+            verification = dict(data.get("verification", {}) or {})
+            if data.get("motion_performed") is False:
+                state = "warning"
+                message = f"{label}未产生运动：夹爪已经在该开度"
+            elif verification:
+                message = (
+                    f"{label}已到位 · 实际 "
+                    f"{float(verification.get('measured', 0.0)):.3f}"
+                )
+        elif handler == "helper":
+            snapshot = dict(data.get("snapshot", {}) or {})
+            verification = dict(snapshot.get("verification", {}) or {})
+            if verification:
+                message = (
+                    f"{label}完成 · FK 误差 "
+                    f"{float(verification.get('translation_error_mm', 0.0)):.2f} mm / "
+                    f"{float(verification.get('orientation_error_deg', 0.0)):.2f}°"
+                )
+        elif handler == "grasp":
+            success = bool(data.get("success", False))
+            reason = str(data.get("failure_reason", "") or "")
+            phase = str(data.get("phase", "") or "")
+            if not success:
+                state = "warning"
+                message = (
+                    f"{label}完成，但未达到预期"
+                    + (f" · {reason}" if reason else "")
+                )
+            elif phase:
+                message = f"{label}完成 · {phase}"
+        elif handler == "recording" and data.get("safe_state_restored") is False:
+            state = "warning"
+            message = (
+                f"{label}完成，但未能自动恢复位置保持/夹爪控制："
+                f"{data.get('restore_warning', '请核对现场状态')}"
+            )
+
+        self._set_operation_feedback(state, label, message)
 
     def _submit_verified(
         self,
@@ -754,18 +1295,14 @@ class ConsoleController(QObject):
         command: str,
         args: dict[str, Any] | None = None,
         *,
-        motion: bool,
+        capability: OnlineCapability,
         timeout_s: float = 120.0,
-        allow_estop: bool = False,
         result_handler: str = "",
+        allowed_drafts: DraftResource = DraftResource.NONE,
     ) -> None:
-        if motion:
-            gate_error = self._motion_gate_error(allow_estop=allow_estop)
-            if gate_error:
-                self._set_error(gate_error)
-                return
-        elif self._command_busy:
-            self._set_error("已有 SDK 请求正在执行")
+        gate_error = self._policy.online_error(capability)
+        if gate_error:
+            self._set_error(gate_error)
             return
         profile = self._profile
 
@@ -775,7 +1312,12 @@ class ConsoleController(QObject):
                 command,
                 args,
                 timeout_s=timeout_s,
-                motion=motion,
+                require_running=capability
+                not in {
+                    OnlineCapability.RECORDING_STOP,
+                    OnlineCapability.ESTOP_RELEASE,
+                },
+                ambiguous_after_send=True,
             )
             return {
                 "data": data,
@@ -786,8 +1328,9 @@ class ConsoleController(QObject):
         self._submit_operation(
             label,
             operation,
-            motion=motion,
+            effects=online_capability_effects(capability),
             result_handler=result_handler,
+            allowed_drafts=allowed_drafts,
         )
 
     def _submit_operation(
@@ -795,85 +1338,116 @@ class ConsoleController(QObject):
         label: str,
         operation: Callable[[], dict[str, Any]],
         *,
-        motion: bool,
+        effects: ResourceEffect,
         result_handler: str = "",
+        allowed_drafts: DraftResource = DraftResource.NONE,
     ) -> None:
-        if self._command_busy:
-            self._set_error("已有 SDK 请求正在执行")
+        if self._shutting_down:
             return
-        self._operation_sequence += 1
-        sequence = self._operation_sequence
-        self._command_busy = True
+        draft_error = self._draft_locks.error_for_effects(
+            effects,
+            allowed=allowed_drafts,
+        )
+        if draft_error:
+            self._set_error(draft_error)
+            return
+        if self._commands.command_busy or self._task_runner.busy:
+            self._set_error("已有设备命令或外部任务正在执行")
+            return
+        if self._commands.emergency_busy:
+            self._set_error("软急停正在发送，其余操作已锁定")
+            return
+        sequence = self._commands.submit_command(
+            DeviceCommandRequest(
+                label=label,
+                operation=operation,
+                effects=effects,
+                result_handler=result_handler,
+            )
+        )
+        if sequence is None:
+            self._set_error("设备命令执行通道正在关闭或已经占用")
+            return
         self._last_error = ""
         self._status_text = f"{label}执行中"
         self._append_log(f"开始 #{sequence}：{label}")
+        self._set_operation_feedback("running", label, self._status_text)
         self.stateChanged.emit()
-        future = self._executor.submit(operation)
-
-        def done(completed: Future[dict[str, Any]]) -> None:
-            try:
-                payload = {
-                    "ok": True,
-                    "data": completed.result(),
-                    "label": label,
-                    "sequence": sequence,
-                    "motion": motion,
-                    "handler": result_handler,
-                }
-            except Exception as exc:
-                payload = {
-                    "ok": False,
-                    "error": str(exc),
-                    "label": label,
-                    "sequence": sequence,
-                    "motion": motion,
-                    "ambiguous": isinstance(exc, AmbiguousCommandError),
-                    "handler": result_handler,
-                }
-            self._bridge.operationFinished.emit(payload)
-
-        future.add_done_callback(done)
 
     @Slot(object)
     def _on_operation_finished(self, payload: object) -> None:
-        result = dict(payload)
-        self._command_busy = False
-        label = str(result.get("label", "命令"))
-        if not result.get("ok"):
-            self._last_error = str(result.get("error", "未知错误"))
-            if result.get("ambiguous"):
+        if self._shutting_down:
+            return
+        if not isinstance(payload, DeviceCommandResult):
+            self._set_error("设备命令执行通道返回了无效结果")
+            return
+        result = payload
+        label = result.label
+        if result.stale_profile:
+            message = f"忽略来自旧 profile 的{label}结果"
+            self._append_log(message)
+            self.operationFinished.emit(label, False, message)
+            self.stateChanged.emit()
+            return
+        if result.superseded_by_emergency:
+            message = f"{label}的返回晚于软急停，结果不再用于更新界面状态"
+            self._append_log(message)
+            self.operationFinished.emit(label, False, message)
+            self.stateChanged.emit()
+            return
+        if not result.success:
+            self._last_error = self._friendly_operation_error(
+                result.error or "未知错误"
+            )
+            if result.ambiguous:
                 self._uncertain = True
+                self._uncertain_ack_pending = False
+                self._invalidate_resource_state(result.effects)
                 self._status_text = "命令结果不确定，运动已锁定"
+                self._set_operation_feedback(
+                    "uncertain",
+                    label,
+                    f"{label}结果不确定：{self._last_error}",
+                )
             else:
                 self._status_text = f"{label}失败"
+                self._set_operation_feedback(
+                    "error",
+                    label,
+                    f"{label}失败：{self._last_error}",
+                )
             self._append_log(
-                f"失败 #{result.get('sequence')}：{label}：{self._last_error}"
+                f"失败 #{result.sequence}：{label}：{self._last_error}"
             )
             self.operationFinished.emit(label, False, self._last_error)
             self.stateChanged.emit()
             return
 
-        envelope = dict(result.get("data", {}))
+        envelope = result.data
         data = dict(envelope.get("data", {}) or {})
         if envelope.get("backend"):
             self._backend = str(envelope["backend"])
             self._backend_matched = self._backend == self._profile.expected_backend
         if envelope.get("controlMode"):
             self._control_mode = str(envelope["controlMode"])
-        handler = str(result.get("handler", ""))
+        handler = result.result_handler
+        gripper_snapshot_applied = False
+        self._apply_authoritative_command_state(data)
         if handler == "status":
             self._apply_status(data)
         elif handler == "info":
             self._apply_info(data)
-        elif handler == "camera":
-            self._camera_summary = json.dumps(data, ensure_ascii=False)
         elif handler == "recording":
-            frames = int(data.get("frames", 0) or 0)
-            duration = float(data.get("duration_s", 0.0) or 0.0)
-            path = str(data.get("path", ""))
-            self._recording_summary = f"{frames} 帧 / {duration:.2f} s"
-            if path:
-                self._recording_summary += f" · {path}"
+            if self._teaching.apply_command_result(data):
+                self.teachingChanged.emit()
+            if "control_mode" in data:
+                self._control_mode = str(data["control_mode"])
+            if "gripper_free_drive" in data:
+                self._gripper_free_drive = bool(data["gripper_free_drive"])
+            verification = dict(data.get("verification", {}) or {})
+            measured = list(verification.get("measured_deg", []) or [])
+            if len(measured) >= 6:
+                self._apply_status({"pos_deg": measured[:6]})
         elif handler == "gravity":
             if "gravity_comp_factor" in data:
                 self._gravity_comp_factor = float(data["gravity_comp_factor"])
@@ -881,16 +1455,40 @@ class ConsoleController(QObject):
                 self._control_mode = str(data["control_mode"])
         elif handler == "gripper":
             target = data.get("gripper_target", data.get("gripper"))
+            measured = data.get("gripper_measured")
+            changed = False
             if isinstance(target, (int, float)):
-                self._gripper_target = float(target)
+                next_target = float(target)
+                changed = changed or next_target != self._gripper_target
+                self._gripper_target = next_target
+                gripper_snapshot_applied = True
+            if isinstance(measured, (int, float)):
+                next_measured = float(measured)
+                changed = changed or next_measured != self._gripper
+                self._gripper = next_measured
+                gripper_snapshot_applied = True
+            if changed or gripper_snapshot_applied:
+                self.gripperTelemetryChanged.emit()
+        elif handler == "motion":
+            motion_data = dict(data.get("response", data) or {})
+            verification = dict(motion_data.get("verification", {}) or {})
+            measured = list(verification.get("measured_deg", []) or [])
+            if len(measured) >= 6:
+                self._apply_status({"pos_deg": measured[:6]})
         elif handler == "helper":
             snapshot = dict(data.get("snapshot", {}) or {})
             if snapshot:
                 self._apply_helper_snapshot(snapshot)
+        effects = result.effects
+        if effects & ResourceEffect.ARM:
+            self.armPoseChanged.emit()
+        if effects & ResourceEffect.GRIPPER and not gripper_snapshot_applied:
+            self._invalidate_resource_state(ResourceEffect.GRIPPER)
         self._last_error = ""
         self._status_text = f"{label}完成"
+        self._set_success_feedback(label, handler, data)
         self._append_log(
-            f"完成 #{result.get('sequence')}：{label}"
+            f"完成 #{result.sequence}：{label}"
             + (f" · {json.dumps(data, ensure_ascii=False)}" if data else "")
         )
         self.operationFinished.emit(label, True, self._status_text)
@@ -950,53 +1548,17 @@ class ConsoleController(QObject):
 
     @Slot()
     def refreshKinematics(self) -> None:
-        if self._command_busy:
-            self._set_error("已有 SDK 请求正在执行")
+        gate_error = self._policy.kinematics_read_error()
+        if gate_error:
+            self._set_error(gate_error)
             return
         profile = self._profile
-
-        def operation() -> dict[str, Any]:
-            command = [
-                str(self._repo_root / "scripts" / "a1z_sdk_python_in_container.sh"),
-                "/workspace/A1Z/scripts/a1z_ee_ik_helper.py",
-                "--expected-backend",
-                profile.expected_backend,
-                "--end-effector-frame",
-                "grasp_tcp",
-                "snapshot",
-            ]
-            env = os.environ.copy()
-            env.update(profile.environment)
-            completed = subprocess.run(
-                command,
-                cwd=self._repo_root,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=30.0,
-                check=False,
-                start_new_session=True,
-            )
-            stdout = (completed.stdout or "").strip()
-            stderr = (completed.stderr or "").strip()
-            try:
-                payload = json.loads(stdout.splitlines()[-1]) if stdout else {}
-            except json.JSONDecodeError as exc:
-                raise ProtocolError(f"FK helper 返回无效 JSON：{exc}") from exc
-            if completed.returncode != 0 or not payload.get("ok"):
-                raise ProtocolError(
-                    str(payload.get("error") or stderr or "FK helper 执行失败")
-                )
-            return {
-                "data": {"snapshot": payload},
-                "backend": str(payload.get("backend", "")),
-                "controlMode": str(payload.get("control_mode", "")),
-            }
+        kinematics = self._kinematics
 
         self._submit_operation(
             "读取末端 FK",
-            operation,
-            motion=False,
+            lambda: kinematics.snapshot(profile),
+            effects=ResourceEffect.NONE,
             result_handler="helper",
         )
 
@@ -1010,11 +1572,26 @@ class ConsoleController(QObject):
         if len(values) != 6 or any(not math.isfinite(value) for value in values):
             self._set_error("关节目标必须包含 6 个有限数值")
             return
+        for index, value in enumerate(values):
+            row = self._joint_rows[index]
+            minimum = float(row["minimum"])
+            maximum = float(row["maximum"])
+            if minimum < maximum and not minimum <= value <= maximum:
+                self._set_error(
+                    f"J{index + 1} 目标 {value:.3f}° 超出软限位 "
+                    f"[{minimum:.3f}, {maximum:.3f}]°"
+                )
+                return
+        if not math.isfinite(float(speed)) or float(speed) <= 0.0:
+            self._set_error("关节速度必须是大于 0 的有限数值")
+            return
         self._submit_verified(
             "绝对关节运动",
             "move",
             {"joints": values, "speed": float(speed)},
-            motion=True,
+            capability=OnlineCapability.ARM_MOTION,
+            result_handler="motion",
+            allowed_drafts=DraftResource.ARM_TARGET,
         )
 
     @Slot(int, float, float)
@@ -1042,6 +1619,12 @@ class ConsoleController(QObject):
             target = [float(value) for value in current[:6]]
             requested = target[joint_index] + float(delta_deg)
             applied = min(max(requested, float(pair[0])), float(pair[1]))
+            if abs(applied - target[joint_index]) <= 1e-6:
+                direction = "上限" if float(delta_deg) > 0.0 else "下限"
+                raise ProtocolError(
+                    f"J{joint_index + 1} 已在软{direction} "
+                    f"{applied:.2f}°，该方向不会运动"
+                )
             target[joint_index] = applied
             response = client.request(
                 "move",
@@ -1063,7 +1646,8 @@ class ConsoleController(QObject):
         self._submit_operation(
             f"J{joint_index + 1} 点动 {float(delta_deg):+.2f}°",
             operation,
-            motion=True,
+            effects=ResourceEffect.ARM,
+            result_handler="motion",
         )
 
     @Slot(str, str, float, str, float)
@@ -1075,97 +1659,47 @@ class ConsoleController(QObject):
         frame: str,
         speed: float,
     ) -> None:
-        if kind not in {"translation", "rotation"}:
-            self._set_error("笛卡尔点动类型无效")
-            return
-        if axis not in {"x", "y", "z"} or frame not in {"base", "tool"}:
-            self._set_error("笛卡尔点动坐标轴或坐标系无效")
+        try:
+            request = self._kinematics.prepare_step(
+                kind,
+                axis,
+                delta,
+                frame,
+                speed,
+            )
+        except (TypeError, ValueError) as exc:
+            self._set_error(str(exc))
             return
         gate_error = self._motion_gate_error()
         if gate_error:
             self._set_error(gate_error)
             return
         profile = self._profile
+        kinematics = self._kinematics
 
-        def operation() -> dict[str, Any]:
-            command = [
-                str(self._repo_root / "scripts" / "a1z_sdk_python_in_container.sh"),
-                "/workspace/A1Z/scripts/a1z_ee_ik_helper.py",
-                "--expected-backend",
-                profile.expected_backend,
-                "--end-effector-frame",
-                "grasp_tcp",
-                "step",
-                "--kind",
-                kind,
-                "--axis",
-                axis,
-                "--delta",
-                str(float(delta)),
-                "--frame",
-                frame,
-                "--speed",
-                str(float(speed)),
-                "--motion-mode",
-                "move",
-                "--joint-margin-deg",
-                "2.0",
-                "--max-joint-step-deg",
-                "15.0",
-            ]
-            env = os.environ.copy()
-            env.update(profile.environment)
-            completed = subprocess.run(
-                command,
-                cwd=self._repo_root,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=150.0,
-                check=False,
-                start_new_session=True,
-            )
-            stdout = (completed.stdout or "").strip()
-            stderr = (completed.stderr or "").strip()
-            payload: dict[str, Any] = {}
-            if stdout:
-                try:
-                    payload = json.loads(stdout.splitlines()[-1])
-                except json.JSONDecodeError as exc:
-                    raise ProtocolError(
-                        f"IK helper 返回无效 JSON：{exc}；输出={stdout[-500:]}"
-                    ) from exc
-            if completed.returncode != 0 or not payload.get("ok"):
-                message = str(payload.get("error") or stderr or "IK helper 执行失败")
-                if (
-                    payload.get("motion_request_attempted")
-                    and not payload.get("motion_outcome_verified")
-                ):
-                    raise AmbiguousCommandError(message)
-                raise ProtocolError(message)
-            return {
-                "data": {"snapshot": payload},
-                "backend": str(payload.get("backend", "")),
-                "controlMode": str(payload.get("control_mode", "")),
-            }
-
-        unit = "m" if kind == "translation" else "°"
+        unit = "m" if request.kind == "translation" else "°"
         self._submit_operation(
-            f"末端 {frame}/{axis.upper()} {float(delta):+g}{unit}",
-            operation,
-            motion=True,
+            f"末端 {request.frame}/{request.axis.upper()} "
+            f"{request.delta:+g}{unit}",
+            lambda: kinematics.step(profile, request),
+            effects=ResourceEffect.ARM,
             result_handler="helper",
         )
 
     @Slot(float)
     def setGripper(self, value: float) -> None:
+        value = float(value)
+        if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+            self._set_error("夹爪目标开度必须是 0.0–1.0 的有限数值")
+            return
         self._submit_verified(
-            f"夹爪开度 {float(value):.2f}",
+            f"夹爪开度 {value:.2f}",
             "gripper",
-            {"value": float(value)},
-            motion=True,
+            {"value": value},
+            capability=OnlineCapability.GRIPPER_MOTION,
             timeout_s=30.0,
             result_handler="gripper",
+            allowed_drafts=DraftResource.GRIPPER_TARGET,
         )
 
     @Slot()
@@ -1174,8 +1708,9 @@ class ConsoleController(QObject):
             "夹持并检测物体",
             "grasp_close",
             {"timeout_s": 15.0},
-            motion=True,
+            capability=OnlineCapability.GRIPPER_MOTION,
             timeout_s=25.0,
+            result_handler="grasp",
         )
 
     @Slot()
@@ -1184,69 +1719,83 @@ class ConsoleController(QObject):
             "释放夹爪",
             "grasp_release",
             {"timeout_s": 3.0},
-            motion=True,
+            capability=OnlineCapability.GRIPPER_MOTION,
             timeout_s=10.0,
+            result_handler="grasp",
         )
 
     @Slot()
     def emergencyStop(self) -> None:
         # This has a dedicated worker and the server handles it outside the
         # serialized motion lock, so an in-flight blocking move cannot delay it.
-        if self._emergency_busy:
+        if self._shutting_down:
+            return
+        if self._commands.emergency_busy:
             self._set_error("软急停请求已经在发送")
             return
         if not self._connected or not self._backend_matched:
             self._set_error("控制服务未连接或后端身份不匹配；请使用现场硬件急停")
             return
         profile = self._profile
-        self._emergency_busy = True
-        self._append_log("发送高优先级软急停（独立通道、禁止重试）。")
-        self.stateChanged.emit()
 
         def operation() -> dict[str, Any]:
             client = A1ZProtocolClient(profile)
             data, endpoint = client.verified_request(
                 "estop",
                 timeout_s=5.0,
-                motion=True,
+                require_running=True,
+                ambiguous_after_send=True,
             )
             return {"data": data, "backend": endpoint.backend}
 
-        future = self._emergency_executor.submit(operation)
-
-        def done(completed: Future[dict[str, Any]]) -> None:
-            try:
-                payload = {"ok": True, "data": completed.result()}
-            except Exception as exc:
-                payload = {
-                    "ok": False,
-                    "error": str(exc),
-                    "ambiguous": isinstance(exc, AmbiguousCommandError),
-                }
-            self._bridge.emergencyFinished.emit(payload)
-
-        future.add_done_callback(done)
+        if not self._commands.submit_emergency(
+            EmergencyCommandRequest("软急停", operation)
+        ):
+            self._set_error("软急停执行通道正在关闭或已经占用")
+            return
+        self._append_log("发送高优先级软急停（独立通道、禁止重试）。")
+        self._set_operation_feedback("running", "软急停", "软急停发送中")
+        self.stateChanged.emit()
 
     @Slot(object)
     def _on_emergency_finished(self, payload: object) -> None:
-        result = dict(payload)
-        self._emergency_busy = False
-        if result.get("ok"):
+        if self._shutting_down:
+            return
+        if not isinstance(payload, EmergencyCommandResult):
+            self._set_error("软急停执行通道返回了无效结果")
+            return
+        result = payload
+        if result.stale_profile:
+            self._append_log("忽略来自旧 profile 的软急停回调。")
+            self.stateChanged.emit()
+            return
+        if result.success:
             self._estopped = True
             self._status_text = "软急停已锁定"
             self._last_error = ""
             self._append_log("高优先级软急停已确认。")
+            self._set_operation_feedback("success", "软急停", self._status_text)
             self.operationFinished.emit("软急停", True, self._status_text)
         else:
-            self._last_error = str(result.get("error", "软急停失败"))
-            if result.get("ambiguous"):
+            self._last_error = self._friendly_operation_error(
+                result.error or "软急停失败"
+            )
+            if result.ambiguous:
                 # Once bytes were sent, fail closed: the robot may already be
                 # stopped even if the acknowledgment was lost.
                 self._estopped = True
                 self._uncertain = True
+                self._uncertain_ack_pending = False
                 self._status_text = "急停结果不确定；按已急停处理"
+                feedback_state = "uncertain"
             else:
                 self._status_text = "软急停发送失败，请使用现场硬件急停"
+                feedback_state = "error"
+            self._set_operation_feedback(
+                feedback_state,
+                "软急停",
+                f"{self._status_text}：{self._last_error}",
+            )
             self._append_log(f"软急停异常：{self._last_error}")
             self.operationFinished.emit("软急停", False, self._last_error)
         self.stateChanged.emit()
@@ -1257,9 +1806,9 @@ class ConsoleController(QObject):
         self._submit_verified(
             "解除软急停",
             "estop_release",
-            motion=True,
+            capability=OnlineCapability.ESTOP_RELEASE,
             timeout_s=5.0,
-            allow_estop=True,
+            allowed_drafts=DraftResource.ALL,
         )
 
     @Slot(bool)
@@ -1268,7 +1817,7 @@ class ConsoleController(QObject):
             "切换零力漂浮" if enabled else "切换位置保持",
             "gravity_mode",
             {"enabled": bool(enabled)},
-            motion=True,
+            capability=OnlineCapability.ARM_MODE,
             timeout_s=10.0,
             result_handler="gravity",
         )
@@ -1279,6 +1828,10 @@ class ConsoleController(QObject):
         if not math.isfinite(value) or not 0.0 <= value <= 1.0:
             self._set_error("重力补偿系数必须是 0.0–1.0 的有限数值")
             return
+        gate_error = self._policy.configuration_error()
+        if gate_error:
+            self._set_error(gate_error)
+            return
         action = "restart" if self._connected else "start"
         script = str(self._repo_root / "scripts" / "manage_a1z_control_server.sh")
         self._start_process_task(
@@ -1286,8 +1839,12 @@ class ConsoleController(QObject):
             f"重启控制服务并应用重力补偿系数 {value:.2f}",
             script,
             [action, "--gravity-factor", f"{value:.3f}"],
-            motion=False,
+            contract=ProcessTaskContract(
+                ProcessAccess.TASK_SLOT,
+                ResourceEffect.SERVICE,
+            ),
             completion=lambda code, _output: self.refreshNow() if code == 0 else None,
+            allowed_drafts=DraftResource.CONFIGURATION,
         )
 
     @Slot(str, float)
@@ -1296,7 +1853,8 @@ class ConsoleController(QObject):
             f"预置位 {preset}",
             "move",
             {"preset": preset, "speed": float(speed)},
-            motion=True,
+            capability=OnlineCapability.ARM_MOTION,
+            result_handler="motion",
         )
 
     @Slot(str, float)
@@ -1309,41 +1867,99 @@ class ConsoleController(QObject):
             f"动作序列 {move}",
             "dance",
             args,
-            motion=True,
+            capability=OnlineCapability.ARM_MOTION,
             timeout_s=180.0,
+            result_handler="motion",
         )
 
     @Slot(int)
     def startRecording(self, sample_hz: int) -> None:
+        try:
+            normalized_hz = self._teaching.normalize_sample_hz(sample_hz)
+        except TeachingSessionError as exc:
+            self._set_error(str(exc))
+            return
         self._submit_verified(
             "开始示教录制",
             "record_start",
-            {"sample_hz": int(sample_hz)},
-            motion=True,
+            {"sample_hz": normalized_hz},
+            capability=OnlineCapability.RECORDING_START,
             timeout_s=10.0,
             result_handler="recording",
         )
 
     @Slot(str)
     def stopRecording(self, name: str) -> None:
-        safe_name = self._safe_recording_name(name)
+        safe_name = self._teaching.normalize_recording_name(name)
         self._submit_verified(
             "停止并保存示教录制",
             "record_stop",
             {"name": safe_name},
-            motion=False,
+            capability=OnlineCapability.RECORDING_STOP,
             timeout_s=15.0,
             result_handler="recording",
+            allowed_drafts=(
+                DraftResource.ARM_TARGET | DraftResource.GRIPPER_TARGET
+            ),
+        )
+
+    @Slot()
+    def discardDisconnectedRecording(self) -> None:
+        gate_error = self._policy.recording_recovery_error()
+        if gate_error:
+            self._set_error(gate_error)
+            return
+        script = str(self._repo_root / "scripts" / "manage_a1z_control_server.sh")
+
+        def completed(code: int, _output: str) -> None:
+            if code != 0:
+                return
+            if self._teaching.discard_offline():
+                self.teachingChanged.emit()
+            self._gripper_free_drive = False
+            self._control_mode = ""
+            self._uncertain = False
+            self._uncertain_ack_pending = False
+            self._estopped = False
+            self._connection_issue = "offline"
+            self._invalidate_resource_state(
+                ResourceEffect.ARM | ResourceEffect.GRIPPER
+            )
+            self._append_log(
+                "操作员放弃无法连接的未保存示教录制会话；"
+                "控制服务已确认停止，本地不确定/急停锁已转换为离线安全状态。"
+            )
+            self.stateChanged.emit()
+            self.refreshNow()
+
+        self._start_process_task(
+            "recording_discard",
+            "放弃离线录制并确认停止控制服务",
+            script,
+            ["stop"],
+            contract=ProcessTaskContract(
+                ProcessAccess.RECORDING_RECOVERY,
+                ResourceEffect.SERVICE,
+            ),
+            completion=completed,
+            allowed_drafts=DraftResource.ALL,
         )
 
     @Slot(str, float)
     def playRecording(self, name: str, speed_factor: float) -> None:
-        safe_name = self._safe_recording_name(name)
+        safe_name = self._teaching.normalize_recording_name(name)
+        try:
+            normalized_speed = self._teaching.normalize_playback_speed(
+                speed_factor
+            )
+        except TeachingSessionError as exc:
+            self._set_error(str(exc))
+            return
         self._submit_verified(
             f"回放示教轨迹 {safe_name}",
             "record_play",
-            {"name": safe_name, "speed_factor": float(speed_factor)},
-            motion=True,
+            {"name": safe_name, "speed_factor": normalized_speed},
+            capability=OnlineCapability.PLAYBACK,
             timeout_s=600.0,
             result_handler="recording",
         )
@@ -1354,222 +1970,89 @@ class ConsoleController(QObject):
             "夹爪自由拖动" if enabled else "夹爪恢复控制",
             "gripper_free_drive",
             {"enabled": bool(enabled)},
-            motion=True,
+            capability=OnlineCapability.GRIPPER_MODE,
             timeout_s=10.0,
+            result_handler="gripper_mode",
         )
 
-    @staticmethod
-    def _safe_recording_name(name: str) -> str:
-        stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(name).strip()) or "teach"
-        if not stem.endswith(".json"):
-            stem += ".json"
-        return stem[:96]
+    @Slot()
+    def runMotionRecovery(self) -> None:
+        action = self.motionRecoveryAction
+        if action == "start_server":
+            self.startServer(False, self._gravity_comp_factor)
+        elif action == "refresh":
+            self.refreshNow()
+        elif action == "restart_server":
+            self.restartServer()
+        elif action == "position_hold":
+            self.setGravityMode(False)
 
     @Slot(str)
     def queryCamera(self, command: str) -> None:
-        allowed = {"camera_status", "camera_capture", "camera_extrinsic"}
-        if command not in allowed:
-            self._set_error("相机命令不在允许列表中")
-            return
-        self._request_camera(
-            command,
-            manual=True,
-            args={"preview_max_width": 960}
-            if command == "camera_capture"
-            else {},
-        )
+        error = self._camera.request_manual(command)
+        if error:
+            self._set_error(error)
 
     @Slot(bool)
     def setCameraPreviewEnabled(self, enabled: bool) -> None:
-        enabled = bool(enabled)
-        if self._camera_preview_enabled == enabled:
-            return
-        self._camera_preview_enabled = enabled
-        self._camera_poll_counter = 0
-        if enabled:
-            self._poll_camera()
+        self._camera.set_preview_enabled(enabled)
 
-    def _poll_camera(self) -> None:
-        if self._camera_pending:
-            return
-        self._camera_poll_counter += 1
-        if self._camera_preview_enabled:
-            if self._camera_ready:
-                self._request_camera(
-                    "camera_capture",
-                    manual=False,
-                    args={"preview_max_width": 960},
-                )
-            else:
-                self._request_camera("camera_status", manual=False)
-        elif self._camera_poll_counter == 1 or self._camera_poll_counter >= 3:
-            self._camera_poll_counter = 0
-            self._request_camera("camera_status", manual=False)
-
-    def _set_camera_preview_source(self, source: str) -> None:
-        source = str(source)
-        if source == self._camera_preview_source:
-            return
-        self._camera_preview_source = source
-        self.cameraPreviewChanged.emit()
-
-    def _request_camera(
-        self,
-        command: str,
-        *,
-        manual: bool,
-        args: dict[str, Any] | None = None,
-    ) -> None:
-        if self._camera_pending:
-            if manual:
-                self._set_error("已有相机请求正在执行")
-            return
-        labels = {
-            "camera_status": "读取 RGB-D 状态",
-            "camera_capture": "采集 RGB-D 预览",
-            "camera_extrinsic": "读取相机外参",
-        }
-        label = labels[command]
-        profile = self._profile
-        generation = self._profile_generation
-        self._camera_pending = True
-        self._camera_busy = True
-        if manual:
-            self._last_error = ""
-            self._status_text = f"{label}执行中"
-            self._append_log(f"开始：{label}")
+    @Slot(str)
+    def _on_camera_manual_started(self, label: str) -> None:
+        self._last_error = ""
+        self._status_text = f"{label}执行中"
+        self._append_log(f"开始：{label}")
+        self._set_operation_feedback("running", label, self._status_text)
         self.stateChanged.emit()
 
-        def operation() -> dict[str, Any]:
-            data = CameraProtocolClient(profile).request(
-                command,
-                args,
-                timeout_s=5.0 if command == "camera_capture" else 3.0,
-            )
-            return {
-                "generation": generation,
-                "command": command,
-                "label": label,
-                "manual": manual,
-                "data": data,
-            }
-
-        future = self._camera_executor.submit(operation)
-
-        def done(completed: Future[dict[str, Any]]) -> None:
-            try:
-                payload = {"ok": True, **completed.result()}
-            except Exception as exc:
-                payload = {
-                    "ok": False,
-                    "generation": generation,
-                    "command": command,
-                    "label": label,
-                    "manual": manual,
-                    "error": str(exc),
-                }
-            self._bridge.cameraFinished.emit(payload)
-
-        future.add_done_callback(done)
-
     @Slot(object)
-    def _on_camera_finished(self, payload: object) -> None:
-        result = dict(payload)
-        if int(result.get("generation", -1)) != self._profile_generation:
+    def _on_camera_manual_finished(self, payload: object) -> None:
+        if not isinstance(payload, CameraManualResult):
+            self._set_error("相机请求返回了无效结果")
             return
-        self._camera_pending = False
-        self._camera_busy = False
-        manual = bool(result.get("manual", False))
-        label = str(result.get("label", "相机请求"))
-        if not result.get("ok"):
-            message = str(result.get("error", "相机桥请求失败"))
-            self._camera_bridge_online = False
-            self._camera_ready = False
-            self._camera_summary = "相机桥离线"
-            self._camera_details = message
-            state = f"error:{message}"
-            if manual:
-                self._last_error = message
-                self._status_text = f"{label}失败"
-                self._append_log(f"失败：{label}：{message}")
-                self.operationFinished.emit(label, False, message)
-            elif state != self._camera_last_state:
-                self._append_log(f"相机链路离线：{message}")
-            self._camera_last_state = state
+        if payload.success:
+            self._last_error = ""
+            self._status_text = f"{payload.label}完成"
+            self._set_operation_feedback(
+                "success",
+                payload.label,
+                self._status_text,
+            )
+            self._append_log(f"完成：{payload.label} · {payload.details}")
+            self.operationFinished.emit(
+                payload.label,
+                True,
+                self._status_text,
+            )
             self.stateChanged.emit()
             return
-
-        data = dict(result.get("data", {}) or {})
-        command = str(result.get("command", ""))
-        self._camera_bridge_online = True
-        ready = bool(data.get("ready", True))
-        self._camera_ready = ready
-        width = int(data.get("width", 0) or 0)
-        height = int(data.get("height", 0) or 0)
-        source = str(data.get("camera_source", "ROS"))
-        if width > 0 and height > 0:
-            self._camera_summary = (
-                f"{width}×{height} · {source} · "
-                f"{'在线' if ready else '等待帧'}"
-            )
-        else:
-            self._camera_summary = (
-                f"{source} · {'在线' if ready else '等待 RGB-D 帧'}"
-            )
-
-        if command == "camera_capture":
-            preview_b64 = str(data.pop("preview_png_b64", ""))
-            preview_mime = str(data.pop("preview_mime", "image/png"))
-            if preview_b64:
-                self._set_camera_preview_source(
-                    f"data:{preview_mime};base64,{preview_b64}"
-                )
-            depth_range = data.get("depth_range_m")
-            depth_text = ""
-            if isinstance(depth_range, list) and len(depth_range) == 2:
-                depth_text = (
-                    f" · 深度 {float(depth_range[0]):.3f}–"
-                    f"{float(depth_range[1]):.3f} m"
-                )
-            self._camera_details = (
-                f"RGB {data.get('rgb_encoding', '—')} · "
-                f"Depth {data.get('depth_encoding', '—')} · "
-                f"同步差 {float(data.get('sync_delta_ms', 0.0)):.1f} ms"
-                f"{depth_text}"
-            )
-        elif command == "camera_extrinsic":
-            matrix = data.get("extrinsic_camera_to_target")
-            self._camera_details = (
-                f"{data.get('camera_frame_id', 'camera')} → "
-                f"{data.get('target_frame_id', 'target')} · "
-                f"{data.get('lookup_mode', 'unknown')} · "
-                f"T={json.dumps(matrix, ensure_ascii=False)}"
-            )
-        else:
-            self._camera_details = (
-                f"{data.get('color_topic', '—')} + "
-                f"{data.get('depth_topic', '—')} · "
-                f"同步={'是' if data.get('synchronized') else '否'} · "
-                f"外参={'就绪' if data.get('extrinsic_ready') else '等待'}"
-            )
-
-        state = f"ready:{ready}:{width}x{height}:{source}"
-        if state != self._camera_last_state:
-            self._append_log(f"相机链路：{self._camera_summary}")
-        self._camera_last_state = state
-        if manual:
-            self._last_error = ""
-            self._status_text = f"{label}完成"
-            self._append_log(f"完成：{label} · {self._camera_details}")
-            self.operationFinished.emit(label, True, self._status_text)
+        self._last_error = self._friendly_operation_error(payload.error)
+        self._status_text = f"{payload.label}失败"
+        self._set_operation_feedback(
+            "error",
+            payload.label,
+            f"{payload.label}失败：{self._last_error}",
+        )
+        self._append_log(
+            f"失败：{payload.label}：{self._last_error}"
+        )
+        self.operationFinished.emit(
+            payload.label,
+            False,
+            self._last_error,
+        )
         self.stateChanged.emit()
 
     # ------------------------------------------------------------------
-    # Process tasks: lifecycle, AnyGrasp, ROS, preflight, maintenance
+    # Process-task facade slots and shared lifecycle projection
     # ------------------------------------------------------------------
 
     @Slot(bool, float)
     def startServer(self, gravity_mode: bool, gravity_factor: float) -> None:
+        gate_error = self._policy.service_start_error()
+        if gate_error:
+            self._set_error(gate_error)
+            return
         args = [
             str(self._repo_root / "scripts" / "manage_a1z_control_server.sh"),
             "start",
@@ -1582,19 +2065,52 @@ class ConsoleController(QObject):
             "启动控制服务",
             args[0],
             args[1:],
-            motion=False,
+            contract=ProcessTaskContract(
+                ProcessAccess.TASK_SLOT,
+                ResourceEffect.SERVICE,
+            ),
+            completion=lambda code, _output: self.refreshNow() if code == 0 else None,
+            allowed_drafts=DraftResource.CONFIGURATION,
+        )
+
+    @Slot()
+    def restartServer(self) -> None:
+        if self._estopped or self._uncertain:
+            self._set_error("软急停或结果不确定锁存在时，禁止用重启服务绕过")
+            return
+        script = str(self._repo_root / "scripts" / "manage_a1z_control_server.sh")
+        self._start_process_task(
+            "server_restart",
+            "重启控制服务",
+            script,
+            [
+                "restart",
+                "--gravity-factor",
+                f"{float(self._gravity_comp_factor):.3f}",
+            ],
+            contract=ProcessTaskContract(
+                ProcessAccess.TASK_SLOT,
+                ResourceEffect.SERVICE,
+            ),
             completion=lambda code, _output: self.refreshNow() if code == 0 else None,
         )
 
     @Slot()
     def stopServer(self) -> None:
+        gate_error = self._policy.service_stop_error()
+        if gate_error:
+            self._set_error(gate_error)
+            return
         script = str(self._repo_root / "scripts" / "manage_a1z_control_server.sh")
         self._start_process_task(
             "server_stop",
             "停止控制服务",
             script,
             ["stop"],
-            motion=False,
+            contract=ProcessTaskContract(
+                ProcessAccess.TASK_SLOT,
+                ResourceEffect.SERVICE,
+            ),
             completion=lambda code, _output: self.refreshNow() if code == 0 else None,
         )
 
@@ -1610,7 +2126,12 @@ class ConsoleController(QObject):
             label,
             script,
             [action],
-            motion=False,
+            contract=ProcessTaskContract(
+                ProcessAccess.TASK_SLOT,
+                ResourceEffect.NONE
+                if action in {"status", "wait"}
+                else ResourceEffect.TRANSPORT,
+            ),
         )
 
     @Slot()
@@ -1619,250 +2140,149 @@ class ConsoleController(QObject):
 
     @Slot(str, str, str)
     def computeAnyGrasp(self, instruction: str, planner: str, vision_backend: str) -> None:
-        instruction = str(instruction).strip()
-        if not instruction:
-            self._set_error("请输入目标物体描述")
-            return
-        if planner not in {"adapter", "best"}:
-            self._set_error("AnyGrasp 规划器无效")
-            return
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output = self._repo_root / "runtime" / "gui_console" / "anygrasp" / stamp
-        args = [
-            str(self._repo_root / "scripts" / "run_pick_pipeline.py"),
-            instruction,
-            "--profile",
-            self._profile_name,
-            "--planner",
-            planner,
-            "--output-dir",
-            str(output),
-        ]
-        if vision_backend in {"local", "remote_ssh"}:
-            args.extend(["--vision-backend", vision_backend])
-        self._pipeline_output_dir = str(output)
-        self.planChanged.emit()
-
-        def completed(code: int, _output: str) -> None:
-            if code != 0:
-                return
-            try:
-                self._plan_summary = summarize_pipeline(output, self._repo_root)
-            except Exception as exc:
-                self._set_error(f"AnyGrasp 完成但计划解析失败：{exc}")
-                return
-            self._append_log(
-                f"AnyGrasp 只计算完成：{self._plan_summary.get('planPath', '')}"
+        try:
+            request = self._plan.prepare_computation(
+                instruction,
+                planner,
+                vision_backend,
             )
-            self.planChanged.emit()
+        except PlanSessionError as exc:
+            self._set_error(str(exc))
+            return
 
-        self._start_process_task(
-            "anygrasp_compute",
-            "AnyGrasp 只计算",
-            "/usr/bin/python3",
-            args,
-            motion=False,
+        def completed(
+            code: int,
+            _output: str,
+        ) -> ProcessTaskSemanticResult | None:
+            result = self._plan.complete_computation(request, code)
+            if not result.accepted:
+                return None
+            if result.error:
+                return ProcessTaskSemanticResult(
+                    success=False,
+                    feedback_state="error",
+                    status_text="AnyGrasp 计划产物无效",
+                    error=result.error,
+                )
+            if result.success:
+                self._append_log(
+                    f"AnyGrasp 只计算完成：{result.plan_path}"
+                )
+                if self._plan.state == "unsafe":
+                    return ProcessTaskSemanticResult(
+                        success=True,
+                        feedback_state="warning",
+                        status_text=self._plan.status,
+                    )
+            return None
+
+        started = self._start_process_task(
+            request.task.kind,
+            request.task.label,
+            request.task.program,
+            list(request.task.arguments),
+            contract=request.task.contract,
             completion=completed,
         )
+        if started:
+            self._plan.activate_computation(request)
 
     @Slot(bool, str)
     def executePlan(self, dry_run: bool, confirmation: str) -> None:
-        plan_path = Path(self.latestPlanPath)
-        if not plan_path.is_file():
-            self._set_error("没有可执行的已审阅计划")
-            return
-        planned_profile = str(self._plan_summary.get("profile", ""))
-        if planned_profile != self._profile_name:
-            self._set_error(
-                f"计划属于 {planned_profile or 'unknown'}，当前选择 {self._profile_name}"
+        try:
+            task = self._plan.prepare_execution(
+                dry_run=bool(dry_run),
+                confirmation=confirmation,
             )
+        except PlanSessionError as exc:
+            self._set_error(str(exc))
             return
-        if not self.planSafetyPassed:
-            self._set_error("计划安全检查未全部通过，执行被阻止")
-            return
-        expected_phrase = f"执行 {self._profile_name.upper()}"
-        if not dry_run and confirmation.strip() != expected_phrase:
-            self._set_error(f"执行确认文本必须为：{expected_phrase}")
-            return
-        if (
-            self._profile_name == "real"
-            and not dry_run
-            and self._profile.environment.get("A1Z_HAND_EYE_CALIBRATION_STATUS")
-            != "verified"
-        ):
-            self._set_error("真机手眼标定未标记 verified，GUI 不允许绕过")
-            return
-
-        relative = plan_path.resolve().relative_to(self._repo_root)
-        plan_in_container = f"/workspace/A1Z/{relative.as_posix()}"
-        execution_dir = Path(self._pipeline_output_dir) / "execution"
-        result_host = execution_dir / (
-            "dry_run_result.json" if dry_run else "execution_result.json"
-        )
-        result_in_container = (
-            f"/workspace/A1Z/{result_host.resolve().relative_to(self._repo_root).as_posix()}"
-        )
-        args = [
-            "--plan",
-            plan_in_container,
-            "--output",
-            result_in_container,
-            "--pre-open",
-            "--arm-speed",
-            self._profile.environment.get("A1Z_EXEC_ARM_SPEED", "0.5"),
-            "--expected-backend",
-            self._profile.expected_backend,
-        ]
-        if dry_run:
-            args.append("--dry-run")
         self._start_process_task(
-            "plan_dry_run" if dry_run else "plan_execute",
-            "计划演练（不发运动）" if dry_run else "执行已审阅 AnyGrasp 计划",
-            str(self._repo_root / "scripts" / "execute_a1z_plan_in_container.sh"),
-            args,
-            motion=not dry_run,
+            task.kind,
+            task.label,
+            task.program,
+            list(task.arguments),
+            contract=task.contract,
         )
 
     @Slot()
     def runPreflight(self) -> None:
-        script = str(self._repo_root / "scripts" / "a1z_console_preflight.py")
+        try:
+            request = self._diagnostics.prepare_preflight()
+        except DiagnosticsSessionError as exc:
+            self._set_error(str(exc))
+            return
 
-        def completed(code: int, output: str) -> None:
-            try:
-                payload = json.loads(output.splitlines()[-1]) if output.strip() else {}
-                items = payload.get("checks", [])
-                if not isinstance(items, list):
-                    raise ValueError("checks 不是数组")
-                self._preflight_items = [dict(item) for item in items]
-                self.preflightChanged.emit()
-            except Exception as exc:
-                self._set_error(f"预检结果解析失败：{exc}")
-            if code == 0:
+        def completed(
+            code: int,
+            output: str,
+        ) -> ProcessTaskSemanticResult | None:
+            result = self._diagnostics.complete_preflight(
+                request,
+                code,
+                output,
+            )
+            if not result.accepted:
+                return None
+            self.preflightChanged.emit()
+            if result.error:
+                return ProcessTaskSemanticResult(
+                    success=False,
+                    feedback_state="error",
+                    status_text=self._diagnostics.status,
+                    error=result.error,
+                )
+            if result.valid:
                 self.refreshNow()
+                if not result.ready:
+                    return ProcessTaskSemanticResult(
+                        success=True,
+                        feedback_state="warning",
+                        status_text=self._diagnostics.status,
+                    )
+            return None
 
-        self._start_process_task(
-            "preflight",
-            f"{self._profile.label}全链路预检",
-            "/usr/bin/python3",
-            [script, "--profile", self._profile_name],
-            motion=False,
+        task = request.task
+        started = self._start_process_task(
+            task.kind,
+            task.label,
+            task.program,
+            list(task.arguments),
+            contract=task.contract,
             completion=completed,
-            log_stdout=False,
+            log_stdout=task.log_stdout,
         )
+        if started:
+            self._diagnostics.activate_preflight(request)
+            self.preflightChanged.emit()
 
     @Slot(str, str)
     def runMaintenance(self, action: str, confirmation: str) -> None:
-        if self._profile_name != "real":
-            self._set_error("CAN 维护工具只能在真机配置中运行")
+        try:
+            task = self._diagnostics.prepare_maintenance(
+                action,
+                confirmation,
+            )
+        except DiagnosticsSessionError as exc:
+            self._set_error(str(exc))
             return
-        commands: dict[str, tuple[str, list[str], bool, bool]] = {
-            "can_check": (
-                "检查 SocketCAN",
-                [
-                    "/workspace/A1Z/vendor/GALAXEA-A1Z/tools/motor_diag.py",
-                    "--check-can",
-                ],
-                False,
-                False,
-            ),
-            "motor_scan": (
-                "扫描 7 个电机",
-                [
-                    "/workspace/A1Z/vendor/GALAXEA-A1Z/tools/motor_diag.py",
-                    "--scan",
-                ],
-                True,
-                False,
-            ),
-            "motor_listen": (
-                "被动监听 CAN 5 秒",
-                [
-                    "/workspace/A1Z/vendor/GALAXEA-A1Z/tools/motor_diag.py",
-                    "--listen",
-                    "--duration",
-                    "5",
-                ],
-                False,
-                False,
-            ),
-            "gripper_test": (
-                "夹爪力位混控测试",
-                [
-                    "/workspace/A1Z/vendor/GALAXEA-A1Z/examples/gripper_hybrid_test.py",
-                    "--can",
-                    self._profile.environment.get("A1Z_CAN_CHANNEL", "can0"),
-                ],
-                True,
-                False,
-            ),
-            "set_zero_all": (
-                "六轴零点标定",
-                [
-                    "/workspace/A1Z/vendor/GALAXEA-A1Z/tools/set_zero.py",
-                    "--all",
-                    "--channel",
-                    self._profile.environment.get("A1Z_CAN_CHANNEL", "can0"),
-                    "--yes",
-                ],
-                True,
-                True,
-            ),
-            "set_zero_gripper": (
-                "夹爪零点标定",
-                [
-                    "/workspace/A1Z/vendor/GALAXEA-A1Z/tools/gripper_set_zero.py",
-                    "--can",
-                    self._profile.environment.get("A1Z_CAN_CHANNEL", "can0"),
-                    "--yes",
-                ],
-                True,
-                True,
-            ),
-        }
-        if action not in commands:
-            self._set_error("维护操作不在允许列表中")
-            return
-        label, tool_args, motion, destructive = commands[action]
-        if destructive and confirmation.strip() != "校零 A1Z":
-            self._set_error("校零确认文本必须为：校零 A1Z")
-            return
-        if action not in {"can_check"} and self._connected:
-            self._set_error("直接 CAN 工具要求先停止 SDK 控制服务，避免总线双主冲突")
-            return
-        wrapper = str(self._repo_root / "scripts" / "a1z_sdk_python_in_container.sh")
         self._start_process_task(
-            "maintenance",
-            label,
-            wrapper,
-            tool_args,
-            motion=motion,
+            task.kind,
+            task.label,
+            task.program,
+            list(task.arguments),
+            contract=task.contract,
+            log_stdout=task.log_stdout,
         )
 
     @Slot()
     def cancelTask(self) -> None:
-        if self._process is None or self._process.state() == QProcess.NotRunning:
+        label = self._task_runner.label
+        if not self._task_runner.cancel():
             return
-        pid = int(self._process.processId())
         self._append_log(
-            f"请求中止任务 {self._task_label}；不会自动发送任何替代运动命令。"
+            f"请求中止任务 {label}；不会自动发送任何替代运动命令。"
         )
-        if pid > 0:
-            try:
-                os.killpg(pid, signal.SIGINT)
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                self._process.terminate()
-        QTimer.singleShot(5000, self._kill_process_if_running)
-
-    def _kill_process_if_running(self) -> None:
-        if self._process is not None and self._process.state() != QProcess.NotRunning:
-            pid = int(self._process.processId())
-            if pid > 0:
-                try:
-                    os.killpg(pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    self._process.kill()
 
     def _start_process_task(
         self,
@@ -1871,111 +2291,196 @@ class ConsoleController(QObject):
         program: str,
         arguments: list[str],
         *,
-        motion: bool,
-        completion: Callable[[int, str], None] | None = None,
+        contract: ProcessTaskContract,
+        completion: Callable[
+            [int, str],
+            ProcessTaskSemanticResult | None,
+        ]
+        | None = None,
         log_stdout: bool = True,
-    ) -> None:
-        if self._task_busy or self._command_busy:
-            self._set_error("已有命令或外部任务正在执行")
-            return
-        if motion:
-            gate_error = self._motion_gate_error()
-            if gate_error:
-                self._set_error(gate_error)
-                return
-        self._task_busy = True
-        self._task_motion = motion
-        self._task_kind = kind
-        self._task_label = label
+        allowed_drafts: DraftResource = DraftResource.NONE,
+    ) -> bool:
+        draft_error = self._draft_locks.error_for_effects(
+            contract.effects,
+            allowed=allowed_drafts,
+        )
+        if draft_error:
+            self._set_error(draft_error)
+            return False
+        gate_error = self._policy.process_access_error(
+            contract.access,
+            online_capability=contract.online_capability,
+        )
+        if gate_error:
+            self._set_error(gate_error)
+            return False
         self._last_error = ""
         self._status_text = f"{label}进行中"
-        self._pending_process_output.clear()
-        self._process_completion = completion
-        self._process_log_stdout = log_stdout
         self._append_log(f"启动任务：{label}")
-
-        process = QProcess(self)
-        self._process = process
-        process.setWorkingDirectory(str(self._repo_root))
-        process.setProcessChannelMode(QProcess.MergedChannels)
-        environment = QProcessEnvironment.systemEnvironment()
-        for key, value in self._profile.environment.items():
-            environment.insert(key, value)
-        environment.insert("A1Z_PROFILE", self._profile_name)
-        process.setProcessEnvironment(environment)
-        process.readyReadStandardOutput.connect(self._read_process_output)
-        process.finished.connect(self._process_finished)
-        process.errorOccurred.connect(self._process_error)
-        # setsid gives cancellation one process group, including docker/SSH
-        # children launched by the AnyGrasp pipeline.
-        process.start("/usr/bin/setsid", [program, *arguments])
+        self._set_operation_feedback("running", label, self._status_text)
+        environment = {
+            **self._profile.environment,
+            "A1Z_PROFILE": self._profile_name,
+        }
+        request = ProcessTaskRequest.create(
+            kind=kind,
+            label=label,
+            program=program,
+            arguments=arguments,
+            working_directory=self._repo_root,
+            environment=environment,
+            contract=contract,
+            completion=completion,
+            log_stdout=log_stdout,
+        )
+        if not self._task_runner.start(request):
+            self._set_error("已有外部任务正在执行，不能启动另一任务")
+            return False
         self.stateChanged.emit()
+        return True
 
-    @Slot()
-    def _read_process_output(self) -> None:
-        if self._process is None:
+    @Slot(object)
+    def _on_process_task_finished(self, payload: object) -> None:
+        result = payload
+        if not isinstance(result, ProcessTaskResult):
+            self._set_error("外部任务返回了无效结果")
             return
-        chunk = bytes(self._process.readAllStandardOutput())
-        if not chunk:
-            return
-        self._pending_process_output.extend(chunk)
-        if self._process_log_stdout:
-            self._append_log(chunk.decode("utf-8", errors="replace").rstrip())
-
-    @Slot(int, QProcess.ExitStatus)
-    def _process_finished(self, exit_code: int, _exit_status: QProcess.ExitStatus) -> None:
-        self._read_process_output()
-        label = self._task_label
-        output = self._pending_process_output.decode("utf-8", errors="replace").strip()
-        completion = self._process_completion
-        was_motion = self._task_motion
-        self._task_busy = False
-        self._task_motion = False
-        self._task_kind = ""
-        self._task_label = ""
-        self._process_completion = None
+        request = result.request
+        exit_code = result.exit_code
+        output = result.output
+        label = request.label
+        contract = request.contract
+        semantic: ProcessTaskSemanticResult | None = None
+        if result.output_truncated and request.completion is not None:
+            semantic = ProcessTaskSemanticResult(
+                success=False,
+                feedback_state="error",
+                status_text=f"{label}输出超过安全上限",
+                error="任务输出过大，结果未交给界面解析",
+            )
+        elif request.completion is not None:
+            try:
+                semantic = request.completion(exit_code, output)
+            except Exception as exc:
+                semantic = ProcessTaskSemanticResult(
+                    success=False,
+                    feedback_state="error",
+                    status_text=f"{label}结果处理失败",
+                    error=str(exc),
+                )
         if exit_code == 0:
-            self._status_text = f"{label}完成"
-            self._last_error = ""
-            self._append_log(f"任务完成：{label}")
+            if semantic is None:
+                final_success = True
+                self._status_text = f"{label}完成"
+                self._last_error = ""
+                self._append_log(f"任务完成：{label}")
+                self._set_operation_feedback(
+                    "success",
+                    label,
+                    self._status_text,
+                )
+            elif semantic.success:
+                final_success = True
+                self._status_text = semantic.status_text
+                self._last_error = ""
+                self._append_log(
+                    f"任务完成：{label}：{semantic.status_text}"
+                )
+                self._set_operation_feedback(
+                    semantic.feedback_state,
+                    label,
+                    semantic.status_text,
+                )
+            else:
+                final_success = False
+                self._status_text = semantic.status_text
+                self._last_error = self._friendly_operation_error(
+                    semantic.error or semantic.status_text
+                )
+                self._append_log(
+                    f"任务结果无效：{label}：{self._last_error}"
+                )
+                self._set_operation_feedback(
+                    semantic.feedback_state,
+                    label,
+                    f"{semantic.status_text}：{self._last_error}",
+                )
         else:
+            final_success = False
             tail = output[-1000:] if output else f"exit code {exit_code}"
-            self._last_error = tail
+            self._last_error = self._friendly_operation_error(tail)
             self._status_text = f"{label}失败"
             self._append_log(f"任务失败：{label}：{tail}")
-            if was_motion:
+            if contract.uncertain_on_failure:
                 self._uncertain = True
-                self._status_text = f"{label}失败，运动结果可能不确定"
+                self._uncertain_ack_pending = False
+                self._status_text = f"{label}失败，设备结果可能不确定"
+                feedback_state = "uncertain"
+            else:
+                feedback_state = "error"
+            self._set_operation_feedback(
+                feedback_state,
+                label,
+                f"{self._status_text}：{self._last_error}",
+            )
         self.stateChanged.emit()
-        self.operationFinished.emit(label, exit_code == 0, self._status_text)
-        if completion is not None:
-            completion(exit_code, output)
-        if self._process is not None:
-            self._process.deleteLater()
-        self._process = None
+        if exit_code == 0 or contract.uncertain_on_failure:
+            self._invalidate_resource_state(contract.effects)
+        self.operationFinished.emit(label, final_success, self._status_text)
         QTimer.singleShot(100, self.refreshNow)
 
-    @Slot(QProcess.ProcessError)
-    def _process_error(self, error: QProcess.ProcessError) -> None:
-        if error == QProcess.FailedToStart:
-            message = (
-                f"任务无法启动："
-                f"{self._process.errorString() if self._process else error}"
-            )
-            self._task_busy = False
-            self._task_motion = False
-            self._task_kind = ""
-            self._task_label = ""
-            self._process_completion = None
+    @Slot(object)
+    def _on_process_task_start_failure(self, payload: object) -> None:
+        failure = payload
+        if not isinstance(failure, ProcessTaskStartFailure):
+            self._set_error("外部任务启动失败")
+            return
+        self._set_error(failure.message)
+        if failure.request.completion is not None:
+            try:
+                failure.request.completion(-1, failure.message)
+            except Exception as exc:
+                self._append_log(
+                    f"任务启动失败后的结果处理异常：{exc}"
+                )
+
+    @Slot()
+    def explainCloseBlocked(self) -> None:
+        message = self._close_block_message()
+        if message:
             self._set_error(message)
 
+    @Property(bool, notify=stateChanged)
+    def closeBlocked(self) -> bool:
+        return bool(self._close_block_message())
+
+    def _close_block_message(self) -> str:
+        if self._teaching.active:
+            return "示教录制仍在进行；请先停止并保存，再关闭控制台"
+        elif self._commands.emergency_busy:
+            return "软急停仍在发送；请等待结果后再关闭控制台"
+        elif self._task_runner.busy:
+            return (
+                f"{self._task_runner.label or '外部任务'}仍在进行；"
+                + ("请先使用顶部“中止任务”" if self.taskCancelable else "请等待任务完成")
+            )
+        elif self._commands.command_busy:
+            return "设备命令仍在执行；必要时请先软急停并等待结果"
+        elif self._uncertain:
+            return (
+                "设备命令结果仍不确定；请先核对现场状态并解除不确定锁，"
+                "再关闭控制台"
+            )
+        return ""
+
     def shutdown(self) -> None:
-        self._telemetry_timer.stop()
-        self._age_timer.stop()
-        self._camera_timer.stop()
-        if self._process is not None and self._process.state() != QProcess.NotRunning:
-            self.cancelTask()
-            self._process.waitForFinished(1500)
-        self._executor.shutdown(wait=False, cancel_futures=True)
-        self._emergency_executor.shutdown(wait=False, cancel_futures=True)
-        self._camera_executor.shutdown(wait=False, cancel_futures=True)
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        self._monitoring_started = False
+        self._telemetry.shutdown()
+        self._camera.shutdown()
+        self._log_flush_timer.stop()
+        self._flush_logs()
+        self._task_runner.shutdown()
+        self._commands.shutdown()

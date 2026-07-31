@@ -22,6 +22,7 @@ Rectangle {
 
         Text {
             text: root.label
+            textFormat: Text.PlainText
             color: root.theme.tertiaryText
             font.family: root.theme.fontFamily
             font.pixelSize: root.theme.typeCaption
@@ -31,6 +32,7 @@ Rectangle {
         Text {
             Layout.fillWidth: true
             text: root.value
+            textFormat: Text.PlainText
             color: root.theme.text
             elide: Text.ElideRight
             font.family: root.theme.fontFamily
@@ -41,6 +43,7 @@ Rectangle {
         Text {
             Layout.fillWidth: true
             text: root.hint
+            textFormat: Text.PlainText
             visible: text.length > 0
             color: root.theme.secondaryText
             elide: Text.ElideRight
