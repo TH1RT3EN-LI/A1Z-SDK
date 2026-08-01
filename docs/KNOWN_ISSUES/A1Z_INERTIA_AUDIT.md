@@ -1,232 +1,159 @@
-# A1Z Inertia Audit
+# A1Z 惯性参数审计
 
-## 目的
+## 当前结论
 
-检查当前 A1Z 机械臂各 link 的惯量数据，确认除了已经修过的 `J5/J6` 腕部链之外，是否还有明显错误或漂移。
+当前生成链只对 `arm_link6` 使用 CAD 导出惯性参数；其他原有 link 默认保留
+GALAXEA SDK vendored URDF 的参数。
 
-本次对比的三个来源：
+这样处理的原因不是简单的“官方值和 CAD 值不同”，而是官方 `arm_link6`
+惯量张量不满足刚体主惯量三角不等式，属于物理上不可实现的张量。当前
+control URDF、Isaac URDF 和生产 Physics USD 均已恢复为 CAD 值。
 
-1. `vendor/GALAXEA-A1Z/a1z/robot_models/a1z/A1Z_G1Z.urdf`
-2. `build/robot_packages/A1Z_G1Z/urdf/A1Z_nogripper.csv`
-3. `build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_isaac.urdf`
+`arm_link5` 不需要覆盖：官方 URDF、CAD CSV 和当前生成物的质量、质心、
+惯量一致，而且张量物理有效。
 
-其中：
+## 参数来源和优先级
 
-- `A1Z_nogripper.csv` 视为 CAD 导出参考值
-- `A1Z_G1Z_isaac.urdf` 视为当前实际生成物
+1. 默认来源：
+   `vendor/GALAXEA-A1Z/a1z/robot_models/a1z/A1Z_G1Z.urdf`
+2. `arm_link6` 唯一例外：
+   `build/robot_packages/A1Z_G1Z/urdf/A1Z_nogripper.csv`
+3. 生成物：
+   - `build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_control.urdf`
+   - `build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_isaac.urdf`
+4. Isaac 生产物理层：
+   `build/scenes/A1Z_G1Z_isaac/payloads/Physics/physics.usda`
 
-## 结论
+生成脚本从 CAD CSV 按 link 名读取 `arm_link6`，不会在脚本中维护第二份手写
+数值。缺少 CSV、缺少 link、质量非正或对角惯量非正时，生成过程会直接失败。
 
-当前检查结果不是“全身都有问题”。
+## arm_link5
 
-明确结论如下：
+当前值：
 
-- 一致：`base_link`
-- 一致：`arm_link1`
-- 一致：`arm_link2`
-- **原来不一致，现已修正：`arm_link3`**
-- **原来不一致，现已修正：`arm_link4`**
-- 一致：`arm_link5`
-- **原来不一致，现已修正：`arm_link6`**
-- 当前未发现明确证据支持修改：`gripper_finger_left_link`
-- 当前未发现明确证据支持修改：`gripper_finger_rIght_link`
+- mass: `0.36875049 kg`
+- COM: `[-0.00366248, -0.00002724, -0.03904971] m`
+- inertia:
+  - `ixx = 0.00010146`
+  - `ixy = -0.00000007`
+  - `ixz = 0.00000555`
+  - `iyy = 0.00011993`
+  - `iyz = 0`
+  - `izz = 0.00008271`
 
-也就是说，这一轮修复完成后，arm 主链当前没有新的明显惯量漂移项残留。
+主惯量：
 
-## 对比摘要
-
-### `base_link`
-
-- `vendor URDF == CAD CSV`
-- `generated URDF == CAD CSV`
-
-无问题。
-
-### `arm_link1`
-
-- `vendor URDF == CAD CSV`
-- `generated URDF == CAD CSV`
-
-无问题。
-
-### `arm_link2`
-
-- `vendor URDF == CAD CSV`
-- `generated URDF == CAD CSV`
-
-无问题。
-
-### `arm_link3`
-
-`vendor URDF` 与 `CAD CSV` 原本不一致，但当前生成物已覆盖为 `CAD CSV`。
-
-差异量级：
-
-- mass delta: `+0.05154789 kg`
-- COM max abs delta: `0.00275268 m`
-- inertia max abs delta: `0.00053619`
-
-关键值对比：
-
-- vendor mass: `0.99109270`
-- csv mass: `0.93954481`
-
-### `arm_link4`
-
-`vendor URDF` 与 `CAD CSV` 原本不一致，但当前生成物已覆盖为 `CAD CSV`。
-
-差异量级：
-
-- mass delta: `+0.30600000 kg`
-- COM max abs delta: `0.02215909 m`
-- inertia max abs delta: `0.00031188`
-
-这是当前除 `link6` 外最明显的问题项。
-
-关键值对比：
-
-- vendor mass: `0.48309874`
-- csv mass: `0.17709874`
-
-### `arm_link5`
-
-- `vendor URDF == CAD CSV`
-- 当前生成物也已与 CAD 对齐
-
-无额外问题。
-
-### `arm_link6`
-
-`vendor URDF` 与 `CAD CSV` 原本明显不一致，但当前生成链已覆盖为 CAD 值。
-
-当前状态：
-
-- `generated URDF ~= CAD CSV`
-
-已修正。
-
-## 定量结果
-
-按 `vendor_vs_csv / gen_vs_csv / gen_vs_vendor` 的对比结果：
-
-```json
-[
-  {
-    "link": "base_link",
-    "vendor_vs_csv": {
-      "mass_delta": 0.0,
-      "com_max_abs_delta": 0.0,
-      "inertia_max_abs_delta": 0.0
-    },
-    "gen_vs_csv": {
-      "mass_delta": 0.0,
-      "com_max_abs_delta": 0.0,
-      "inertia_max_abs_delta": 0.0
-    }
-  },
-  {
-    "link": "arm_link1",
-    "vendor_vs_csv": {
-      "mass_delta": 0.0,
-      "com_max_abs_delta": 0.0,
-      "inertia_max_abs_delta": 0.0
-    },
-    "gen_vs_csv": {
-      "mass_delta": 0.0,
-      "com_max_abs_delta": 0.0,
-      "inertia_max_abs_delta": 0.0
-    }
-  },
-  {
-    "link": "arm_link2",
-    "vendor_vs_csv": {
-      "mass_delta": 0.0,
-      "com_max_abs_delta": 0.0,
-      "inertia_max_abs_delta": 0.0
-    },
-    "gen_vs_csv": {
-      "mass_delta": 0.0,
-      "com_max_abs_delta": 0.0,
-      "inertia_max_abs_delta": 0.0
-    }
-  },
-  {
-    "link": "arm_link3",
-    "vendor_vs_csv": {
-      "mass_delta": 0.05154789000000004,
-      "com_max_abs_delta": 0.0027526799999999796,
-      "inertia_max_abs_delta": 0.0005361899999999989
-    },
-    "gen_vs_csv": {
-      "mass_delta": 0.05154789000000004,
-      "com_max_abs_delta": 0.0027526799999999796,
-      "inertia_max_abs_delta": 0.0005361899999999989
-    }
-  },
-  {
-    "link": "arm_link4",
-    "vendor_vs_csv": {
-      "mass_delta": 0.30600000000000005,
-      "com_max_abs_delta": 0.02215909,
-      "inertia_max_abs_delta": 0.00031188
-    },
-    "gen_vs_csv": {
-      "mass_delta": 0.30600000000000005,
-      "com_max_abs_delta": 0.02215909,
-      "inertia_max_abs_delta": 0.00031188
-    }
-  },
-  {
-    "link": "arm_link5",
-    "vendor_vs_csv": {
-      "mass_delta": 0.0,
-      "com_max_abs_delta": 0.0,
-      "inertia_max_abs_delta": 0.0
-    },
-    "gen_vs_csv": {
-      "mass_delta": -4.899999999641302e-07,
-      "com_max_abs_delta": 4.800000000001851e-07,
-      "inertia_max_abs_delta": 4.599999999999922e-07
-    }
-  },
-  {
-    "link": "arm_link6",
-    "vendor_vs_csv": {
-      "mass_delta": 0.13329891000000005,
-      "com_max_abs_delta": 0.013578440000000004,
-      "inertia_max_abs_delta": 0.00030118
-    },
-    "gen_vs_csv": {
-      "mass_delta": -4.6999999997465736e-07,
-      "com_max_abs_delta": 4.800000000000225e-07,
-      "inertia_max_abs_delta": 4.799999999999683e-07
-    }
-  }
-]
+```text
+[0.00008119035, 0.00010297937, 0.00011993028] kg·m²
 ```
 
-### `gripper_finger_left_link` / `gripper_finger_rIght_link`
+最小三角余量为 `+0.00006423944 kg·m²`，物理有效。
 
-本轮没有发现独立 CAD CSV 参考源。
+## arm_link6 官方源问题
 
-当前判断：
+官方 vendored URDF 中：
 
-- `vendor URDF` 与生成物一致
-- 左右手指惯量表现为合理镜像关系
-- 没有额外证据支持“夹爪惯量错误”这一结论
+```text
+mass = 0.55665538 kg
+ixx  = 0.00030053
+ixy  = 0.00030053
+ixz  = -0.00000170
+iyy  = 0.00037247
+iyz  = -0.00000005
+izz  = 0.00041454
+```
 
-因此，这一轮没有对夹爪惯量做主动修改。
+其主惯量为：
 
-## 当前建议
+```text
+[0.00003382103, 0.00041453798, 0.00063918099] kg·m²
+```
 
-1. 保持已经修好的 `arm_link3/link4/link5/link6`
-2. 夹爪惯量暂不改，除非后续拿到独立 CAD 导出或观测到明确物理异常
-3. 如果后续再做动力学精修，优先验证：
-   - 基础关节运动
-   - 腕部稳定性
-   - 带夹爪与相机的整机重力补偿表现
+刚体必须满足 `I1 + I2 >= I3`，但该张量为：
 
-## 相关文档
+```text
+0.00003382103 + 0.00041453798 - 0.00063918099
+= -0.00019082199 kg·m²
+```
 
-- 腕部物理问题修复：
-  - [A1Z_J5_J6_PHYSICS_FIX](../A1Z_J5_J6_PHYSICS_FIX.md)
+因此它虽然正定，但不是物理上可实现的刚体惯量。
+
+## arm_link6 当前修复值
+
+CAD CSV 和当前两个生成 URDF 使用：
+
+```text
+mass = 0.42335647 kg
+COM  = [0.05514353, -0.00002867, -0.00013152] m
+ixx  = 0.00028807
+ixy  = -0.00000065
+ixz  = -0.00000280
+iyy  = 0.00050989
+iyz  = 0.00001432
+izz  = 0.00062848
+```
+
+对应主惯量：
+
+```text
+[0.00028804569, 0.00050818578, 0.00063020853] kg·m²
+```
+
+最小三角余量为 `+0.00016602294 kg·m²`，物理有效。
+
+生产 Physics USD 导入结果为：
+
+```text
+mass = 0.42335647 kg
+COM = [0.05514353, -0.00002867, -0.00013152] m
+diagonalInertia = [0.0002880457, 0.00050818577, 0.0006302085] kg·m²
+```
+
+URDF 与 USD 的质量差约 `3.45e-9 kg`，只是 USD 单精度序列化误差。
+
+## 其他有差异的 link
+
+`arm_link3` 和 `arm_link4` 的官方值与 `A1Z_nogripper.csv` 不同，但当前张量均
+物理有效，且没有独立证据证明 CAD 裸件值比 SDK 的装配模型更符合真机，因此
+当前继续保留官方参数，不因“数值不同”自动覆盖。
+
+手指 link 同样保留官方参数；`config/sim.env` 不再用环境变量缩放手指质量。
+
+## 静态重力补偿边界
+
+静态逆动力学 `g(q)` 在 `qdot = 0`、`qddot = 0` 时由质量、质心、关节几何和
+重力决定，不受旋转惯量张量影响。因此：
+
+- 修复 `arm_link6` 张量是必要的，主要消除动态响应和仿真稳定性缺陷；
+- `arm_link6` 的质量和质心修复会改变静态重力前馈；
+- 单独的 J4 真机下坠仍不能只归因于旋转惯量。
+
+在姿态 `[0, 60, -60, 0, 0, 0] deg` 下，恢复 CAD `arm_link6` 后 J4 初始重力
+前馈由约 `-1.99448 N·m` 变为 `-1.86902 N·m`。
+
+## 回归验证
+
+重新生成并执行合同测试：
+
+```bash
+python3 scripts/prepare_a1z_urdfs.py --env-file config/real.env
+
+A1Z_PROFILE=real ./scripts/a1z_sdk_python_in_container.sh -m pytest -q \
+  tests/test_d405_mount_contract.py \
+  tests/test_camera_bracket_contract.py
+```
+
+测试会检查：
+
+- `arm_link6` 在 control/Isaac URDF 中与 CAD CSV 数值一致；
+- 该惯量通过物理可实现性检查；
+- 其他受保护 link 仍与官方模型一致；
+- 相机、支架和夹爪参数没有被覆盖回旧值。
+
+生产 USD 需要通过统一入口重建：
+
+```bash
+./scripts/rebuild_a1z_world.sh
+```
+
+重建后必须再次核对 Physics USD，不能只检查源 URDF。

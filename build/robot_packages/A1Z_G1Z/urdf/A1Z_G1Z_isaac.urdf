@@ -169,9 +169,9 @@
   </joint>
   <link name="arm_link6">
     <inertial>
-      <origin xyz="0.04156509 0.00002475 -0.00009217" rpy="0 0 0" />
-      <mass value="0.55665538" />
-      <inertia ixx="0.00030053" ixy="0.00030053" ixz="-0.00000170" iyy="0.00037247" iyz="-0.00000005" izz="0.00041454" />
+      <origin xyz="0.05514353 -2.867e-05 -0.00013152" rpy="0 0 0" />
+      <mass value="0.42335647" />
+      <inertia ixx="0.00028807" ixy="-6.5e-07" ixz="-2.8e-06" iyy="0.00050989" iyz="1.432e-05" izz="0.00062848" />
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />

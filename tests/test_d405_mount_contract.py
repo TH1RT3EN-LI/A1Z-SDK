@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import math
 from pathlib import Path
@@ -14,6 +15,7 @@ from a1z_ext.runtime.d405.settings import (
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "d405.json"
 ROBOT_URDF_DIR = ROOT / "build" / "robot_packages" / "A1Z_G1Z" / "urdf"
+CAD_INERTIAL_SOURCE = ROBOT_URDF_DIR / "A1Z_nogripper.csv"
 REMOVED_POSE_ENV_KEYS = (
     "A1Z_D405_STAGE_MOUNT_OFFSET_XYZ_M",
     "A1Z_D405_STAGE_MOUNT_RPY_DEG",
@@ -75,6 +77,90 @@ def _inertial_signature(inertial: ET.Element) -> dict[str, dict[str, str]]:
         for child in inertial
         if child.tag in {"origin", "mass", "inertia"}
     }
+
+
+def _numeric_inertial_signature(
+    inertial: ET.Element,
+) -> dict[str, float | tuple[float, float, float]]:
+    origin = inertial.find("origin")
+    mass = inertial.find("mass")
+    inertia = inertial.find("inertia")
+    assert origin is not None
+    assert mass is not None
+    assert inertia is not None
+    return {
+        "origin_xyz": tuple(float(value) for value in origin.get("xyz").split()),
+        "mass": float(mass.get("value")),
+        **{
+            key: float(inertia.get(key))
+            for key in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+        },
+    }
+
+
+def _cad_inertial_signature(
+    link_name: str,
+) -> dict[str, float | tuple[float, float, float]]:
+    with CAD_INERTIAL_SOURCE.open(encoding="utf-8-sig", newline="") as stream:
+        matches = [
+            row
+            for row in csv.DictReader(stream)
+            if row.get("Link Name") == link_name
+        ]
+    assert len(matches) == 1
+    row = matches[0]
+    return {
+        "origin_xyz": (
+            float(row["Center of Mass X"]),
+            float(row["Center of Mass Y"]),
+            float(row["Center of Mass Z"]),
+        ),
+        "mass": float(row["Mass"]),
+        "ixx": float(row["Moment Ixx"]),
+        "ixy": float(row["Moment Ixy"]),
+        "ixz": float(row["Moment Ixz"]),
+        "iyy": float(row["Moment Iyy"]),
+        "iyz": float(row["Moment Iyz"]),
+        "izz": float(row["Moment Izz"]),
+    }
+
+
+def _determinant_3x3(matrix: tuple[tuple[float, ...], ...]) -> float:
+    return (
+        matrix[0][0]
+        * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1])
+        - matrix[0][1]
+        * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0])
+        + matrix[0][2]
+        * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0])
+    )
+
+
+def _assert_physically_realizable_inertia(
+    values: dict[str, float | tuple[float, float, float]],
+) -> None:
+    inertia = (
+        (values["ixx"], values["ixy"], values["ixz"]),
+        (values["ixy"], values["iyy"], values["iyz"]),
+        (values["ixz"], values["iyz"], values["izz"]),
+    )
+    trace = values["ixx"] + values["iyy"] + values["izz"]
+    covariance = tuple(
+        tuple(
+            (0.5 * trace if row == column else 0.0) - inertia[row][column]
+            for column in range(3)
+        )
+        for row in range(3)
+    )
+    tolerance = 1e-15
+    assert all(covariance[index][index] >= -tolerance for index in range(3))
+    assert all(
+        covariance[first][first] * covariance[second][second]
+        - covariance[first][second] ** 2
+        >= -tolerance
+        for first, second in ((0, 1), (0, 2), (1, 2))
+    )
+    assert _determinant_3x3(covariance) >= -tolerance
 
 
 def test_d405_rear_holes_and_bracket_holes_are_coincident() -> None:
@@ -140,7 +226,7 @@ def test_control_and_isaac_urdfs_share_d405_mount_and_frame_tree() -> None:
         assert max(abs(a - e) for a, e in zip(actual_rpy, expected_rpy, strict=True)) < 1e-12
 
 
-def test_generated_urdfs_preserve_official_g1z_inertials_and_d405_mass() -> None:
+def test_generated_urdfs_preserve_expected_g1z_inertials_and_d405_mass() -> None:
     config = _config()
     assert config["mass_kg"] == 0.072
 
@@ -161,10 +247,11 @@ def test_generated_urdfs_preserve_official_g1z_inertials_and_d405_mass() -> None
         "arm_link3",
         "arm_link4",
         "arm_link5",
-        "arm_link6",
         "gripper_finger_left_link",
         "gripper_finger_rIght_link",
     )
+    expected_link6 = _cad_inertial_signature("arm_link6")
+    _assert_physically_realizable_inertia(expected_link6)
 
     for filename in ("A1Z_G1Z_control.urdf", "A1Z_G1Z_isaac.urdf"):
         generated = ET.parse(ROBOT_URDF_DIR / filename).getroot()
@@ -177,9 +264,24 @@ def test_generated_urdfs_preserve_official_g1z_inertials_and_d405_mass() -> None
             actual = generated_links[link_name].find("inertial")
             assert _inertial_signature(actual) == _inertial_signature(expected)
 
+        actual_link6 = _numeric_inertial_signature(
+            generated_links["arm_link6"].find("inertial")
+        )
+        assert actual_link6 == expected_link6
+        _assert_physically_realizable_inertia(actual_link6)
+
         d405_mass = generated.find("./link[@name='d405_link']/inertial/mass")
         assert d405_mass is not None
         assert float(d405_mass.get("value")) == config["mass_kg"]
+
+
+def test_sim_profile_does_not_override_official_gripper_inertials() -> None:
+    assignments = {
+        line.split("=", 1)[0].strip()
+        for line in (ROOT / "config" / "sim.env").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#") and "=" in line
+    }
+    assert "A1Z_GRIPPER_FINGER_MASS_KG" not in assignments
 
 
 def test_d405_pose_values_have_one_project_source(monkeypatch) -> None:

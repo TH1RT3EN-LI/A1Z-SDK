@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from copy import deepcopy
 import json
 import math
@@ -28,6 +29,7 @@ VENDOR_SOURCE_URDF = ROOT_DIR / "vendor" / "GALAXEA-A1Z" / "a1z" / "robot_models
 SOURCE_URDF = ROBOT_URDF_DIR / "A1Z_G1Z.urdf"
 ISAAC_URDF = ROBOT_URDF_DIR / "A1Z_G1Z_isaac.urdf"
 CONTROL_URDF = ROBOT_URDF_DIR / "A1Z_G1Z_control.urdf"
+CAD_INERTIAL_SOURCE = ROBOT_URDF_DIR / "A1Z_nogripper.csv"
 ASSET_D405_MESH = ROOT_DIR / "assets" / "realsense_d405" / "d405.stl"
 PACKAGE_D405_MESH = ROBOT_MESH_DIR / "d405.stl"
 CAMERA_BRACKET_CONFIG = ROOT_DIR / "config" / "camera_bracket.json"
@@ -582,6 +584,78 @@ def _set_gripper_joint_mode(root: ET.Element, *, fixed: bool) -> None:
             )
 
 
+def _load_cad_link_inertial(
+    link_name: str,
+) -> dict[str, float | tuple[float, float, float]]:
+    if not CAD_INERTIAL_SOURCE.is_file():
+        raise FileNotFoundError(f"CAD inertial source not found: {CAD_INERTIAL_SOURCE}")
+
+    with CAD_INERTIAL_SOURCE.open(encoding="utf-8-sig", newline="") as stream:
+        matches = [
+            row
+            for row in csv.DictReader(stream)
+            if row.get("Link Name") == link_name
+        ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"Expected one CAD inertial row for {link_name}, found {len(matches)}"
+        )
+
+    row = matches[0]
+    inertial = {
+        "mass": float(row["Mass"]),
+        "origin_xyz": (
+            float(row["Center of Mass X"]),
+            float(row["Center of Mass Y"]),
+            float(row["Center of Mass Z"]),
+        ),
+        "ixx": float(row["Moment Ixx"]),
+        "ixy": float(row["Moment Ixy"]),
+        "ixz": float(row["Moment Ixz"]),
+        "iyy": float(row["Moment Iyy"]),
+        "iyz": float(row["Moment Iyz"]),
+        "izz": float(row["Moment Izz"]),
+    }
+    if inertial["mass"] <= 0.0:
+        raise ValueError(f"CAD link {link_name} has non-positive mass")
+    if any(inertial[key] <= 0.0 for key in ("ixx", "iyy", "izz")):
+        raise ValueError(f"CAD link {link_name} has non-positive diagonal inertia")
+    return inertial
+
+
+def _override_link_inertial(
+    root: ET.Element,
+    link_name: str,
+    inertial_values: dict[str, float | tuple[float, float, float]],
+) -> None:
+    match = _find_named_child(root, "link", link_name)
+    if match is None:
+        raise ValueError(f"Required link not found in vendor URDF: {link_name}")
+    _, link = match
+    inertial = link.find("inertial")
+    if inertial is None:
+        raise ValueError(f"Required inertial element missing for link: {link_name}")
+    origin = inertial.find("origin")
+    mass = inertial.find("mass")
+    inertia = inertial.find("inertia")
+    if origin is None or mass is None or inertia is None:
+        raise ValueError(f"Incomplete inertial element for link: {link_name}")
+
+    origin.set(
+        "xyz",
+        " ".join(
+            _precise_float_string(value)
+            for value in inertial_values["origin_xyz"]
+        ),
+    )
+    mass.set("value", _precise_float_string(inertial_values["mass"]))
+    for attribute in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz"):
+        inertia.set(
+            attribute,
+            _precise_float_string(inertial_values[attribute]),
+        )
+
+
 def _scale_link_inertial_mass(root: ET.Element, link_name: str, target_mass_kg: float) -> None:
     match = _find_named_child(root, "link", link_name)
     if match is None:
@@ -628,6 +702,13 @@ def _build_variant(*, fixed_gripper: bool, limit_kind: str) -> ET.ElementTree:
     variant_root = deepcopy(base_tree.getroot())
     _apply_robot_visual_palette(variant_root)
     _apply_arm_joint_limits(variant_root, limit_kind=limit_kind)
+    # The vendored arm_link6 tensor violates the rigid-body principal-inertia
+    # triangle inequality. Use the traceable CAD export for this link only.
+    _override_link_inertial(
+        variant_root,
+        "arm_link6",
+        _load_cad_link_inertial("arm_link6"),
+    )
     _upsert_grasp_tcp(variant_root)
     _upsert_camera_bracket(variant_root)
     _upsert_d405(variant_root)

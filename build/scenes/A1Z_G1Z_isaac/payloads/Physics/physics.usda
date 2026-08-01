@@ -49,37 +49,37 @@ over "A1Z_G1Z"
                         prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
                     )
                     {
-                        point3f physics:centerOfMass = (0.16216, -0.000007, 0.054975)
-                        float3 physics:diagonalInertia = (0.00060406234, 0.008712086, 0.008855851)
-                        float physics:mass = 0.939545
-                        quatf physics:principalAxes = (0.9987822, -0.024164274, 0.042759944, -0.0046658274)
+                        point3f physics:centerOfMass = (0.1594076, -0.00005646, 0.05493054)
+                        float3 physics:diagonalInertia = (0.0006514229, 0.009238741, 0.009392516)
+                        float physics:mass = 0.9910927
+                        quatf physics:principalAxes = (0.9988342, -0.023572218, 0.041656557, -0.006275499)
 
                         over "arm_link4" (
                             prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
                         )
                         {
-                            point3f physics:centerOfMass = (0.039707, 0.002987, 0.030933)
-                            float3 physics:diagonalInertia = (0.00016834, 0.0002858747, 0.0003787853)
-                            float physics:mass = 0.177099
-                            quatf physics:principalAxes = (0.9368482, -0.038098317, 0.33114767, 0.105854124)
+                            point3f physics:centerOfMass = (0.06143699, 0.00107414, 0.05309221)
+                            float3 physics:diagonalInertia = (0.00021637343, 0.000596295, 0.0006918916)
+                            float physics:mass = 0.48309875
+                            quatf physics:principalAxes = (0.9304896, -0.025128027, 0.36204144, 0.049836326)
 
                             over "arm_link5" (
                                 prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
                             )
                             {
-                                point3f physics:centerOfMass = (-0.003662, -0.000027, -0.03905)
-                                float3 physics:diagonalInertia = (0.000081183345, 0.00010281665, 0.00012)
-                                float physics:mass = 0.36875
-                                quatf physics:principalAxes = (0.42137152, 0.42137152, 0.5678433, 0.5678433)
+                                point3f physics:centerOfMass = (-0.00366248, -0.00002724, -0.03904971)
+                                float3 physics:diagonalInertia = (0.00008119035, 0.00010297937, 0.00011993028)
+                                float physics:mass = 0.36875048
+                                quatf physics:principalAxes = (0.42991337, 0.4279367, 0.5631749, 0.56114054)
 
                                 over "arm_link6" (
                                     prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
                                 )
                                 {
-                                    point3f physics:centerOfMass = (0.055144, -0.000029, -0.000132)
-                                    float3 physics:diagonalInertia = (0.00028797006, 0.0005083636, 0.0006296663)
-                                    float physics:mass = 0.423356
-                                    quatf physics:principalAxes = (0.99829113, 0.058241867, 0.0044376547, -0.0017233266)
+                                    point3f physics:centerOfMass = (0.05514353, -0.00002867, -0.00013152)
+                                    float3 physics:diagonalInertia = (0.0002880457, 0.00050818577, 0.0006302085)
+                                    float physics:mass = 0.42335647
+                                    quatf physics:principalAxes = (0.99823594, 0.059220266, 0.00412579, -0.00096012326)
 
                                     over "camera_bracket_link" (
                                         prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
@@ -96,8 +96,8 @@ over "A1Z_G1Z"
                                     )
                                     {
                                         point3f physics:centerOfMass = (0, 0, 0)
-                                        float3 physics:diagonalInertia = (0.000006929722, 0.000053878568, 0.00005390615)
-                                        float physics:mass = 0.001
+                                        float3 physics:diagonalInertia = (0.00049894, 0.003879257, 0.003881243)
+                                        float physics:mass = 0.072
                                         quatf physics:principalAxes = (-0.5, 0.5, 0.5, 0.5)
                                     }
 
@@ -106,9 +106,9 @@ over "A1Z_G1Z"
                                     )
                                     {
                                         point3f physics:centerOfMass = (0.02727101, 0.02205781, -0.00976829)
-                                        float3 physics:diagonalInertia = (0.00000557385, 0.000021, 0.00002242615)
-                                        float physics:mass = 0.02
-                                        quatf physics:principalAxes = (-0.25456852, 0.90405387, 0.33969662, -0.04987669)
+                                        float3 physics:diagonalInertia = (0.00003855451, 0.00014386437, 0.00015597114)
+                                        float physics:mass = 0.137868
+                                        quatf physics:principalAxes = (0.9309793, 0.13406353, -0.10331831, -0.32346535)
                                     }
 
                                     over "gripper_finger_rIght_link" (
@@ -116,9 +116,9 @@ over "A1Z_G1Z"
                                     )
                                     {
                                         point3f physics:centerOfMass = (0.02727101, -0.02205781, 0.00984327)
-                                        float3 physics:diagonalInertia = (0.00000557385, 0.000021, 0.00002242615)
-                                        float physics:mass = 0.02
-                                        quatf physics:principalAxes = (0.90405387, 0.25456852, 0.04987669, 0.33969662)
+                                        float3 physics:diagonalInertia = (0.000038577844, 0.00014401008, 0.0001561421)
+                                        float physics:mass = 0.137868
+                                        quatf physics:principalAxes = (0.9304235, 0.13673973, 0.1035132, 0.3238818)
                                     }
                                 }
                             }
