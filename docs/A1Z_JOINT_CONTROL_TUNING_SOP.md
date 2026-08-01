@@ -87,8 +87,9 @@ export A1Z_CONTROL_URDF="$PWD/build/robot_packages/A1Z_G1Z/urdf/A1Z_G1Z_control.
 - 默认 KP：`[30, 30, 30, 20, 5, 5]`；
 - 默认 KD：`[1, 1, 1, 0.5, 0.5, 0.5]`；
 - 控制 URDF 自由度：`nq=6, nv=6`；
-- 当前生成模型总质量：`5.54441228 kg`；
-- 其中官方 A1Z+G1Z 模型：`5.44241228 kg`，相机支架：`0.030 kg`，D405：`0.072 kg`。
+- 当前生成模型总质量：`5.41111337 kg`；
+- 其中 A1Z+G1Z 主体：`5.30911337 kg`，相机支架：`0.030 kg`，D405：`0.072 kg`；
+- `arm_link6` 使用物理有效的 CAD 惯性参数，质量为 `0.42335647 kg`，不采用官方 URDF 中违反主惯量三角不等式的张量。
 
 总质量只用于检查模型是否意外漂移；真正影响姿态相关前馈的还有各 link 的质心和惯量。
 
@@ -136,8 +137,9 @@ print(f"{'TOTAL':32s} {sum(value for _, value in rows):.9f} kg")
 PY
 ```
 
-预期 `TOTAL` 为 `5.544412280 kg`。如果不一致，先停止真机调试，检查
-`config/d405.json`、`config/camera_bracket.json`、官方源 URDF 和生成脚本。
+预期 `TOTAL` 为 `5.411113370 kg`。如果不一致，先停止真机调试，检查
+`config/d405.json`、`config/camera_bracket.json`、官方源 URDF、
+`A1Z_nogripper.csv` 中的 `arm_link6` 行和生成脚本。
 
 ### A4. 执行模型合同测试
 
