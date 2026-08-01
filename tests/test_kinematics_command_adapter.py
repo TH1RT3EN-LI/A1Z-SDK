@@ -111,6 +111,9 @@ def test_step_routes_normalized_request_and_preserves_ambiguity(tmp_path: Path) 
     assert command[command.index("--axis") + 1] == "z"
     assert command[command.index("--delta") + 1] == "-5.0"
     assert command[command.index("--frame") + 1] == "tool"
+    assert command[command.index("--motion-mode") + 1] == "cartesian_jog"
+    assert command[command.index("--pos-threshold-m") + 1] == "0.00005"
+    assert command[command.index("--ori-threshold-deg") + 1] == "0.05"
     assert command[command.index("--max-joint-step-deg") + 1] == "15.0"
 
 
@@ -148,6 +151,23 @@ def test_controller_contains_no_kinematics_process_mechanics() -> None:
     assert "a1z_ee_ik_helper.py" not in controller
     assert "--max-joint-step-deg" not in controller
     assert "KinematicsCommandAdapter" in controller
+
+
+def test_cartesian_completion_uses_settling_not_fixed_fk_error() -> None:
+    root = Path(__file__).resolve().parents[1]
+    helper = (root / "scripts" / "a1z_ee_ik_helper.py").read_text()
+    rotation_panel = (
+        root / "console" / "qml" / "A1ZConsole" / "CartesianRotationPanel.qml"
+    ).read_text()
+
+    assert '"completion_basis": "joint_feedback_settled"' in helper
+    assert '"diagnostic_only": True' in helper
+    assert "End-effector target was not reached from SDK joint feedback" not in helper
+    assert "verify_translation" not in helper
+    assert "verify_orientation" not in helper
+    assert 'qsTr("RX")' in rotation_panel
+    assert 'qsTr("RY")' in rotation_panel
+    assert 'qsTr("RZ")' in rotation_panel
 
 
 def test_controller_cartesian_jog_executes_through_owned_adapter(

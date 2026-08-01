@@ -127,17 +127,42 @@ class PlanSessionCoordinator(QObject):
         return self._current
 
     @property
+    def grasp_preview_source(self) -> str:
+        return str(self._summary.get("graspPreviewSource", ""))
+
+    @property
+    def grasp_preview_available(self) -> bool:
+        return bool(self.grasp_preview_source)
+
+    @property
+    def grasp_base_position_text(self) -> str:
+        grasp = dict(self._summary.get("grasp", {}) or {})
+        xyz = grasp.get("baseTranslationMm", [])
+        if not isinstance(xyz, list) or len(xyz) != 3:
+            return ""
+        return (
+            "抓取位置（Base） · "
+            + " · ".join(
+                f"{axis} {float(value):+.1f} mm"
+                for axis, value in zip("XYZ", xyz)
+            )
+        )
+
+    @property
     def grasp_summary(self) -> str:
         grasp = dict(self._summary.get("grasp", {}) or {})
         if not grasp:
             return "暂无抓取位姿"
-        xyz = grasp.get("translationMm", [])
+        xyz = grasp.get("baseTranslationMm", grasp.get("translationMm", []))
+        coordinate_label = (
+            "Base" if grasp.get("baseTranslationMm") else "相机坐标"
+        )
         xyz_text = ", ".join(f"{float(value):.1f}" for value in xyz)
         return (
             f"候选 #{grasp.get('rank', '—')} · "
             f"score {float(grasp.get('score', 0.0)):.4f} · "
             f"宽度 {float(grasp.get('widthMm', 0.0)):.1f} mm · "
-            f"相机坐标 [{xyz_text}] mm"
+            f"{coordinate_label} [{xyz_text}] mm"
         )
 
     @property
@@ -151,6 +176,8 @@ class PlanSessionCoordinator(QObject):
             self.output_dir,
             self.plan_id,
             self.profile_name,
+            self.grasp_preview_source,
+            self.grasp_base_position_text,
             self.safety_passed,
             len(self.segments),
             self._active_computation,
@@ -350,15 +377,6 @@ class PlanSessionCoordinator(QObject):
         expected_phrase = f"执行 {self._profile.name.upper()}"
         if not dry_run and confirmation.strip() != expected_phrase:
             raise PlanSessionError(f"执行确认文本必须为：{expected_phrase}")
-        if (
-            self._profile.name == "real"
-            and not dry_run
-            and self._profile.environment.get(
-                "A1Z_HAND_EYE_CALIBRATION_STATUS"
-            )
-            != "verified"
-        ):
-            raise PlanSessionError("真机手眼标定未标记 verified，GUI 不允许绕过")
 
         execution_dir = output_dir / "execution"
         result_host = execution_dir / (

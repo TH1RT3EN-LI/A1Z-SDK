@@ -93,6 +93,7 @@ def test_remote_config_requires_explicit_endpoint() -> None:
     assert command[-2] == "robot@10.66.0.11"
     assert command[-1] == "python3 /srv/A1Z/worker.py run"
     assert "BatchMode=yes" in command
+    assert "IdentitiesOnly=yes" in command
 
 
 def test_worker_returns_failure_archive_and_cleans_temporary_job(

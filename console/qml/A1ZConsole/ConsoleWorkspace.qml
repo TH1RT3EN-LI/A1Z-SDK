@@ -32,6 +32,20 @@ RowLayout {
     signal frameModeRequested(string mode)
     signal manualSectionRequested(string section)
 
+    function routeAllowed(route) {
+        return route === "overview"
+               || route === "settings"
+               || route === "diagnostics"
+               || root.controller.startupReady
+    }
+
+    function enforceCurrentRoute() {
+        if (!root.routeAllowed(root.currentPage))
+            root.pageRequested("overview")
+    }
+
+    onCurrentPageChanged: Qt.callLater(root.enforceCurrentRoute)
+
     function synchronizeDraftLocks() {
         root.controller.setDraftLocks(
                     root.armDraftPending,
@@ -61,6 +75,7 @@ RowLayout {
         Layout.fillHeight: true
         Layout.preferredWidth: 190
         theme: root.theme
+        controller: root.controller
         currentPage: root.currentPage
         onPageRequested: function(route) {
             root.pageRequested(route)
@@ -77,6 +92,9 @@ RowLayout {
         DashboardPage {
             theme: root.theme
             controller: root.controller
+            onPageRequested: function(route) {
+                root.pageRequested(route)
+            }
         }
 
         ManualControlPage {
@@ -154,5 +172,13 @@ RowLayout {
     }
 
     Component.onCompleted: root.synchronizeDraftLocks()
+
+    Connections {
+        target: root.controller
+
+        function onStartupStateChanged() {
+            root.enforceCurrentRoute()
+        }
+    }
 
 }

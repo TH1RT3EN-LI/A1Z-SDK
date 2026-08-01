@@ -102,6 +102,8 @@ class RemoteGpuConfig:
             "-o",
             "BatchMode=yes",
             "-o",
+            "IdentitiesOnly=yes",
+            "-o",
             f"ConnectTimeout={self.connect_timeout_s:g}",
             "-o",
             f"StrictHostKeyChecking={self.strict_host_key_checking}",

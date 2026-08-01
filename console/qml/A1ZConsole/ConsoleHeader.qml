@@ -60,8 +60,11 @@ Rectangle {
                     Accessible.checked: root.controller.profile === "sim"
                     enabled: root.controller.profileSwitchEnabled
                              && root.profileSwitchAllowed
-                    ToolTip.visible: hovered && !root.profileSwitchAllowed
-                    ToolTip.text: root.profileSwitchBlockedText
+                    AppToolTip {
+                        theme: root.theme
+                        visible: parent.hovered && !root.profileSwitchAllowed
+                        text: root.profileSwitchBlockedText
+                    }
                     onClicked: root.controller.setProfile("sim")
                 }
 
@@ -77,8 +80,11 @@ Rectangle {
                     Accessible.checked: root.controller.profile === "real"
                     enabled: root.controller.profileSwitchEnabled
                              && root.profileSwitchAllowed
-                    ToolTip.visible: hovered && !root.profileSwitchAllowed
-                    ToolTip.text: root.profileSwitchBlockedText
+                    AppToolTip {
+                        theme: root.theme
+                        visible: parent.hovered && !root.profileSwitchAllowed
+                        text: root.profileSwitchBlockedText
+                    }
                     onClicked: root.controller.setProfile("real")
                 }
             }
@@ -90,8 +96,11 @@ Rectangle {
             theme: root.theme
             text: qsTr("有未处理草稿")
             level: "warn"
-            ToolTip.visible: draftHover.hovered
-            ToolTip.text: root.profileSwitchBlockedText
+            AppToolTip {
+                theme: root.theme
+                visible: draftHover.hovered
+                text: root.profileSwitchBlockedText
+            }
 
             HoverHandler {
                 id: draftHover
@@ -160,8 +169,11 @@ Rectangle {
             elide: Text.ElideRight
             font.family: root.theme.fontFamily
             font.pixelSize: root.theme.typeCaption
-            ToolTip.visible: statusHover.hovered && truncated
-            ToolTip.text: text
+            AppToolTip {
+                theme: root.theme
+                visible: statusHover.hovered && parent.truncated
+                text: parent.text
+            }
 
             HoverHandler {
                 id: statusHover
@@ -181,6 +193,7 @@ Rectangle {
             kind: "quiet"
             text: qsTr("刷新")
             enabled: root.controller.telemetryRefreshEnabled
+            busy: root.controller.telemetryRefreshBusy
             onClicked: root.controller.refreshNow()
         }
     }

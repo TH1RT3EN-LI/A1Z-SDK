@@ -41,9 +41,10 @@ The image includes `python3-can`, `iproute2`, `can-utils`, and
 8. Record the measured hand-eye transform in the D405 mount values in
    `config/real.env`, regenerate the robot description with
    `python3 scripts/prepare_a1z_urdfs.py --env-file config/real.env`, validate
-   camera-to-base projection, and set
-   `A1Z_HAND_EYE_CALIBRATION_STATUS=verified`.
-9. Only then perform a supervised `--execute` run.
+   camera-to-base projection. This calibration is not a software execution
+   gate.
+9. Perform a supervised `--execute` run when the projected plan has been
+   reviewed.
 
 No powered-arm motion was used for repository validation; final joint signs,
 camera hand-eye calibration, gripper empty-close threshold, and safe poses must

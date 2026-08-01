@@ -125,8 +125,11 @@ GlassCard {
             elide: Text.ElideRight
             font.family: root.theme.fontFamily
             font.pixelSize: root.theme.typeCaption
-            ToolTip.visible: dynamicsHover.hovered && truncated
-            ToolTip.text: text
+            AppToolTip {
+                theme: root.theme
+                visible: dynamicsHover.hovered && parent.truncated
+                text: parent.text
+            }
 
             HoverHandler {
                 id: dynamicsHover

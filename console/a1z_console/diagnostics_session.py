@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -97,6 +98,23 @@ class DiagnosticsSessionCoordinator:
         self._items = []
         return True
 
+    def invalidate(self, reason: str) -> bool:
+        """Require a fresh preflight after service or transport changes."""
+
+        next_status = str(reason).strip() or "运行状态已变更，请重新运行全链路预检"
+        changed = (
+            self._state != "idle"
+            or self._status != next_status
+            or bool(self._items)
+            or self._active_preflight is not None
+        )
+        self._sequence += 1
+        self._active_preflight = None
+        self._state = "idle"
+        self._status = next_status
+        self._items = []
+        return changed
+
     def prepare_preflight(self) -> PreflightRequest:
         if self._active_preflight is not None:
             raise DiagnosticsSessionError("全链路预检正在运行")
@@ -174,6 +192,7 @@ class DiagnosticsSessionCoordinator:
         confirmation: str,
     ) -> DiagnosticsTask:
         channel = self._profile.environment.get("A1Z_CAN_CHANNEL", "can0")
+        motor_action = re.fullmatch(r"motor_(check|clear)_j([1-6])", action)
         commands: dict[
             str,
             tuple[str, tuple[str, ...], ResourceEffect, bool, bool],
@@ -247,6 +266,49 @@ class DiagnosticsSessionCoordinator:
                 True,
             ),
         }
+        if motor_action is not None:
+            operation = motor_action.group(1)
+            joint_number = int(motor_action.group(2))
+            joint_index = joint_number - 1
+            if operation == "clear":
+                if joint_number < 4:
+                    raise DiagnosticsSessionError(
+                        "J1–J3 为 MotorA，官方 SDK 不支持此清错指令"
+                    )
+                expected = f"清错 J{joint_number}"
+                if str(confirmation).strip() != expected:
+                    raise DiagnosticsSessionError(
+                        f"单电机清错确认文本必须为：{expected}"
+                    )
+                commands[action] = (
+                    f"清除 J{joint_number} 电机错误码",
+                    (
+                        "/workspace/A1Z/vendor/GALAXEA-A1Z/tools/motor_diag.py",
+                        "--clear-error",
+                        "--joints",
+                        str(joint_index),
+                        "--channel",
+                        channel,
+                    ),
+                    ResourceEffect.ARM,
+                    True,
+                    False,
+                )
+            else:
+                commands[action] = (
+                    f"检查 J{joint_number} 电机",
+                    (
+                        "/workspace/A1Z/vendor/GALAXEA-A1Z/tools/motor_diag.py",
+                        "--scan",
+                        "--joints",
+                        str(joint_index),
+                        "--channel",
+                        channel,
+                    ),
+                    ResourceEffect.ARM,
+                    True,
+                    False,
+                )
         if action not in commands:
             raise DiagnosticsSessionError("维护操作不在允许列表中")
         label, tool_args, effects, uncertain, destructive = commands[action]
@@ -279,7 +341,8 @@ class DiagnosticsSessionCoordinator:
                     "motor_scan",
                     "motor_listen",
                     "gripper_test",
-                },
+                }
+                or bool(motor_action and motor_action.group(1) == "check"),
             ),
         )
 

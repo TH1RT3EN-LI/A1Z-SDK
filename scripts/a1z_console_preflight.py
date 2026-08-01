@@ -98,6 +98,61 @@ def find_realsense_usb_devices() -> list[str]:
     return devices
 
 
+def vision_checks(profile_name: str, env: dict[str, str]) -> list[dict[str, Any]]:
+    """Report vision readiness without gating unrelated manual control."""
+
+    vision_backend = (
+        env.get("A1Z_REAL_VISION_BACKEND", "remote_ssh")
+        if profile_name == "real"
+        else "local"
+    )
+    if vision_backend == "remote_ssh":
+        return [
+            check(
+                "视觉计算后端",
+                True,
+                "remote_ssh · 远程容器与资产在视觉任务启动时检查",
+                severity="advisory",
+            )
+        ]
+    if vision_backend != "local":
+        return [
+            check(
+                "视觉计算后端",
+                False,
+                f"不支持的配置：{vision_backend}",
+                severity="advisory",
+            )
+        ]
+
+    vision_name = env.get("A1Z_VISION_CONTAINER_NAME", "")
+    vision_ok, vision_detail = docker_running(vision_name)
+    local_checks = [
+        check(
+            "本机视觉容器",
+            vision_ok,
+            vision_detail,
+            severity="advisory",
+        )
+    ]
+
+    anygrasp_assets = [
+        workspace_path(env.get("A1Z_ANYGRASP_DETECTION_CKPT", "")),
+        workspace_path(env.get("A1Z_ANYGRASP_LICENSE_DIR", "")),
+        workspace_path(env.get("A1Z_ANYGRASP_IFCONFIG_SNAPSHOT", "")),
+    ]
+    missing = [str(path) for path in anygrasp_assets if not path.exists()]
+    local_checks.append(
+        check(
+            "本机 AnyGrasp 资产/许可",
+            not missing,
+            "已就绪" if not missing else "缺少：" + ", ".join(missing),
+            severity="advisory",
+        )
+    )
+    return local_checks
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=["sim", "real"], required=True)
@@ -198,32 +253,7 @@ def main() -> int:
                 else "未发现带 RealSense 产品描述符的 USB 设备",
             )
         )
-        calibration = env.get("A1Z_HAND_EYE_CALIBRATION_STATUS", "missing")
-        checks.append(
-            check(
-                "手眼标定",
-                calibration == "verified",
-                calibration,
-            )
-        )
-
-    vision_name = env.get("A1Z_VISION_CONTAINER_NAME", "")
-    vision_ok, vision_detail = docker_running(vision_name)
-    checks.append(check("视觉容器", vision_ok, vision_detail))
-
-    anygrasp_assets = [
-        workspace_path(env.get("A1Z_ANYGRASP_DETECTION_CKPT", "")),
-        workspace_path(env.get("A1Z_ANYGRASP_LICENSE_DIR", "")),
-        workspace_path(env.get("A1Z_ANYGRASP_IFCONFIG_SNAPSHOT", "")),
-    ]
-    missing = [str(path) for path in anygrasp_assets if not path.exists()]
-    checks.append(
-        check(
-            "AnyGrasp 资产/许可",
-            not missing,
-            "已就绪" if not missing else "缺少：" + ", ".join(missing),
-        )
-    )
+    checks.extend(vision_checks(args.profile, env))
 
     if args.profile == "sim":
         d405_status_path = ROOT / "logs" / "d405-wrist-camera.status"

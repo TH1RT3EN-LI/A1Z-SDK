@@ -118,6 +118,8 @@ class SocketCANArmRobot(ArmRobot):
 
     def get_robot_info(self) -> Dict[str, Any]:
         info = dict(super().get_robot_info())
+        with self._command_lock:
+            command_pos = self._command.pos.copy()
         info.update(
             {
                 "backend": "socketcan",
@@ -134,6 +136,11 @@ class SocketCANArmRobot(ArmRobot):
                 "faulted": self.is_faulted,
                 "fault_message": self.runtime_fault,
                 "motor_a_status_codes": list(self._motor_a_status_codes),
+                # A relative joint jog must preserve the controller's existing
+                # six-axis reference.  Reconstructing it from measured
+                # feedback discards the position error that is currently
+                # producing load-holding PD torque on the untouched joints.
+                "command_pos": command_pos,
             }
         )
         return info

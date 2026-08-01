@@ -74,17 +74,10 @@ Rectangle {
                 id: messageHover
             }
 
-            ToolTip {
+            AppToolTip {
+                theme: root.theme
                 visible: messageHover.hovered && messageText.truncated
-
-                contentItem: Text {
-                    text: root.text
-                    textFormat: Text.PlainText
-                    color: root.theme.text
-                    wrapMode: Text.Wrap
-                    font.family: root.theme.fontFamily
-                    font.pixelSize: root.theme.typeCaption
-                }
+                text: root.text
             }
         }
 

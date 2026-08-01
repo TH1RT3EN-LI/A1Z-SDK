@@ -80,7 +80,12 @@ GlassCard {
                 Layout.preferredWidth: 170
                 theme: root.theme
                 model: [
-                    { text: qsTr("配置默认"), value: "auto" },
+                    {
+                        text: root.controller.profileName === "real"
+                              ? qsTr("默认：远程 SSH GPU")
+                              : qsTr("默认：本机 GPU"),
+                        value: "auto"
+                    },
                     { text: qsTr("本机 GPU"), value: "local" },
                     { text: qsTr("远程 SSH GPU"), value: "remote_ssh" }
                 ]

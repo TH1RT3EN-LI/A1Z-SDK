@@ -81,6 +81,36 @@ def apply_rotation(
     return target
 
 
+def compose_command_space_joint_target(
+    measured_q: np.ndarray,
+    solved_q: np.ndarray,
+    command_q: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply a measured-space IK increment to the SDK command trajectory.
+
+    IK is solved around physical feedback, while the SDK trajectory generator
+    starts from its current command position.  Reusing ``solved_q`` as an
+    absolute command would therefore rewrite any command/feedback tracking
+    offset.  Preserve that offset by transferring only the solved increment.
+    """
+
+    measured = np.asarray(measured_q, dtype=np.float64).reshape(-1)
+    solved = np.asarray(solved_q, dtype=np.float64).reshape(-1)
+    commanded = np.asarray(command_q, dtype=np.float64).reshape(-1)
+    if measured.size != 6 or solved.size != 6 or commanded.size != 6:
+        raise ValueError(
+            "measured_q, solved_q and command_q must each contain 6 joints"
+        )
+    if not (
+        np.all(np.isfinite(measured))
+        and np.all(np.isfinite(solved))
+        and np.all(np.isfinite(commanded))
+    ):
+        raise ValueError("joint vectors must contain only finite values")
+    joint_delta = solved - measured
+    return commanded + joint_delta, joint_delta
+
+
 def pose_error(target: np.ndarray, actual: np.ndarray) -> tuple[float, float]:
     """Return translation error in metres and orientation error in degrees."""
     expected = np.asarray(target, dtype=np.float64)

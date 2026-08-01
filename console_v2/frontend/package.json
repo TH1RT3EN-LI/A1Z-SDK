@@ -1,0 +1,68 @@
+{
+  "name": "a1z-console-v2",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local desktop console framework for A1Z robot development",
+  "author": "A1Z",
+  "type": "module",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "prepare:model": "node scripts/sync-model-assets.mjs",
+    "predev": "npm run prepare:model",
+    "dev": "vite",
+    "predesktop:dev": "npm run prepare:model",
+    "desktop:dev": "node scripts/run-desktop.mjs",
+    "desktop:rebuild": "node scripts/rebuild-node-pty.mjs",
+    "desktop:package": "npm run build && npm run desktop:rebuild && electron-builder --linux dir && node scripts/fix-linux-package-permissions.mjs",
+    "prebuild": "npm run prepare:model",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "@xterm/xterm": "6.0.0",
+    "lucide-react": "1.28.0",
+    "node-pty": "1.1.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "three": "0.185.1",
+    "urdf-loader": "0.13.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@types/three": "0.185.3",
+    "@vitejs/plugin-react": "6.0.5",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
+    "node-gyp": "12.3.0",
+    "typescript": "7.0.2",
+    "vite": "8.2.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "build": {
+    "appId": "com.a1z.console.v2",
+    "productName": "A1Z Console",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
+    "npmRebuild": false,
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "category": "Development;Science;Robotics"
+    }
+  }
+}

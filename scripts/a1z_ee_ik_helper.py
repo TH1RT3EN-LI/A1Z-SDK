@@ -31,7 +31,12 @@ from a1z_ext.config import (
     get_tcp_port,
 )
 from a1z_ext.control_client import send_control_request
-from a1z_ext.robots.cartesian_jog import apply_rotation, apply_translation, pose_error
+from a1z_ext.robots.cartesian_jog import (
+    apply_rotation,
+    apply_translation,
+    compose_command_space_joint_target,
+    pose_error,
+)
 
 _MOTION_REQUEST_ATTEMPTED = False
 _MOTION_OUTCOME_VERIFIED = False
@@ -184,6 +189,7 @@ def _snapshot_payload(
 def _execute_motion(
     *,
     joint_target_deg: list[float],
+    joint_delta_deg: list[float] | None = None,
     speed: float,
     motion_mode: str,
 ) -> dict[str, Any]:
@@ -201,6 +207,21 @@ def _execute_motion(
         )
         verification = dict(result.get("verification", {}) or {})
         _MOTION_OUTCOME_VERIFIED = bool(verification.get("reached"))
+        return result
+    if motion_mode == "cartesian_jog":
+        if joint_delta_deg is None:
+            raise ValueError("cartesian_jog requires a six-axis joint increment")
+        result = _ok_or_raise(
+            _send(
+                "cartesian_jog",
+                {
+                    "joint_delta_deg": joint_delta_deg,
+                    "speed": speed,
+                },
+            )
+        )
+        verification = dict(result.get("verification", {}) or {})
+        _MOTION_OUTCOME_VERIFIED = bool(verification.get("settled"))
         return result
     if motion_mode == "command":
         return _ok_or_raise(_send("command", {"joints": joint_target_deg}))
@@ -221,6 +242,7 @@ def _handle_snapshot(args: argparse.Namespace) -> None:
 def _handle_step(args: argparse.Namespace) -> None:
     kinematics = Kinematics(args.urdf, end_effector_frame=args.end_effector_frame)
     current_q = _current_joint_pos_rad()
+    info = _verified_info(args.expected_backend)
     current_transform = kinematics.fk(current_q, frame_name=args.end_effector_frame)
 
     if args.kind == "translation":
@@ -251,22 +273,46 @@ def _handle_step(args: argparse.Namespace) -> None:
     if not converged:
         raise RuntimeError("IK did not converge for the requested end-effector step.")
 
-    target_q = _validate_joint_limits(
+    solved_q = _validate_joint_limits(
         kinematics,
         target_q,
         margin_deg=args.joint_margin_deg,
     )
     max_joint_step_deg = float(
-        np.max(np.abs(np.rad2deg(target_q - current_q)))
+        np.max(np.abs(np.rad2deg(solved_q - current_q)))
     )
     if max_joint_step_deg > args.max_joint_step_deg:
         raise RuntimeError(
             "IK solution exceeds one-step joint jump limit: "
             f"{max_joint_step_deg:.2f} > {args.max_joint_step_deg:.2f} deg"
         )
-    joint_target_deg = [float(v) for v in np.rad2deg(target_q).tolist()]
+    raw_command_pos_deg = info.get("command_pos_deg")
+    if not isinstance(raw_command_pos_deg, list) or len(raw_command_pos_deg) < 6:
+        raise RuntimeError(
+            "A1Z server did not expose the SDK six-axis command trajectory."
+        )
+    command_q = np.deg2rad(
+        np.asarray(raw_command_pos_deg[:6], dtype=np.float64)
+    )
+    command_target_q, joint_delta_q = compose_command_space_joint_target(
+        current_q,
+        solved_q,
+        command_q,
+    )
+    command_target_q = _validate_joint_limits(
+        kinematics,
+        command_target_q,
+        margin_deg=args.joint_margin_deg,
+    )
+    solved_target_deg = [float(v) for v in np.rad2deg(solved_q).tolist()]
+    command_start_deg = [float(v) for v in np.rad2deg(command_q).tolist()]
+    command_target_deg = [
+        float(v) for v in np.rad2deg(command_target_q).tolist()
+    ]
+    joint_delta_deg = [float(v) for v in np.rad2deg(joint_delta_q).tolist()]
     motion_result = _execute_motion(
-        joint_target_deg=joint_target_deg,
+        joint_target_deg=command_target_deg,
+        joint_delta_deg=joint_delta_deg,
         speed=args.speed,
         motion_mode=args.motion_mode,
     )
@@ -293,28 +339,20 @@ def _handle_step(args: argparse.Namespace) -> None:
                 "frame": args.frame,
                 "motion_mode": args.motion_mode,
             },
-            "ik_joint_target_deg": joint_target_deg,
+            "ik_solution_from_measured_deg": solved_target_deg,
+            "ik_joint_delta_deg": joint_delta_deg,
+            "command_start_deg": command_start_deg,
+            "command_target_deg": command_target_deg,
             "target_pose": _pose_dict(target_transform),
             "verification": {
                 "translation_error_mm": translation_error_m * 1000.0,
                 "orientation_error_deg": orientation_error_deg,
-                "translation_tolerance_mm": args.verify_translation_mm,
-                "orientation_tolerance_deg": args.verify_orientation_deg,
+                "diagnostic_only": True,
+                "completion_basis": "joint_feedback_settled",
             },
             "joint_verification": motion_result.get("verification"),
         }
     )
-    if (
-        translation_error_m * 1000.0 > args.verify_translation_mm
-        or orientation_error_deg > args.verify_orientation_deg
-    ):
-        raise RuntimeError(
-            "End-effector target was not reached from SDK joint feedback: "
-            f"FK error {translation_error_m * 1000.0:.3f} mm / "
-            f"{orientation_error_deg:.3f} deg exceeds "
-            f"{args.verify_translation_mm:.3f} mm / "
-            f"{args.verify_orientation_deg:.3f} deg."
-        )
     _emit(payload)
 
 
@@ -404,16 +442,19 @@ def build_parser() -> argparse.ArgumentParser:
     step.add_argument("--delta", type=float, required=True)
     step.add_argument("--frame", choices=["base", "tool"], default="base")
     step.add_argument("--speed", type=float, default=0.5)
-    step.add_argument("--motion-mode", choices=["move", "command"], default="move")
+    step.add_argument(
+        "--motion-mode",
+        choices=["move", "cartesian_jog", "command"],
+        default="cartesian_jog",
+    )
     step.add_argument("--ik-dt", type=float, default=0.1)
     step.add_argument("--ik-damping", type=float, default=1e-6)
     step.add_argument("--max-iters", type=int, default=300)
-    step.add_argument("--pos-threshold-m", type=float, default=5e-4)
-    step.add_argument("--ori-threshold-deg", type=float, default=1.0)
+    # Numerical IK convergence only; neither value determines physical arrival.
+    step.add_argument("--pos-threshold-m", type=float, default=5e-5)
+    step.add_argument("--ori-threshold-deg", type=float, default=0.05)
     step.add_argument("--joint-margin-deg", type=float, default=2.0)
     step.add_argument("--max-joint-step-deg", type=float, default=15.0)
-    step.add_argument("--verify-translation-mm", type=float, default=2.0)
-    step.add_argument("--verify-orientation-deg", type=float, default=1.0)
 
     joint_step = sub.add_parser("joint-step", help="Apply one incremental step to a single joint.")
     joint_step.add_argument("--joint-index", type=int, required=True, help="1-based joint index (J1..J6).")

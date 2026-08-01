@@ -113,9 +113,14 @@ and the physical control server as described in
 [`REAL_HARDWARE.md`](REAL_HARDWARE.md). These are laptop/robot settings and are
 not copied to the GPU host.
 
-## 4. Configure the remote GPU endpoint
+## 4. Remote GPU endpoint
 
-From the laptop clone:
+The current real-hardware profile defaults to the proven deployment at
+`th1rt3en@10.66.0.11:/home/th1rt3en/dev/forge/A1Z`. Those non-secret deployment
+coordinates are tracked in `config/real.env`, so the GUI's default vision
+option offloads target selection and AnyGrasp without a separate setup step.
+
+To override that endpoint for another deployment, run from the laptop clone:
 
 ```bash
 ./scripts/configure_remote_gpu_client.sh \
@@ -127,9 +132,9 @@ From the laptop clone:
 python3 scripts/run_remote_vision_job.py preflight
 ```
 
-This writes `config/remote_gpu_client.env` with mode `0600`. The file is
-ignored by Git because addresses, usernames, and key paths are deployment
-settings. `config/remote_gpu_client.example.env` documents every setting.
+This writes `config/remote_gpu_client.env` with mode `0600`. The ignored local
+file overrides the tracked real-profile defaults and may hold a machine-local
+SSH key path. `config/remote_gpu_client.example.env` documents every setting.
 
 `StrictHostKeyChecking=accept-new` is the bootstrap default: the first key is
 stored, and later key changes fail. For a managed deployment, preload
@@ -164,7 +169,7 @@ runtime/pick_pipeline/
 ├── target/
 ├── anygrasp/
 ├── remote_gpu/       transport, worker, VLM/SAM, and AnyGrasp logs
-├── planning/
+├── planning/         selected plan, point-cloud/gripper PNG, and Base-pose JSON
 ├── execution/
 └── pipeline_manifest.json
 ```

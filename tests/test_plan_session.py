@@ -14,7 +14,7 @@ def _app():
     return QGuiApplication.instance() or QGuiApplication([])
 
 
-def _profile(name: str = "sim", *, calibration: str = "verified"):
+def _profile(name: str = "sim"):
     from a1z_console.profiles import RuntimeProfile
 
     return RuntimeProfile(
@@ -24,10 +24,7 @@ def _profile(name: str = "sim", *, calibration: str = "verified"):
         host="127.0.0.1",
         port=37201 if name == "sim" else 37202,
         socket_path="",
-        environment={
-            "A1Z_EXEC_ARM_SPEED": "0.4",
-            "A1Z_HAND_EYE_CALIBRATION_STATUS": calibration,
-        },
+        environment={"A1Z_EXEC_ARM_SPEED": "0.4"},
     )
 
 
@@ -99,6 +96,26 @@ def _write_pipeline(
         ),
         encoding="utf-8",
     )
+    preview_png = planning / "selected_grasp_point_cloud.png"
+    preview_png.write_bytes(b"preview")
+    preview_metadata = planning / "selected_grasp_preview.json"
+    preview_metadata.write_text(
+        json.dumps(
+            {
+                "candidate_id": "grasp-1",
+                "candidate_rank": 0,
+                "score": 0.9,
+                "gripper_pose_6dof": {
+                    "position_xyz_m": [0.4, -0.05, 0.2],
+                    "rpy_deg": [10.0, 20.0, 30.0],
+                    "quaternion_xyzw": [0.0, 0.0, 0.0, 1.0],
+                    "transform_matrix": [],
+                },
+                "gripper": {"opening_m": 0.04},
+            }
+        ),
+        encoding="utf-8",
+    )
     (output_dir / "pipeline_manifest.json").write_text(
         json.dumps(
             {
@@ -107,6 +124,8 @@ def _write_pipeline(
                 "artifacts": {
                     "plan": str(selected_plan),
                     "anygrasp": str(anygrasp / "anygrasp_result.json"),
+                    "grasp_preview": str(preview_png),
+                    "grasp_preview_metadata": str(preview_metadata),
                 },
             }
         ),
@@ -172,7 +191,12 @@ def test_plan_completion_owns_profile_state_and_returns_defensive_copies(
     assert session.current is True
     assert session.safety_passed is True
     assert session.plan_id == "plan-1"
-    assert "100.0, -200.0, 300.0" in session.grasp_summary
+    assert "Base [400.0, -50.0, 200.0]" in session.grasp_summary
+    assert session.grasp_preview_available is True
+    assert session.grasp_preview_source.startswith("file://")
+    assert session.grasp_base_position_text == (
+        "抓取位置（Base） · X +400.0 mm · Y -50.0 mm · Z +200.0 mm"
+    )
 
     segments = session.segments
     segments[0]["type"] = "mutated"
@@ -299,7 +323,7 @@ def test_incomplete_physical_sequence_never_becomes_execution_ready(
         )
 
 
-def test_real_execution_requires_confirmation_calibration_and_online_contract(
+def test_real_execution_requires_confirmation_and_online_contract(
     tmp_path: Path,
 ) -> None:
     _app()
@@ -310,32 +334,15 @@ def test_real_execution_requires_confirmation_calibration_and_online_contract(
     )
     from a1z_console.plan_session import PlanSessionCoordinator, PlanSessionError
 
-    unverified = PlanSessionCoordinator(
-        tmp_path,
-        _profile("real", calibration="pending"),
-    )
-    request = unverified.prepare_computation("杯子", "best", "local")
-    unverified.activate_computation(request)
+    session = PlanSessionCoordinator(tmp_path, _profile("real"))
+    request = session.prepare_computation("杯子", "best", "local")
+    session.activate_computation(request)
     _write_pipeline(request.output_dir, profile="real")
-    unverified.complete_computation(request, 0)
+    session.complete_computation(request, 0)
 
     with pytest.raises(PlanSessionError, match="确认文本"):
-        unverified.prepare_execution(dry_run=False, confirmation="")
-    with pytest.raises(PlanSessionError, match="手眼标定"):
-        unverified.prepare_execution(
-            dry_run=False,
-            confirmation="执行 REAL",
-        )
-
-    verified = PlanSessionCoordinator(
-        tmp_path,
-        _profile("real", calibration="verified"),
-    )
-    verified_request = verified.prepare_computation("杯子", "best", "local")
-    verified.activate_computation(verified_request)
-    _write_pipeline(verified_request.output_dir, profile="real")
-    verified.complete_computation(verified_request, 0)
-    task = verified.prepare_execution(
+        session.prepare_execution(dry_run=False, confirmation="")
+    task = session.prepare_execution(
         dry_run=False,
         confirmation="执行 REAL",
     )

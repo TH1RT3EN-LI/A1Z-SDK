@@ -11,7 +11,10 @@ GlassCard {
     property bool followTail: true
 
     function scrollToTail() {
+        if (logView.count <= 0)
+            return
         logView.positionViewAtEnd()
+        logView.contentY = Math.max(0, logView.contentHeight - logView.height)
     }
 
 
@@ -63,12 +66,11 @@ GlassCard {
 
             ListView {
                 id: logView
+                objectName: "sharedLogView"
                 anchors.fill: parent
                 anchors.margins: 1
                 clip: true
-                // Keep collection in the controller, but detach the expensive
-                // delegate view while this persistent page is hidden.
-                model: root.visible ? root.controller.logModel : null
+                model: root.controller.logModel
                 currentIndex: -1
                 reuseItems: true
                 cacheBuffer: Math.max(0, height)
@@ -105,11 +107,15 @@ GlassCard {
                     if (root.visible && root.followTail)
                         logTailTimer.restart()
                 }
+                onContentHeightChanged: {
+                    if (root.visible && root.followTail)
+                        logTailTimer.restart()
+                }
             }
 
             Timer {
                 id: logTailTimer
-                interval: 0
+                interval: 16
                 repeat: false
                 onTriggered: root.scrollToTail()
             }

@@ -103,6 +103,7 @@ GlassCard {
                         theme: root.theme
                         text: qsTr("检查链路")
                         enabled: !root.controller.cameraBusy
+                        busy: root.controller.cameraBusy
                         onClicked: root.controller.queryCamera("camera_status")
                     }
 
@@ -112,6 +113,7 @@ GlassCard {
                         kind: "primary"
                         text: qsTr("刷新")
                         enabled: !root.controller.cameraBusy
+                        busy: root.controller.cameraBusy
                         onClicked: root.controller.queryCamera("camera_capture")
                     }
                 }
@@ -121,6 +123,7 @@ GlassCard {
                     theme: root.theme
                     text: qsTr("读取外参")
                     enabled: !root.controller.cameraBusy
+                    busy: root.controller.cameraBusy
                     onClicked: root.controller.queryCamera("camera_extrinsic")
                 }
 

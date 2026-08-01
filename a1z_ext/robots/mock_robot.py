@@ -160,6 +160,8 @@ class MockArmRobot:
         return state
 
     def get_robot_info(self) -> Dict[str, Any]:
+        with self._lock:
+            command_pos = self._pos.copy()
         return {
             "backend": "mock",
             "num_joints": self._num_joints,
@@ -173,6 +175,7 @@ class MockArmRobot:
             "control_mode": "gravity_comp_effort" if self.zero_gravity_mode else "position_hold",
             "is_estopped": self.is_estopped,
             "gripper_free_drive": self._gripper_free_drive,
+            "command_pos": command_pos,
         }
 
     def command_gripper(self, value: float) -> None:

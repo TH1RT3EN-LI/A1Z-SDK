@@ -211,6 +211,40 @@ def test_maintenance_catalog_encodes_access_effects_and_confirmation(
     assert gripper.arguments[0] == "--require-control-server-stopped"
     assert gripper.arguments[-1] == "can-test"
 
+    joint_check = session.prepare_maintenance("motor_check_j4", "")
+    assert joint_check.contract.access is ProcessAccess.OFFLINE_DEVICE
+    assert joint_check.contract.effects is ResourceEffect.ARM
+    assert joint_check.contract.uncertain_on_failure is True
+    assert joint_check.contract.blocks_telemetry is True
+    assert joint_check.contract.cancelable is True
+    assert joint_check.arguments[0] == "--require-control-server-stopped"
+    assert joint_check.arguments[-5:] == (
+        "--scan",
+        "--joints",
+        "3",
+        "--channel",
+        "can-test",
+    )
+
+    with pytest.raises(DiagnosticsSessionError, match="MotorA"):
+        session.prepare_maintenance("motor_clear_j3", "清错 J3")
+    with pytest.raises(DiagnosticsSessionError, match="确认文本"):
+        session.prepare_maintenance("motor_clear_j4", "wrong")
+    joint_clear = session.prepare_maintenance("motor_clear_j4", "清错 J4")
+    assert joint_clear.contract.access is ProcessAccess.OFFLINE_DEVICE
+    assert joint_clear.contract.effects is ResourceEffect.ARM
+    assert joint_clear.contract.uncertain_on_failure is True
+    assert joint_clear.contract.blocks_telemetry is True
+    assert joint_clear.contract.cancelable is False
+    assert joint_clear.arguments[0] == "--require-control-server-stopped"
+    assert joint_clear.arguments[-5:] == (
+        "--clear-error",
+        "--joints",
+        "3",
+        "--channel",
+        "can-test",
+    )
+
     with pytest.raises(DiagnosticsSessionError, match="确认文本"):
         session.prepare_maintenance("set_zero_all", "wrong")
     zero = session.prepare_maintenance("set_zero_all", "校零 A1Z")

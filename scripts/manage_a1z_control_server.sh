@@ -41,6 +41,7 @@ esac
 EXPECTED_BACKEND="${A1Z_BACKEND:?profile must define A1Z_BACKEND}"
 PROFILE_NAME="${A1Z_PROFILE:?profile must be explicit}"
 SIM_LAUNCH_MODE="${A1Z_ISAAC_LAUNCH_MODE:-container}"
+CAN_BITRATE="${A1Z_CAN_BITRATE:-1000000}"
 LOG_DIR="$ROOT_DIR/runtime/logs"
 LOG_PATH="$LOG_DIR/a1z-control-${PROFILE_NAME}.log"
 mkdir -p "$LOG_DIR"
@@ -94,6 +95,57 @@ find_real_server_pids() {
   [[ "$(docker inspect -f '{{.State.Running}}' "$container_name")" == "true" ]] || return 1
   docker exec "$container_name" \
     bash -lc "pgrep -f '/workspace/A1Z/tools/[a]1zctl serve'" 2>/dev/null
+}
+
+ensure_real_can_ready() {
+  [[ "$PROFILE_NAME" == "real" ]] || return 0
+  local container_name="${A1Z_ROS2_CONTAINER_NAME:?}"
+  local can_channel="${A1Z_CAN_CHANNEL:?real profile needs A1Z_CAN_CHANNEL}"
+  local details="" flags
+
+  if [[ ! "$CAN_BITRATE" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Invalid A1Z_CAN_BITRATE='$CAN_BITRATE'; expected a positive integer." >&2
+    return 2
+  fi
+  for _ in $(seq 1 20); do
+    if details="$(
+      docker exec "$container_name" ip -details link show "$can_channel" 2>/dev/null
+    )"; then
+      break
+    fi
+    details=""
+    sleep 0.25
+  done
+  if [[ -z "$details" ]]; then
+    echo "SocketCAN interface '$can_channel' is missing." >&2
+    echo "Connect the CAN adapter and wait for its gs_usb interface before starting the service." >&2
+    return 1
+  fi
+
+  flags="${details#*<}"
+  flags="${flags%%>*}"
+  if [[ ",$flags," == *",UP,"* ]] && \
+     [[ "$details" == *"bitrate $CAN_BITRATE"* ]]; then
+    echo "Reusing ${can_channel}: UP at ${CAN_BITRATE} bit/s."
+    return 0
+  fi
+
+  echo "Configuring ${can_channel}: ${CAN_BITRATE} bit/s and UP."
+  docker exec "$container_name" ip link set "$can_channel" down
+  docker exec "$container_name" \
+    ip link set "$can_channel" type can bitrate "$CAN_BITRATE"
+  docker exec "$container_name" ip link set "$can_channel" up
+
+  details="$(docker exec "$container_name" ip -details link show "$can_channel")"
+  flags="${details#*<}"
+  flags="${flags%%>*}"
+  if [[ ",$flags," != *",UP,"* ]] || \
+     [[ "$details" != *"bitrate $CAN_BITRATE"* ]]; then
+    echo "Failed to bring ${can_channel} UP at ${CAN_BITRATE} bit/s." >&2
+    echo "$details" >&2
+    return 1
+  fi
+  echo "SocketCAN ready: ${can_channel} is UP at ${CAN_BITRATE} bit/s."
 }
 
 stop_orphaned_real_servers() {
@@ -246,6 +298,7 @@ else
     echo "Run '$0 stop' to terminate the selected profile's stale owner first." >&2
     exit 1
   fi
+  ensure_real_can_ready
 
   ENV_ARGS=()
   for name in \
@@ -289,7 +342,8 @@ else
 fi
 
 READY_COUNT=0
-for _ in $(seq 1 90); do
+REAL_SERVER_OBSERVED=0
+for READY_ATTEMPT in $(seq 1 90); do
   if probe_healthy; then
     READY_COUNT=$((READY_COUNT + 1))
     if [[ "$READY_COUNT" -ge 3 ]]; then
@@ -299,6 +353,16 @@ for _ in $(seq 1 90); do
     fi
   else
     READY_COUNT=0
+  fi
+  if [[ "$PROFILE_NAME" == "real" ]]; then
+    if find_real_server_pids >/dev/null; then
+      REAL_SERVER_OBSERVED=1
+    elif [[ "$REAL_SERVER_OBSERVED" == "1" || "$READY_ATTEMPT" -ge 3 ]]; then
+      echo "A1Z real control-server process exited before becoming ready." >&2
+      echo "Log: $LOG_PATH" >&2
+      tail -n 20 "$LOG_PATH" >&2 || true
+      exit 1
+    fi
   fi
   sleep 1
 done

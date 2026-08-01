@@ -37,9 +37,9 @@ GlassCard {
 
                 required property var modelData
                 readonly property string axisLabel:
-                    rotationRow.modelData.axis === "x" ? qsTr("Roll")
-                    : rotationRow.modelData.axis === "y" ? qsTr("Pitch")
-                    : qsTr("Yaw")
+                    rotationRow.modelData.axis === "x" ? qsTr("RX")
+                    : rotationRow.modelData.axis === "y" ? qsTr("RY")
+                    : qsTr("RZ")
 
                 Layout.fillWidth: true
                 Layout.fillHeight: true

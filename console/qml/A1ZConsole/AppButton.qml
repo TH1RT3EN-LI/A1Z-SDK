@@ -7,6 +7,9 @@ Button {
     required property var theme
     property string kind: "secondary"
     property color customColor: "transparent"
+    // Keep short-lived asynchronous work from flashing a button between its
+    // enabled and disabled palettes. Input still follows Button.enabled.
+    property bool busy: false
 
     implicitHeight: 40
     leftPadding: 12
@@ -19,6 +22,7 @@ Button {
     autoRepeat: false
 
     readonly property bool prominent: kind === "primary" || kind === "danger"
+    readonly property bool visuallyEnabled: root.enabled || root.busy
     readonly property color baseColor: customColor.a > 0 ? customColor
                                        : kind === "primary" ? theme.accentFill
                                        : kind === "danger" ? theme.redFill
@@ -32,7 +36,7 @@ Button {
 
     contentItem: Text {
         text: root.text
-        color: root.enabled || root.kind === "selected" ? root.foreground
+        color: root.visuallyEnabled || root.kind === "selected" ? root.foreground
                : root.kind === "danger" ? root.theme.red
                                         : root.theme.tertiaryText
         horizontalAlignment: Text.AlignHCenter
@@ -45,7 +49,7 @@ Button {
 
     background: Rectangle {
         radius: root.theme.radiusControl
-        color: !root.enabled ? (root.kind === "selected"
+        color: !root.visuallyEnabled ? (root.kind === "selected"
                                 ? root.theme.accentSoft
                                 : root.kind === "danger"
                                 ? root.theme.redSoft
@@ -63,9 +67,6 @@ Button {
         border.color: root.activeFocus ? root.theme.accent
                       : "transparent"
         border.width: root.activeFocus ? 2 : 0
-        Behavior on color {
-            ColorAnimation { duration: root.theme.motionFast }
-        }
     }
 
     Accessible.name: text

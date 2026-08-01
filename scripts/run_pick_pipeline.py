@@ -111,19 +111,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--planner", choices=["adapter", "best"], default="adapter")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument(
-        "--allow-unverified-calibration",
-        action="store_true",
-        help="Allow physical execution before hand-eye calibration is marked verified.",
-    )
     parser.add_argument("--arm-speed", type=float, default=None)
     parser.add_argument(
         "--vision-backend",
         choices=["local", "remote_ssh"],
         default=None,
         help=(
-            "Vision execution backend. For profile=real the default can be set with "
-            "A1Z_REAL_VISION_BACKEND; simulation is always local."
+            "Vision execution backend. The real profile defaults to remote_ssh and "
+            "can be overridden with A1Z_REAL_VISION_BACKEND; simulation is always local."
         ),
     )
     return parser
@@ -134,7 +129,7 @@ def main() -> int:
     env = _load_profile(args.profile)
     if args.profile == "real":
         configured_vision_backend = args.vision_backend or env.get(
-            "A1Z_REAL_VISION_BACKEND", "local"
+            "A1Z_REAL_VISION_BACKEND", "remote_ssh"
         )
     else:
         configured_vision_backend = "local"
@@ -146,17 +141,6 @@ def main() -> int:
     if configured_vision_backend not in {"local", "remote_ssh"}:
         raise SystemExit(
             "A1Z_REAL_VISION_BACKEND must be either 'local' or 'remote_ssh'"
-        )
-    if (
-        args.profile == "real"
-        and args.execute
-        and not args.dry_run
-        and env.get("A1Z_HAND_EYE_CALIBRATION_STATUS") != "verified"
-        and not args.allow_unverified_calibration
-    ):
-        raise SystemExit(
-            "physical execution is blocked because hand-eye calibration is not "
-            "marked verified; calibrate it or pass --allow-unverified-calibration"
         )
     output = args.output_dir.expanduser().resolve()
     try:
@@ -389,6 +373,32 @@ def main() -> int:
         plan = planning / "selected_plan.json"
         if not plan.is_file():
             raise RuntimeError(f"planner did not produce {plan}")
+        planner_result = planning / (
+            "anygrasp_adapter_result.json"
+            if args.planner == "adapter"
+            else "anygrasp_best_direct_result.json"
+        )
+        preview_png = planning / "selected_grasp_point_cloud.png"
+        preview_json = planning / "selected_grasp_preview.json"
+        preview_command = [
+            sys.executable,
+            str(ROOT / "scripts" / "render_selected_grasp_preview.py"),
+            "--points",
+            str(anygrasp / "masked_point_cloud" / "points.npy"),
+            "--colors",
+            str(anygrasp / "masked_point_cloud" / "colors.npy"),
+            "--extrinsic-camera-to-base",
+            str(capture / "extrinsic_camera_to_base.npy"),
+            "--planner-result",
+            str(planner_result),
+            "--selected-plan",
+            str(plan),
+            "--output-png",
+            str(preview_png),
+            "--output-json",
+            str(preview_json),
+        ]
+        stage("grasp_preview", preview_command, 60.0)
         if args.execute:
             execution_command = [
                 str(ROOT / "scripts" / "execute_a1z_plan_in_container.sh"),
@@ -421,6 +431,9 @@ def main() -> int:
                 "selection": str(target / "selection" / "selection.json"),
                 "anygrasp": str(anygrasp / "anygrasp" / "anygrasp_result.json"),
                 "plan": str(plan),
+                "planner_result": str(planner_result),
+                "grasp_preview": str(preview_png),
+                "grasp_preview_metadata": str(preview_json),
                 "execution": str(execution / "execution_result.json"),
             },
         }

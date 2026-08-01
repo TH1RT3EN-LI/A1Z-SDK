@@ -83,6 +83,7 @@ class ConsoleController(QObject):
     preflightChanged = Signal()
     draftLocksChanged = Signal()
     teachingChanged = Signal()
+    startupStateChanged = Signal()
     operationFinished = Signal(str, bool, str)
 
     def __init__(self, repo_root: Path, parent: QObject | None = None) -> None:
@@ -178,6 +179,9 @@ class ConsoleController(QObject):
         self._log_flush_timer.setSingleShot(True)
         self._log_flush_timer.setInterval(80)
         self._log_flush_timer.timeout.connect(self._flush_logs)
+        self.stateChanged.connect(self.startupStateChanged.emit)
+        self.cameraStateChanged.connect(self.startupStateChanged.emit)
+        self.preflightChanged.connect(self.startupStateChanged.emit)
 
     # ------------------------------------------------------------------
     # Qt properties
@@ -325,6 +329,10 @@ class ConsoleController(QObject):
                 and self._task_runner.contract.blocks_telemetry
             )
         )
+
+    @Property(bool, notify=telemetryRefreshChanged)
+    def telemetryRefreshBusy(self) -> bool:
+        return self._telemetry.pending
 
     @Property(str, notify=stateChanged)
     def armModeState(self) -> str:
@@ -605,6 +613,18 @@ class ConsoleController(QObject):
     def graspSummary(self) -> str:
         return self._plan.grasp_summary
 
+    @Property(str, notify=planChanged)
+    def graspPreviewSource(self) -> str:
+        return self._plan.grasp_preview_source
+
+    @Property(bool, notify=planChanged)
+    def graspPreviewAvailable(self) -> bool:
+        return self._plan.grasp_preview_available
+
+    @Property(str, notify=planChanged)
+    def graspBasePositionText(self) -> str:
+        return self._plan.grasp_base_position_text
+
     @Property("QVariantList", notify=planChanged)
     def planSegments(self) -> list[dict[str, Any]]:
         return self._plan.segments
@@ -628,6 +648,43 @@ class ConsoleController(QObject):
     @Property(str, notify=preflightChanged)
     def preflightStatus(self) -> str:
         return self._diagnostics.status
+
+    @Property(bool, notify=startupStateChanged)
+    def startupControlReady(self) -> bool:
+        return self.motionEnabled
+
+    @Property(bool, notify=startupStateChanged)
+    def startupRosReady(self) -> bool:
+        return self._camera.bridge_online
+
+    @Property(bool, notify=startupStateChanged)
+    def startupCameraReady(self) -> bool:
+        return self._camera.ready
+
+    @Property(bool, notify=startupStateChanged)
+    def startupPreflightReady(self) -> bool:
+        return self._diagnostics.state == "ready"
+
+    @Property(bool, notify=startupStateChanged)
+    def startupReady(self) -> bool:
+        return (
+            self.startupControlReady
+            and self.startupRosReady
+            and self.startupCameraReady
+            and self.startupPreflightReady
+        )
+
+    @Property(str, notify=startupStateChanged)
+    def startupGateText(self) -> str:
+        if not self.startupControlReady:
+            return self.motionGateText
+        if not self.startupRosReady:
+            return "ROS 2 链路未启动或相机桥不可达"
+        if not self.startupCameraReady:
+            return "RGB-D 还没有新鲜的同步帧"
+        if not self.startupPreflightReady:
+            return self._diagnostics.status
+        return "启动步骤已全部通过"
 
     @property
     def _profile(self) -> RuntimeProfile:
@@ -1187,6 +1244,18 @@ class ConsoleController(QObject):
                 "机械臂控制循环未运行，请重启控制服务",
             ),
             (
+                "Robot control loop faulted while executing joint move",
+                "关节运动期间控制循环故障",
+            ),
+            (
+                "Robot control loop stopped while executing joint move",
+                "关节运动期间控制循环停止",
+            ),
+            (
+                "Robot entered estop while executing joint move",
+                "关节运动期间进入软急停",
+            ),
+            (
                 "Position motion requires position-hold mode",
                 "位置运动要求位置保持模式，请先切换到位置保持",
             ),
@@ -1205,6 +1274,14 @@ class ConsoleController(QObject):
             (
                 "Joint target was not reached from SDK feedback",
                 "控制服务已接收关节目标，但实际反馈未到位",
+            ),
+            (
+                "Joint feedback did not settle after joint jog",
+                "关节点动已发出，但反馈在等待时间内仍未稳定",
+            ),
+            (
+                "Joint feedback did not settle after Cartesian jog",
+                "末端点动已发出，但关节反馈在等待时间内仍未稳定",
             ),
             (
                 "Gripper target was not reached from SDK feedback",
@@ -1244,6 +1321,11 @@ class ConsoleController(QObject):
             if motion_data.get("motion_performed") is False:
                 state = "warning"
                 message = f"{label}未产生运动：目标已经在当前位置"
+            elif verification.get("settled") is True:
+                message = (
+                    f"{label}运动已稳定 · 最大单次变化 "
+                    f"{float(verification.get('max_sample_delta_deg', 0.0)):.4f}°"
+                )
             elif verification:
                 message = (
                     f"{label}已到位 · 最大误差 "
@@ -1261,13 +1343,17 @@ class ConsoleController(QObject):
                 )
         elif handler == "helper":
             snapshot = dict(data.get("snapshot", {}) or {})
+            joint_verification = dict(
+                snapshot.get("joint_verification", {}) or {}
+            )
             verification = dict(snapshot.get("verification", {}) or {})
-            if verification:
+            if joint_verification.get("settled") is True:
                 message = (
-                    f"{label}完成 · FK 误差 "
-                    f"{float(verification.get('translation_error_mm', 0.0)):.2f} mm / "
-                    f"{float(verification.get('orientation_error_deg', 0.0)):.2f}°"
+                    f"{label}运动已稳定 · 最大单次变化 "
+                    f"{float(joint_verification.get('max_sample_delta_deg', 0.0)):.4f}°"
                 )
+            elif verification:
+                message = f"{label}完成 · 实际 FK 已刷新"
         elif handler == "grasp":
             success = bool(data.get("success", False))
             reason = str(data.get("failure_reason", "") or "")
@@ -1599,54 +1685,21 @@ class ConsoleController(QObject):
         if not 0 <= joint_index < 6:
             self._set_error("关节编号超出 J1–J6")
             return
-        gate_error = self._motion_gate_error()
-        if gate_error:
-            self._set_error(gate_error)
+        if not math.isfinite(float(delta_deg)) or abs(float(delta_deg)) <= 1e-12:
+            self._set_error("关节点动增量必须是非零有限数值")
             return
-        profile = self._profile
-
-        def operation() -> dict[str, Any]:
-            client = A1ZProtocolClient(profile)
-            endpoint = client.verify_backend(timeout_s=3.0)
-            status = client.request("status", timeout_s=3.0)
-            current = list(status.get("pos_deg", []) or [])
-            if len(current) < 6:
-                raise ProtocolError(f"status 缺少 6 轴位置：{status}")
-            limits = dict(endpoint.info.get("joint_limits_deg", {}) or {})
-            pair = limits.get(f"J{joint_index + 1}")
-            if not isinstance(pair, list) or len(pair) != 2:
-                raise ProtocolError(f"J{joint_index + 1} 软限位不可用")
-            target = [float(value) for value in current[:6]]
-            requested = target[joint_index] + float(delta_deg)
-            applied = min(max(requested, float(pair[0])), float(pair[1]))
-            if abs(applied - target[joint_index]) <= 1e-6:
-                direction = "上限" if float(delta_deg) > 0.0 else "下限"
-                raise ProtocolError(
-                    f"J{joint_index + 1} 已在软{direction} "
-                    f"{applied:.2f}°，该方向不会运动"
-                )
-            target[joint_index] = applied
-            response = client.request(
-                "move",
-                {"joints": target, "speed": float(speed)},
-                timeout_s=120.0,
-                ambiguous_after_send=True,
-            )
-            return {
-                "data": {
-                    "response": response,
-                    "joint": joint_index + 1,
-                    "requestedDeg": requested,
-                    "appliedDeg": applied,
-                },
-                "backend": endpoint.backend,
-                "controlMode": endpoint.control_mode,
-            }
-
-        self._submit_operation(
+        if not math.isfinite(float(speed)) or float(speed) <= 0.0:
+            self._set_error("关节速度必须是大于 0 的有限数值")
+            return
+        self._submit_verified(
             f"J{joint_index + 1} 点动 {float(delta_deg):+.2f}°",
-            operation,
-            effects=ResourceEffect.ARM,
+            "joint_jog",
+            {
+                "joint_index": joint_index + 1,
+                "delta_deg": float(delta_deg),
+                "speed": float(speed),
+            },
+            capability=OnlineCapability.ARM_MOTION,
             result_handler="motion",
         )
 
@@ -1986,6 +2039,10 @@ class ConsoleController(QObject):
             self.restartServer()
         elif action == "position_hold":
             self.setGravityMode(False)
+
+    @Slot()
+    def explainStartupGate(self) -> None:
+        self._set_error(f"控制入口尚未解锁：{self.startupGateText}")
 
     @Slot(str)
     def queryCamera(self, command: str) -> None:
@@ -2333,6 +2390,11 @@ class ConsoleController(QObject):
             completion=completion,
             log_stdout=log_stdout,
         )
+        if contract.effects & (ResourceEffect.SERVICE | ResourceEffect.TRANSPORT):
+            if self._diagnostics.invalidate(
+                "控制服务或 ROS 2 链路正在变更；完成后请重新运行全链路预检"
+            ):
+                self.preflightChanged.emit()
         if not self._task_runner.start(request):
             self._set_error("已有外部任务正在执行，不能启动另一任务")
             return False

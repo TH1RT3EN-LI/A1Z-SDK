@@ -886,6 +886,7 @@ def test_console_uses_pinned_apple_light_visual_system() -> None:
     assert "implicitContentWidth + leftPadding + rightPadding" in app_button
 
     for component in (
+        "AppToolTip",
         "AppIcon",
         "AppTextField",
         "AppTextArea",
@@ -893,6 +894,7 @@ def test_console_uses_pinned_apple_light_visual_system() -> None:
         "AppSpinBox",
         "AppComboBox",
         "InlineBanner",
+        "StartupGuidePanel",
     ):
         assert f"{component} 1.0 {component}.qml" in qmldir
 
@@ -934,6 +936,7 @@ def test_qml_shell_organizes_pages_by_function_and_preserves_state() -> None:
     assert "ConsoleHeader" in main
     assert "ConsoleFeedback" in main
     assert "ConsoleWorkspace" in main
+    assert 'objectName: "sharedRuntimeLog"' in main
     assert "DashboardPage {" not in main
     assert "A1Z SDK Console" not in main
     assert 'objectName: "pageStack"' in workspace
@@ -1128,8 +1131,13 @@ def test_qml_page_stack_preserves_unsent_drafts_across_navigation() -> None:
         controller._robot_running = True
         controller._control_mode = "position_hold"
         controller._estopped = False
+        controller._camera._bridge_online = True
+        controller._camera._ready = True
+        controller._diagnostics._state = "ready"
         controller._plan.changed.emit()
         controller.stateChanged.emit()
+        controller.cameraStateChanged.emit()
+        controller.preflightChanged.emit()
         app.processEvents()
         assert grasp_execution.property("actualExecutionAvailable") is True
         grasp_phrase.setProperty("text", "执行 SIM")
@@ -1177,6 +1185,8 @@ def test_qml_page_stack_preserves_unsent_drafts_across_navigation() -> None:
         assert gripper.property("gripperTargetStale") is True
         assert QMetaObject.invokeMethod(gripper, "discardGripperDraft")
 
+        window.setProperty("currentPage", "manual")
+        app.processEvents()
         controller._profile_name = "real"
         controller._gripper_target = None
         controller._gripper = None
@@ -1313,6 +1323,9 @@ def test_grasp_safety_checks_use_a_wrapping_layout() -> None:
     assert "reviewColumn.implicitHeight" in review
     assert "+ 2 * root.padding" in review
     assert "minimumReviewHeight: Math.max(" in grasp
+    assert 'objectName: "selectedGraspPointCloudPreview"' in review
+    assert "root.controller.graspPreviewSource" in review
+    assert "root.controller.graspBasePositionText" in review
     assert "computePanel.implicitHeight" in grasp
     assert "executionPanel.implicitHeight" in grasp
     assert "computeColumn.implicitHeight" in compute
@@ -1502,7 +1515,7 @@ def test_diagnostics_log_view_can_scroll_without_forced_tail_follow() -> None:
     ).read_text()
 
     assert "id: logView" in page
-    assert "model: root.visible ? root.controller.logModel : null" in page
+    assert "model: root.controller.logModel" in page
     assert "reuseItems: true" in page
     assert "ScrollBar.horizontal: ScrollBar" in page
     assert "ScrollBar.vertical: ScrollBar" in page
@@ -1516,12 +1529,277 @@ def test_diagnostics_log_view_can_scroll_without_forced_tail_follow() -> None:
     assert "root.controller.logs" not in page
     assert "AppTextArea" not in page
     assert "cursorPosition = length" not in page
+    assert "onContentHeightChanged" in page
+    assert "logView.contentHeight - logView.height" in page
+
+
+def test_single_motor_fault_maintenance_is_scoped_and_guarded() -> None:
+    maintenance = (
+        CONSOLE_ROOT / "qml" / "A1ZConsole" / "MaintenancePanel.qml"
+    ).read_text()
+
+    assert '"motor_check_j" + root.selectedMotorNumber' in maintenance
+    assert '"motor_clear_j" + root.selectedMotorNumber' in maintenance
+    assert "root.selectedMotorNumber >= 4" in maintenance
+    assert "currentIndex: 3" in maintenance
+    assert '=== "清错 " + root.selectedMotorName' in maintenance
+    assert "单电机检查会短暂使能后失能选中轴" in maintenance
+    assert "清错只解除故障锁存" in maintenance
+    assert "!root.armDraftPending" in maintenance
+
+
+def test_startup_guide_gates_control_routes_until_every_link_is_ready() -> None:
+    qml_root = CONSOLE_ROOT / "qml" / "A1ZConsole"
+    guide = (qml_root / "StartupGuidePanel.qml").read_text()
+    workspace = (qml_root / "ConsoleWorkspace.qml").read_text()
+    navigation = (qml_root / "ConsoleNavigation.qml").read_text()
+    main = (qml_root / "Main.qml").read_text()
+
+    for prerequisite in (
+        "startupControlReady",
+        "startupRosReady",
+        "startupCameraReady",
+        "startupPreflightReady",
+    ):
+        assert prerequisite in guide
+    assert "root.controller.startupReady" in navigation
+    assert 'route === "settings"' in workspace
+    assert 'route === "diagnostics"' in workspace
+    assert 'root.pageRequested("overview")' in workspace
+    assert "onStartupStateChanged" in workspace
+    assert 'root.controller.startServer(false, 1.0)' in guide
+    assert 'root.controller.ensureRos()' in guide
+    assert 'root.controller.runPreflight()' in guide
+    assert 'objectName: "sharedRuntimeLog"' in main
+
+
+def test_controller_startup_gate_requires_live_control_camera_and_preflight() -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtGui import QGuiApplication
+
+    from a1z_console.controller import ConsoleController
+
+    app = QGuiApplication.instance() or QGuiApplication([])
+    assert app is not None
+    controller = ConsoleController(ROOT)
+    try:
+        assert controller.startupReady is False
+        controller._connected = True
+        controller._backend_matched = True
+        controller._connection_issue = ""
+        controller._telemetry._age_ms = 0
+        controller._robot_running = True
+        controller._faulted = False
+        controller._control_mode = "position_hold"
+        controller._camera._bridge_online = True
+        controller._camera._ready = True
+        controller._diagnostics._state = "ready"
+
+        assert controller.startupControlReady is True
+        assert controller.startupRosReady is True
+        assert controller.startupCameraReady is True
+        assert controller.startupPreflightReady is True
+        assert controller.startupReady is True
+
+        controller._faulted = True
+        controller._fault_message = "joint4 under voltage"
+        assert controller.startupReady is False
+        assert "under voltage" in controller.startupGateText
+
+        controller._faulted = False
+        assert controller._diagnostics.invalidate("链路已变更") is True
+        assert controller.startupPreflightReady is False
+        assert controller.startupReady is False
+        assert controller.preflightStatus == "链路已变更"
+    finally:
+        controller.shutdown()
+
+
+def test_qml_startup_gate_redirects_locked_routes_and_allows_ready_routes() -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtQml import QQmlApplicationEngine, QQmlEngine
+    from PySide6.QtQuickControls2 import QQuickStyle
+
+    from a1z_console.controller import ConsoleController
+
+    QQuickStyle.setStyle("Basic")
+    app = QGuiApplication.instance() or QGuiApplication([])
+    controller = ConsoleController(ROOT, app)
+    QQmlEngine.setObjectOwnership(controller, QQmlEngine.CppOwnership)
+    engine = QQmlApplicationEngine()
+    engine.setInitialProperties({"controller": controller})
+    engine.addImportPath(str(CONSOLE_ROOT / "qml"))
+    engine.loadFromModule("A1ZConsole", "Main")
+    roots = engine.rootObjects()
+    assert roots
+    window = roots[0]
+    try:
+        window.setProperty("currentPage", "manual")
+        app.processEvents()
+        app.processEvents()
+        assert window.property("currentPage") == "overview"
+
+        controller._connected = True
+        controller._backend_matched = True
+        controller._connection_issue = ""
+        controller._telemetry._age_ms = 0
+        controller._robot_running = True
+        controller._faulted = False
+        controller._control_mode = "position_hold"
+        controller._camera._bridge_online = True
+        controller._camera._ready = True
+        controller._diagnostics._state = "ready"
+        controller.stateChanged.emit()
+        controller.cameraStateChanged.emit()
+        controller.preflightChanged.emit()
+        app.processEvents()
+
+        assert controller.startupReady is True
+        window.setProperty("currentPage", "manual")
+        app.processEvents()
+        app.processEvents()
+        assert window.property("currentPage") == "manual"
+
+        controller._camera._ready = False
+        controller.cameraStateChanged.emit()
+        app.processEvents()
+        app.processEvents()
+        assert window.property("currentPage") == "overview"
+    finally:
+        window.setProperty("visible", False)
+        controller.shutdown()
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        app.processEvents()
+        engine.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        app.processEvents()
+
+
+def test_qml_busy_buttons_keep_their_enabled_palette() -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QCoreApplication, QEvent, QObject, QUrl
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+    from PySide6.QtQuickControls2 import QQuickStyle
+
+    QQuickStyle.setStyle("Basic")
+    app = QGuiApplication.instance() or QGuiApplication([])
+    engine = QQmlEngine()
+    engine.addImportPath(str(CONSOLE_ROOT / "qml"))
+    component = QQmlComponent(engine)
+    component.setData(
+        b"""
+import QtQuick
+import A1ZConsole
+Item {
+    width: 300
+    height: 100
+    Theme { id: theme }
+    AppButton {
+        objectName: "buttonUnderTest"
+        theme: theme
+        text: "Refresh"
+    }
+}
+""",
+        QUrl(),
+    )
+    root = component.create()
+    assert root is not None, component.errors()
+    button = root.findChild(QObject, "buttonUnderTest")
+    assert button is not None
+    background = button.property("background")
+    content = button.property("contentItem")
+    try:
+        enabled_background = background.property("color")
+        enabled_foreground = content.property("color")
+        button.setProperty("enabled", False)
+        button.setProperty("busy", True)
+        app.processEvents()
+        assert background.property("color") == enabled_background
+        assert content.property("color") == enabled_foreground
+
+        button.setProperty("busy", False)
+        app.processEvents()
+        assert content.property("color") != enabled_foreground
+    finally:
+        root.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        app.processEvents()
+        engine.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        app.processEvents()
+
+
+def test_shared_runtime_log_follows_tail_and_respects_pause() -> None:
+    pytest.importorskip("PySide6")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QCoreApplication, QEvent, QObject
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtQml import QQmlApplicationEngine, QQmlEngine
+    from PySide6.QtQuickControls2 import QQuickStyle
+    from PySide6.QtTest import QTest
+
+    from a1z_console.controller import ConsoleController
+
+    QQuickStyle.setStyle("Basic")
+    app = QGuiApplication.instance() or QGuiApplication([])
+    controller = ConsoleController(ROOT, app)
+    QQmlEngine.setObjectOwnership(controller, QQmlEngine.CppOwnership)
+    engine = QQmlApplicationEngine()
+    engine.setInitialProperties({"controller": controller})
+    engine.addImportPath(str(CONSOLE_ROOT / "qml"))
+    engine.loadFromModule("A1ZConsole", "Main")
+    roots = engine.rootObjects()
+    assert roots
+    window = roots[0]
+    panel = window.findChild(QObject, "sharedRuntimeLog")
+    log_view = window.findChild(QObject, "sharedLogView")
+    assert panel is not None
+    assert log_view is not None
+    try:
+        for index in range(120):
+            controller._append_log(f"tail-follow-line-{index:03d}")
+        controller._flush_logs()
+        QTest.qWait(80)
+        app.processEvents()
+        maximum_y = max(
+            0.0,
+            float(log_view.property("contentHeight"))
+            - float(log_view.property("height")),
+        )
+        assert maximum_y > 0
+        assert float(log_view.property("contentY")) >= maximum_y - 2.0
+
+        panel.setProperty("followTail", False)
+        log_view.setProperty("contentY", 0.0)
+        controller._append_log("paused-tail-line")
+        controller._flush_logs()
+        QTest.qWait(80)
+        app.processEvents()
+        assert float(log_view.property("contentY")) <= 2.0
+    finally:
+        window.setProperty("visible", False)
+        controller.shutdown()
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        app.processEvents()
+        engine.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        app.processEvents()
 
 
 def test_runtime_and_operator_text_is_rendered_as_plain_text() -> None:
     qml_root = CONSOLE_ROOT / "qml" / "A1ZConsole"
 
     for component in (
+        "AppToolTip.qml",
         "InlineBanner.qml",
         "SectionHeader.qml",
         "StatusPill.qml",
@@ -1651,12 +1929,33 @@ def test_anygrasp_summary_outputs_pose_and_joint_degrees(tmp_path: Path) -> None
         ]
     }
     (anygrasp / "anygrasp_result.json").write_text(json.dumps(result), encoding="utf-8")
+    preview_png = planning / "selected_grasp_point_cloud.png"
+    preview_png.write_bytes(b"preview")
+    preview_metadata = {
+        "candidate_id": "g1",
+        "candidate_rank": 0,
+        "score": 0.9,
+        "gripper_pose_6dof": {
+            "position_xyz_m": [0.45, 0.02, 0.25],
+            "rpy_deg": [-10.0, 20.0, 30.0],
+            "quaternion_xyzw": [0.0, 0.0, 0.0, 1.0],
+            "transform_matrix": [],
+        },
+        "gripper": {"opening_m": 0.04},
+    }
+    preview_metadata_path = planning / "selected_grasp_preview.json"
+    preview_metadata_path.write_text(
+        json.dumps(preview_metadata),
+        encoding="utf-8",
+    )
     manifest = {
         "profile": "sim",
         "instruction": "pick",
         "artifacts": {
             "plan": str(planning / "selected_plan.json"),
             "anygrasp": str(anygrasp / "anygrasp_result.json"),
+            "grasp_preview": str(preview_png),
+            "grasp_preview_metadata": str(preview_metadata_path),
         },
     }
     (output / "pipeline_manifest.json").write_text(
@@ -1666,6 +1965,9 @@ def test_anygrasp_summary_outputs_pose_and_joint_degrees(tmp_path: Path) -> None
     summary = summarize_pipeline(output, ROOT)
     assert summary["profile"] == "sim"
     assert summary["grasp"]["translationMm"] == [100.0, -200.0, 300.0]
+    assert summary["grasp"]["baseTranslationMm"] == [450.0, 20.0, 250.0]
+    assert summary["grasp"]["baseRpyDeg"] == [-10.0, 20.0, 30.0]
+    assert summary["graspPreviewSource"].startswith("file://")
     assert summary["segments"][0]["jointsDeg"][1] == pytest.approx(5.73, abs=0.01)
     assert summary["allSafetyPassed"] is True
     assert next(
@@ -1867,13 +2169,16 @@ def test_navigation_and_operator_inputs_have_accessible_names() -> None:
         )
     )
     banner = (qml_root / "InlineBanner.qml").read_text()
+    tooltip = (qml_root / "AppToolTip.qml").read_text()
     assert header.count("Accessible.role: Accessible.RadioButton") >= 2
     assert gripper.count("Accessible.role: Accessible.RadioButton") >= 2
     assert safety.count("Accessible.role: Accessible.RadioButton") >= 2
     assert "Accessible.role: Accessible.AlertMessage" in banner
     assert "Accessible.announce(root.text)" in banner
     assert "ToolTip.text: root.text" not in banner
-    assert banner.count("textFormat: Text.PlainText") >= 2
+    assert "AppToolTip" in banner
+    assert "background: Rectangle" in tooltip
+    assert "textFormat: Text.PlainText" in tooltip
 
 
 def test_console_persistent_modes_and_drafts_are_visibly_interlocked() -> None:
@@ -1953,6 +2258,19 @@ def test_direct_can_wrapper_proves_sdk_owner_has_stopped() -> None:
     assert "find_real_server_pids" in manager
     assert "stop_orphaned_real_servers" in manager
     assert "Refusing to start a second SDK owner" in manager
+
+
+def test_real_service_manager_prepares_can_and_fails_fast() -> None:
+    manager = (ROOT / "scripts" / "manage_a1z_control_server.sh").read_text()
+
+    assert 'CAN_BITRATE="${A1Z_CAN_BITRATE:-1000000}"' in manager
+    assert "ensure_real_can_ready()" in manager
+    assert "for _ in $(seq 1 20)" in manager
+    assert 'ip link set "$can_channel" type can bitrate "$CAN_BITRATE"' in manager
+    assert 'ip link set "$can_channel" up' in manager
+    assert "ensure_real_can_ready\n\n  ENV_ARGS=()" in manager
+    assert "A1Z real control-server process exited before becoming ready" in manager
+    assert 'tail -n 20 "$LOG_PATH"' in manager
 
 
 def test_offline_gripper_maintenance_uses_an_offline_device_contract(
@@ -2383,6 +2701,18 @@ def test_controller_sends_each_manual_target_once_and_keeps_gripper_mode_indepen
                         "max_error_deg": 0.1,
                     },
                 }
+            elif command == "joint_jog":
+                measured = [5.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                data = {
+                    "pos_deg": measured,
+                    "motion_performed": True,
+                    "verification": {
+                        "reached": True,
+                        "settled": True,
+                        "measured_deg": measured,
+                        "max_sample_delta_deg": 0.02,
+                    },
+                }
             else:
                 value = float(request_args["value"])
                 data = {
@@ -2423,14 +2753,27 @@ def test_controller_sends_each_manual_target_once_and_keeps_gripper_mode_indepen
         assert controller.operationFeedbackState == "success"
         assert "最大误差 0.100°" in controller.operationFeedbackMessage
 
+        controller.jogJoint(0, 5.0, 0.5)
+        wait_for_command()
+        assert controller.operationFeedbackState == "success"
+        assert "运动已稳定" in controller.operationFeedbackMessage
+        assert calls[1] == (
+            "joint_jog",
+            {"joint_index": 1, "delta_deg": 5.0, "speed": 0.5},
+        )
+
         controller._control_mode = "gravity_comp_effort"
         assert controller.motionEnabled is False
         assert controller.gripperControlEnabled is True
         controller.setGripper(0.42)
         wait_for_command()
 
-        assert [command for command, _args in calls] == ["move", "gripper"]
-        assert calls[1][1]["value"] == pytest.approx(0.42)
+        assert [command for command, _args in calls] == [
+            "move",
+            "joint_jog",
+            "gripper",
+        ]
+        assert calls[2][1]["value"] == pytest.approx(0.42)
         assert controller.gripperMeasured == pytest.approx(0.42)
         assert controller.operationFeedbackState == "success"
         assert "实际 0.420" in controller.operationFeedbackMessage
@@ -2660,6 +3003,8 @@ def test_operator_facing_sdk_capabilities_have_protocol_handlers() -> None:
         "status",
         "info",
         "move",
+        "cartesian_jog",
+        "joint_jog",
         "command",
         "gripper",
         "grasp_close",
@@ -2678,6 +3023,8 @@ def test_operator_facing_sdk_capabilities_have_protocol_handlers() -> None:
     assert expected <= set(RobotServer._HANDLERS)
     assert {
         "move",
+        "cartesian_jog",
+        "joint_jog",
         "command",
         "gripper",
         "grasp_close",
@@ -2725,6 +3072,27 @@ def test_cartesian_jog_uses_selected_base_or_tool_axes() -> None:
         base_to_tool[:3, :3]
         @ apply_rotation(np.eye(4), axis="x", delta_deg=15.0, frame="tool")[:3, :3]
     )
+
+
+def test_cartesian_ik_increment_is_transferred_to_command_space() -> None:
+    np = pytest.importorskip("numpy")
+    from a1z_ext.robots.cartesian_jog import compose_command_space_joint_target
+
+    measured = np.deg2rad([-0.75, 31.29, -25.41, 4.27, 42.61, 0.82])
+    commanded = np.deg2rad([0.0, 30.0, -30.0, 5.0, 40.0, 0.0])
+    solved = measured + np.deg2rad([1.2, -0.4, 0.8, 0.1, -0.2, 0.3])
+
+    command_target, joint_delta = compose_command_space_joint_target(
+        measured,
+        solved,
+        commanded,
+    )
+
+    assert np.rad2deg(joint_delta) == pytest.approx(
+        [1.2, -0.4, 0.8, 0.1, -0.2, 0.3]
+    )
+    assert command_target == pytest.approx(commanded + joint_delta)
+    assert command_target - solved == pytest.approx(commanded - measured)
 
 
 def test_official_kinematics_reaches_a_tool_tcp_increment(
@@ -3103,6 +3471,214 @@ def test_move_is_submitted_once_and_fails_when_sdk_feedback_does_not_reach() -> 
     assert verification["max_error_deg"] == pytest.approx(5.0)
 
 
+def test_joint_jog_preserves_unselected_command_targets_and_feedback_pose() -> None:
+    np = pytest.importorskip("numpy")
+    from a1z_ext.robots.server import RobotServer
+
+    class CommandSpaceJogSpy:
+        is_estopped = False
+        is_running = True
+
+        def __init__(self) -> None:
+            self.command = np.deg2rad(
+                np.array([0.0, 30.0, -30.0, 5.0, 40.0, 0.0])
+            )
+            self.measured = np.deg2rad(
+                np.array([-0.75, 31.29, -25.41, 4.27, 42.61, 0.82])
+            )
+            self.submitted_targets: list[object] = []
+
+        def get_robot_info(self) -> dict[str, object]:
+            return {
+                "control_mode": "position_hold",
+                "command_pos": self.command.copy(),
+                "joint_limits": np.deg2rad(
+                    np.array(
+                        [
+                            [-120.0, 120.0],
+                            [0.0, 180.0],
+                            [-180.0, 0.0],
+                            [-85.0, 85.0],
+                            [-85.0, 85.0],
+                            [-115.0, 115.0],
+                        ]
+                    )
+                ),
+            }
+
+        def get_joint_pos(self):
+            return self.measured.copy()
+
+        def move_joints(self, target, speed: float) -> None:
+            assert speed == pytest.approx(0.5)
+            target = np.asarray(target, dtype=np.float64).copy()
+            self.submitted_targets.append(target)
+            command_delta = target - self.command
+            self.measured = self.measured + command_delta
+            self.command = target
+
+    robot = CommandSpaceJogSpy()
+    command_before = robot.command.copy()
+    measured_before = robot.measured.copy()
+    assert np.max(np.abs(np.rad2deg(command_before - measured_before))) > 4.0
+    server = RobotServer(
+        robot,
+        with_gripper=False,
+        joint_feedback_timeout_s=0.2,
+        joint_settle_delta_deg=0.01,
+        joint_settle_stable_samples=2,
+    )
+
+    result = server._dispatch_request(
+        "joint_jog",
+        {"joint_index": 1, "delta_deg": 5.0, "speed": 0.5},
+    )
+
+    assert result["ok"] is True
+    assert len(robot.submitted_targets) == 1
+    submitted = np.asarray(robot.submitted_targets[0])
+    assert np.rad2deg(submitted[0] - command_before[0]) == pytest.approx(5.0)
+    assert submitted[1:] == pytest.approx(command_before[1:])
+    measured_delta_deg = np.rad2deg(robot.measured - measured_before)
+    assert measured_delta_deg[0] == pytest.approx(5.0)
+    assert measured_delta_deg[1:] == pytest.approx(np.zeros(5))
+    verification = result["data"]["verification"]
+    assert verification["reached"] is True
+    assert verification["settled"] is True
+    assert verification["joint_index"] == 1
+    assert verification["max_sample_delta_deg"] == pytest.approx(0.0)
+    assert "max_error_deg" not in verification
+
+
+def test_cartesian_jog_uses_command_space_and_feedback_settling() -> None:
+    np = pytest.importorskip("numpy")
+    from a1z_ext.robots.server import RobotServer
+
+    class CartesianCommandSpaceSpy:
+        is_estopped = False
+        is_running = True
+        is_faulted = False
+        runtime_fault = ""
+
+        def __init__(self) -> None:
+            self.command = np.deg2rad(
+                np.array([0.0, 30.0, -30.0, 5.0, 40.0, 0.0])
+            )
+            self.measured = np.deg2rad(
+                np.array([-0.75, 31.29, -25.41, 4.27, 42.61, 0.82])
+            )
+            self.submitted_targets: list[object] = []
+
+        def get_robot_info(self) -> dict[str, object]:
+            return {
+                "control_mode": "position_hold",
+                "command_pos": self.command.copy(),
+                "joint_limits": np.deg2rad(
+                    np.array(
+                        [
+                            [-120.0, 120.0],
+                            [0.0, 180.0],
+                            [-180.0, 0.0],
+                            [-85.0, 85.0],
+                            [-85.0, 85.0],
+                            [-115.0, 115.0],
+                        ]
+                    )
+                ),
+            }
+
+        def get_joint_pos(self):
+            return self.measured.copy()
+
+        def move_joints(self, target, speed: float) -> None:
+            assert speed == pytest.approx(0.4)
+            target = np.asarray(target, dtype=np.float64).copy()
+            self.submitted_targets.append(target)
+            joint_delta = target - self.command
+            self.measured = self.measured + joint_delta
+            self.command = target
+
+    robot = CartesianCommandSpaceSpy()
+    command_before = robot.command.copy()
+    measured_before = robot.measured.copy()
+    requested_delta_deg = [1.2, -0.4, 0.8, 0.1, -0.2, 0.3]
+    server = RobotServer(
+        robot,
+        with_gripper=False,
+        joint_feedback_timeout_s=0.2,
+        joint_settle_delta_deg=0.01,
+        joint_settle_stable_samples=2,
+    )
+
+    result = server._dispatch_request(
+        "cartesian_jog",
+        {"joint_delta_deg": requested_delta_deg, "speed": 0.4},
+    )
+
+    assert result["ok"] is True
+    assert len(robot.submitted_targets) == 1
+    submitted = np.asarray(robot.submitted_targets[0])
+    expected_delta = np.deg2rad(requested_delta_deg)
+    assert submitted == pytest.approx(command_before + expected_delta)
+    assert robot.measured == pytest.approx(measured_before + expected_delta)
+    verification = result["data"]["verification"]
+    assert verification["settled"] is True
+    assert verification["command_start_deg"] == pytest.approx(
+        np.rad2deg(command_before), abs=1e-3
+    )
+    assert verification["command_target_deg"] == pytest.approx(
+        np.rad2deg(command_before + expected_delta), abs=1e-3
+    )
+    assert verification["max_sample_delta_deg"] == pytest.approx(0.0)
+    assert "max_error_deg" not in verification
+
+
+def test_move_reports_runtime_fault_instead_of_hiding_it_as_tolerance() -> None:
+    np = pytest.importorskip("numpy")
+    from a1z_ext.robots.server import RobotServer
+
+    class MotionFaultSpy:
+        is_estopped = False
+
+        def __init__(self) -> None:
+            self.is_running = True
+            self.runtime_fault = ""
+            self.is_faulted = False
+            self.move_calls = 0
+
+        def get_robot_info(self) -> dict[str, object]:
+            return {"control_mode": "position_hold"}
+
+        def get_joint_pos(self):
+            return np.zeros(6, dtype=np.float64)
+
+        def move_joints(self, target, speed: float) -> None:
+            del target, speed
+            self.move_calls += 1
+            self.is_running = False
+            self.is_faulted = True
+            self.runtime_fault = "MotorB fault on joint4: under voltage"
+
+    robot = MotionFaultSpy()
+    server = RobotServer(
+        robot,
+        with_gripper=False,
+        joint_feedback_timeout_s=0.0,
+    )
+    result = server._dispatch_request(
+        "move",
+        {"joints": [5.0, 0.0, 0.0, 0.0, 0.0, 0.0], "speed": 0.5},
+    )
+
+    assert result["ok"] is False
+    assert result["execution_state"] == "submitted_unverified"
+    assert robot.move_calls == 1
+    assert "control loop faulted" in result["error"]
+    assert "MotorB fault on joint4: under voltage" in result["error"]
+    assert "tolerance" not in result["error"]
+    assert result["data"]["verification"]["faulted"] is True
+
+
 def test_move_reports_already_at_target_without_submitting_sdk_motion() -> None:
     np = pytest.importorskip("numpy")
     from a1z_ext.robots.server import RobotServer
@@ -3162,7 +3738,14 @@ def test_socketcan_adapter_holds_measured_pose_when_leaving_zero_gravity() -> No
     )
     robot._default_kp = np.arange(1.0, 7.0)
     robot._default_kd = np.arange(0.1, 0.7, 0.1)
+    robot._joint_limits = None
+    robot.gravity_comp_factor = 1.0
+    robot._control_freq_hz = 250
     robot.gripper = None
+    robot._gripper_free_drive = False
+    robot._runtime_fault_lock = threading.Lock()
+    robot._runtime_fault = ""
+    robot._motor_a_status_codes = [0, 0, 0]
     robot.zero_gravity_mode = True
 
     robot.set_gravity_mode(False)
@@ -3174,6 +3757,7 @@ def test_socketcan_adapter_holds_measured_pose_when_leaving_zero_gravity() -> No
     assert robot._command.torque_ff == pytest.approx(np.zeros(6))
     assert robot._command.kp == pytest.approx(robot._default_kp)
     assert robot._command.kd == pytest.approx(robot._default_kd)
+    assert robot.get_robot_info()["command_pos"] == pytest.approx(measured)
     robot._running = False
 
 

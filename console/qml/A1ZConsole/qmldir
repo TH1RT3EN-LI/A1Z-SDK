@@ -7,6 +7,7 @@ ConsoleNavigation 1.0 ConsoleNavigation.qml
 ConsoleWorkspace 1.0 ConsoleWorkspace.qml
 GlassCard 1.0 GlassCard.qml
 AppButton 1.0 AppButton.qml
+AppToolTip 1.0 AppToolTip.qml
 AppIcon 1.0 AppIcon.qml
 AppTextField 1.0 AppTextField.qml
 AppTextArea 1.0 AppTextArea.qml
@@ -22,6 +23,7 @@ SectionHeader 1.0 SectionHeader.qml
 SafetyRail 1.0 SafetyRail.qml
 ArmControlModeSelector 1.0 ArmControlModeSelector.qml
 DashboardPage 1.0 DashboardPage.qml
+StartupGuidePanel 1.0 StartupGuidePanel.qml
 ArmControlPage 1.0 ArmControlPage.qml
 ManualControlPage 1.0 ManualControlPage.qml
 EndEffectorPosePanel 1.0 EndEffectorPosePanel.qml

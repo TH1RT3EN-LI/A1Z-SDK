@@ -29,12 +29,20 @@ class RealSimArchitectureTests(unittest.TestCase):
         self.assertEqual(sim["A1Z_CONTROL_FREQ_HZ"], "60")
         self.assertEqual(real["A1Z_BACKEND"], "socketcan")
         self.assertEqual(real["A1Z_CAMERA_SOURCE"], "realsense")
+        self.assertEqual(real["A1Z_REAL_VISION_BACKEND"], "remote_ssh")
+        self.assertEqual(real["A1Z_REMOTE_GPU_HOST"], "10.66.0.11")
+        self.assertEqual(real["A1Z_REMOTE_GPU_USER"], "th1rt3en")
+        self.assertEqual(
+            real["A1Z_REMOTE_GPU_ROOT"],
+            "/home/th1rt3en/dev/forge/A1Z",
+        )
         self.assertEqual(real["A1Z_REALSENSE_CAMERA_NAME"], "d405")
         self.assertEqual(real["A1Z_REALSENSE_BASE_FRAME_ID"], "link")
         self.assertEqual(real["A1Z_REALSENSE_INITIAL_RESET"], "0")
         self.assertEqual(real["A1Z_CAN_CHANNEL"], "can0")
+        self.assertEqual(real["A1Z_CAN_BITRATE"], "1000000")
         self.assertEqual(real["A1Z_GRIPPER_MAX_TORQUE"], "0.5")
-        self.assertEqual(real["A1Z_HAND_EYE_CALIBRATION_STATUS"], "unverified")
+        self.assertNotIn("A1Z_HAND_EYE_CALIBRATION_STATUS", real)
 
     def test_shell_loader_applies_profile_over_common_defaults(self) -> None:
         command = (

@@ -94,5 +94,15 @@ ApplicationWindow {
                 window.manualSection = section
             }
         }
+
+        DiagnosticLogPanel {
+            objectName: "sharedRuntimeLog"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 190
+            Layout.minimumHeight: 140
+            Layout.maximumHeight: 230
+            theme: window.appTheme
+            controller: window.controller
+        }
     }
 }

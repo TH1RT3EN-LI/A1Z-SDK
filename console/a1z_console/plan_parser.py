@@ -94,6 +94,49 @@ def summarize_pipeline(output_dir: Path, repo_root: Path) -> dict[str, Any]:
                 "rotationMatrix": candidate.get("rotation_matrix", []),
             }
 
+    preview_path = output_dir / "planning" / "selected_grasp_point_cloud.png"
+    preview_metadata_path = output_dir / "planning" / "selected_grasp_preview.json"
+    preview_source = ""
+    if preview_metadata_path.is_file():
+        preview = _load_json(preview_metadata_path)
+        preview_candidate_id = str(preview.get("candidate_id", ""))
+        selected_candidate_id = str(plan.get("selected_grasp_candidate_id", ""))
+        if preview_candidate_id != selected_candidate_id:
+            raise ValueError(
+                "抓取点云预览与 selected_plan 的候选 ID 不一致"
+            )
+        pose_6dof = preview.get("gripper_pose_6dof", {})
+        if not isinstance(pose_6dof, dict):
+            raise ValueError("抓取点云预览缺少 gripper_pose_6dof")
+        position_xyz_m = pose_6dof.get("position_xyz_m", [])
+        rpy_deg = pose_6dof.get("rpy_deg", [])
+        if not isinstance(position_xyz_m, list) or len(position_xyz_m) != 3:
+            raise ValueError("抓取点云预览缺少 Base XYZ")
+        if not isinstance(rpy_deg, list) or len(rpy_deg) != 3:
+            raise ValueError("抓取点云预览缺少 Base RPY")
+        if not preview_path.is_file():
+            raise ValueError("抓取点云预览 PNG 不存在")
+        gripper = preview.get("gripper", {})
+        gripper = gripper if isinstance(gripper, dict) else {}
+        grasp.update(
+            {
+                "rank": int(preview.get("candidate_rank", grasp.get("rank", 0))),
+                "score": float(preview.get("score", grasp.get("score", 0.0))),
+                "widthMm": round(
+                    float(gripper.get("opening_m", 0.0)) * 1000.0,
+                    2,
+                ),
+                "baseTranslationMm": [
+                    round(float(value) * 1000.0, 2)
+                    for value in position_xyz_m
+                ],
+                "baseRpyDeg": [round(float(value), 2) for value in rpy_deg],
+                "quaternionXyzw": pose_6dof.get("quaternion_xyzw", []),
+                "transformMatrix": pose_6dof.get("transform_matrix", []),
+            }
+        )
+        preview_source = preview_path.resolve().as_uri()
+
     raw_safety = plan.get("safety_summary", {})
     safety = dict(raw_safety) if isinstance(raw_safety, dict) else {}
     safety_names = [
@@ -108,6 +151,7 @@ def summarize_pipeline(output_dir: Path, repo_root: Path) -> dict[str, Any]:
         "planId": str(plan.get("plan_id", "")),
         "candidateId": str(plan.get("selected_grasp_candidate_id", "")),
         "frameId": str(plan.get("frame_id", "")),
+        "graspPreviewSource": preview_source,
         "segments": segments,
         "grasp": grasp,
         "safety": [

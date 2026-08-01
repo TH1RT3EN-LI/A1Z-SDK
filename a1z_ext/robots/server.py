@@ -94,6 +94,8 @@ class RobotServer:
         *,
         joint_feedback_tolerance_deg: float = 0.75,
         joint_feedback_timeout_s: float = 2.0,
+        joint_settle_delta_deg: float = 0.05,
+        joint_settle_stable_samples: int = 3,
         gripper_feedback_tolerance: float = 0.025,
         gripper_feedback_timeout_s: float = 3.0,
     ) -> None:
@@ -111,6 +113,10 @@ class RobotServer:
         self._recording_name = ""
         self._joint_feedback_tolerance_deg = float(joint_feedback_tolerance_deg)
         self._joint_feedback_timeout_s = float(joint_feedback_timeout_s)
+        self._joint_settle_delta_deg = float(joint_settle_delta_deg)
+        self._joint_settle_stable_samples = max(
+            1, int(joint_settle_stable_samples)
+        )
         self._gripper_feedback_tolerance = float(gripper_feedback_tolerance)
         self._gripper_feedback_timeout_s = float(gripper_feedback_timeout_s)
 
@@ -219,6 +225,74 @@ class RobotServer:
             "estopped": self._is_estopped(),
         }
 
+    def _verify_joint_settled(self, measured_before_rad: np.ndarray) -> dict:
+        """Poll SDK feedback until every joint has stopped changing."""
+
+        measured_before = np.asarray(
+            measured_before_rad, dtype=np.float64
+        ).reshape(-1)[:6]
+        previous = np.asarray(
+            self._robot.get_joint_pos()[:6], dtype=np.float64
+        ).reshape(-1)[:6]
+        measured = previous.copy()
+        sample_delta_deg = np.full(6, np.inf, dtype=np.float64)
+        threshold = self._joint_settle_delta_deg
+        required_samples = self._joint_settle_stable_samples
+        deadline = time.monotonic() + max(0.0, self._joint_feedback_timeout_s)
+        stable_samples = 0
+
+        while True:
+            if self._is_faulted() or not self._is_running() or self._is_estopped():
+                break
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+            measured = np.asarray(
+                self._robot.get_joint_pos()[:6], dtype=np.float64
+            ).reshape(-1)[:6]
+            sample_delta_deg = np.abs(np.rad2deg(measured - previous))
+            if (
+                sample_delta_deg.size == 6
+                and float(np.max(sample_delta_deg)) <= threshold
+            ):
+                stable_samples += 1
+                if stable_samples >= required_samples:
+                    break
+            else:
+                stable_samples = 0
+            previous = measured.copy()
+
+        maximum_sample_delta = (
+            float(np.max(sample_delta_deg))
+            if sample_delta_deg.size
+            else float("inf")
+        )
+        settled = (
+            self._is_running()
+            and not self._is_faulted()
+            and not self._is_estopped()
+            and stable_samples >= required_samples
+            and maximum_sample_delta <= threshold
+        )
+        motion_delta_deg = np.rad2deg(measured - measured_before)
+        return {
+            # Keep `reached` for the existing response contract, but its
+            # semantics for joint_jog are now strictly feedback-settled.
+            "reached": settled,
+            "settled": settled,
+            "measured_deg": [round(float(v), 3) for v in np.rad2deg(measured)],
+            "motion_delta_deg": [round(float(v), 3) for v in motion_delta_deg],
+            "sample_delta_deg": [
+                round(float(v), 4) for v in sample_delta_deg
+            ],
+            "max_sample_delta_deg": round(maximum_sample_delta, 4),
+            "settle_delta_deg": threshold,
+            "stable_samples": stable_samples,
+            "stable_samples_required": required_samples,
+            **self._runtime_health(),
+            "estopped": self._is_estopped(),
+        }
+
     def _move_joints_once_verified(
         self,
         target: np.ndarray,
@@ -266,14 +340,25 @@ class RobotServer:
         self._robot.move_joints(target, speed=speed)
         verification = self._verify_joint_feedback(target)
         if not verification["reached"]:
-            return {
-                "ok": False,
-                "execution_state": "submitted_unverified",
-                "error": (
+            fault_message = str(verification.get("fault_message", "") or "").strip()
+            if verification.get("faulted"):
+                failure = "Robot control loop faulted while executing joint move"
+                if fault_message:
+                    failure += f": {fault_message}"
+            elif verification.get("estopped"):
+                failure = "Robot entered estop while executing joint move."
+            elif verification.get("running") is not True:
+                failure = "Robot control loop stopped while executing joint move."
+            else:
+                failure = (
                     "Joint target was not reached from SDK feedback: "
                     f"max error {verification['max_error_deg']:.3f}° "
                     f"(tolerance {verification['tolerance_deg']:.3f}°)."
-                ),
+                )
+            return {
+                "ok": False,
+                "execution_state": "submitted_unverified",
+                "error": failure,
                 "data": {"verification": verification},
             }
         return {
@@ -419,6 +504,258 @@ class RobotServer:
             return {"ok": False, "error": "move requires 'preset' or 'joints'"}
 
         return self._move_joints_once_verified(target, speed=speed)
+
+    def _cmd_cartesian_jog(self, args: dict) -> dict:
+        """Apply one IK joint increment from the SDK command trajectory.
+
+        The IK helper derives this increment from measured feedback.  Compose
+        it here with the backend's exact command position so Cartesian jogging
+        does not rewrite command/feedback tracking offsets.  Completion is
+        feedback settling only; Cartesian target error is diagnostic data at
+        the helper layer and is never an arrival gate.
+        """
+
+        rejected = self._reject_if_not_position_hold()
+        if rejected is not None:
+            return rejected
+
+        raw_delta = args.get("joint_delta_deg")
+        try:
+            joint_delta_deg = np.asarray(raw_delta, dtype=np.float64).reshape(-1)
+        except (TypeError, ValueError):
+            return {
+                "ok": False,
+                "error": "joint_delta_deg must be a list of 6 finite values (degrees)",
+            }
+        if joint_delta_deg.size != 6 or not np.all(np.isfinite(joint_delta_deg)):
+            return {
+                "ok": False,
+                "error": "joint_delta_deg must be a list of 6 finite values (degrees)",
+            }
+        if float(np.max(np.abs(joint_delta_deg))) <= 1e-12:
+            return {
+                "ok": False,
+                "error": "joint_delta_deg must contain a non-zero increment",
+            }
+
+        speed_limits = get_arm_motion_speed_limits()
+        speed = validate_arm_motion_speed(args.get("speed", speed_limits.default))
+        info = dict(self._robot.get_robot_info())
+        raw_command_pos = info.get("command_pos")
+        if raw_command_pos is None:
+            return {
+                "ok": False,
+                "error": (
+                    "Robot backend does not expose its current joint command target; "
+                    "refusing to reconstruct a Cartesian target from measured feedback."
+                ),
+            }
+        command_start = np.asarray(raw_command_pos, dtype=np.float64).reshape(-1)
+        if command_start.size < 6 or not np.all(np.isfinite(command_start[:6])):
+            return {
+                "ok": False,
+                "error": "Robot backend returned an invalid six-axis joint command target.",
+            }
+        command_start = command_start[:6].copy()
+        command_target = command_start + np.deg2rad(joint_delta_deg)
+
+        raw_limits = info.get("joint_limits")
+        if raw_limits is not None:
+            limits = np.asarray(raw_limits, dtype=np.float64).reshape(-1, 2)
+            if limits.shape[0] >= 6:
+                invalid = (command_target < limits[:6, 0]) | (
+                    command_target > limits[:6, 1]
+                )
+                if np.any(invalid):
+                    joint_index = int(np.argmax(invalid)) + 1
+                    return {
+                        "ok": False,
+                        "error": (
+                            "Cartesian jog command target violates joint limits "
+                            f"at J{joint_index}."
+                        ),
+                    }
+
+        measured_before = np.asarray(
+            self._robot.get_joint_pos()[:6], dtype=np.float64
+        ).reshape(-1)
+        if measured_before.size < 6 or not np.all(np.isfinite(measured_before[:6])):
+            return {
+                "ok": False,
+                "error": "Robot returned invalid six-axis joint feedback.",
+            }
+        measured_before = measured_before[:6].copy()
+
+        self._robot.move_joints(command_target, speed=speed)
+        verification = self._verify_joint_settled(measured_before)
+        verification.update(
+            {
+                "joint_delta_deg": [
+                    round(float(value), 4) for value in joint_delta_deg
+                ],
+                "measured_before_deg": [
+                    round(float(value), 3) for value in np.rad2deg(measured_before)
+                ],
+                "command_start_deg": [
+                    round(float(value), 3) for value in np.rad2deg(command_start)
+                ],
+                "command_target_deg": [
+                    round(float(value), 3) for value in np.rad2deg(command_target)
+                ],
+            }
+        )
+        if not verification["settled"]:
+            fault_message = str(verification.get("fault_message", "") or "").strip()
+            if verification.get("faulted"):
+                failure = "Robot control loop faulted while executing Cartesian jog"
+                if fault_message:
+                    failure += f": {fault_message}"
+            elif verification.get("estopped"):
+                failure = "Robot entered estop while executing Cartesian jog."
+            elif verification.get("running") is not True:
+                failure = "Robot control loop stopped while executing Cartesian jog."
+            else:
+                failure = (
+                    "Joint feedback did not settle after Cartesian jog: "
+                    f"max sample change {verification['max_sample_delta_deg']:.4f}° "
+                    f"(settle threshold {verification['settle_delta_deg']:.4f}°)."
+                )
+            return {
+                "ok": False,
+                "execution_state": "submitted_unverified",
+                "error": failure,
+                "data": {"verification": verification},
+            }
+        return {
+            "ok": True,
+            "data": {
+                "pos_deg": list(verification["measured_deg"]),
+                "verification": verification,
+                "motion_performed": True,
+                "completion": "feedback_settled",
+            },
+        }
+
+    def _cmd_joint_jog(self, args: dict) -> dict:
+        """Increment one command-space joint without rewriting the other five."""
+
+        rejected = self._reject_if_not_position_hold()
+        if rejected is not None:
+            return rejected
+
+        raw_joint_index = args.get("joint_index")
+        try:
+            joint_number = float(raw_joint_index)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "joint_index must be an integer from 1 to 6"}
+        if not np.isfinite(joint_number) or not joint_number.is_integer():
+            return {"ok": False, "error": "joint_index must be an integer from 1 to 6"}
+        joint_index = int(joint_number) - 1
+        if not 0 <= joint_index < 6:
+            return {"ok": False, "error": "joint_index must be an integer from 1 to 6"}
+
+        try:
+            requested_delta_deg = float(args.get("delta_deg"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "delta_deg must be a finite non-zero number"}
+        if not np.isfinite(requested_delta_deg) or abs(requested_delta_deg) <= 1e-12:
+            return {"ok": False, "error": "delta_deg must be a finite non-zero number"}
+
+        speed_limits = get_arm_motion_speed_limits()
+        speed = validate_arm_motion_speed(args.get("speed", speed_limits.default))
+        info = dict(self._robot.get_robot_info())
+        raw_command_pos = info.get("command_pos")
+        if raw_command_pos is None:
+            return {
+                "ok": False,
+                "error": (
+                    "Robot backend does not expose its current joint command target; "
+                    "refusing to reconstruct a jog target from measured feedback."
+                ),
+            }
+        command_target = np.asarray(raw_command_pos, dtype=np.float64).reshape(-1)
+        if command_target.size < 6 or not np.all(np.isfinite(command_target[:6])):
+            return {
+                "ok": False,
+                "error": "Robot backend returned an invalid six-axis joint command target.",
+            }
+        command_target = command_target[:6].copy()
+
+        previous_command = float(command_target[joint_index])
+        requested_command = previous_command + float(np.deg2rad(requested_delta_deg))
+        applied_command = requested_command
+        raw_limits = info.get("joint_limits")
+        if raw_limits is not None:
+            limits = np.asarray(raw_limits, dtype=np.float64).reshape(-1, 2)
+            if limits.shape[0] >= 6:
+                lo, hi = limits[joint_index]
+                applied_command = float(np.clip(applied_command, lo, hi))
+        applied_delta = applied_command - previous_command
+        if abs(applied_delta) <= 1e-12:
+            direction = "upper" if requested_delta_deg > 0.0 else "lower"
+            return {
+                "ok": False,
+                "error": f"Joint {joint_index + 1} is already at its soft {direction} limit.",
+            }
+        command_target[joint_index] = applied_command
+
+        measured_before = np.asarray(
+            self._robot.get_joint_pos()[:6], dtype=np.float64
+        ).reshape(-1)
+        if measured_before.size < 6 or not np.all(np.isfinite(measured_before[:6])):
+            return {"ok": False, "error": "Robot returned invalid six-axis joint feedback."}
+        measured_before = measured_before[:6].copy()
+
+        self._robot.move_joints(command_target, speed=speed)
+        verification = self._verify_joint_settled(measured_before)
+        verification.update(
+            {
+                "joint_index": joint_index + 1,
+                "requested_delta_deg": requested_delta_deg,
+                "applied_delta_deg": round(float(np.rad2deg(applied_delta)), 3),
+                "measured_before_deg": [
+                    round(float(value), 3)
+                    for value in np.rad2deg(measured_before)
+                ],
+                "command_target_deg": [
+                    round(float(value), 3)
+                    for value in np.rad2deg(command_target)
+                ],
+            }
+        )
+        if not verification["reached"]:
+            fault_message = str(verification.get("fault_message", "") or "").strip()
+            if verification.get("faulted"):
+                failure = "Robot control loop faulted while executing joint jog"
+                if fault_message:
+                    failure += f": {fault_message}"
+            elif verification.get("estopped"):
+                failure = "Robot entered estop while executing joint jog."
+            elif verification.get("running") is not True:
+                failure = "Robot control loop stopped while executing joint jog."
+            else:
+                failure = (
+                    "Joint feedback did not settle after joint jog: "
+                    f"max sample change "
+                    f"{verification['max_sample_delta_deg']:.4f}° "
+                    f"(settle threshold "
+                    f"{verification['settle_delta_deg']:.4f}°)."
+                )
+            return {
+                "ok": False,
+                "execution_state": "submitted_unverified",
+                "error": failure,
+                "data": {"verification": verification},
+            }
+        return {
+            "ok": True,
+            "data": {
+                "pos_deg": list(verification["measured_deg"]),
+                "verification": verification,
+                "motion_performed": True,
+                "completion": "feedback_settled",
+            },
+        }
 
     def _cmd_command(self, args: dict) -> dict:
         rejected = self._reject_if_not_position_hold()
@@ -1041,6 +1378,8 @@ class RobotServer:
     _HANDLERS = {
         "status":  _cmd_status,
         "move":    _cmd_move,
+        "cartesian_jog": _cmd_cartesian_jog,
+        "joint_jog": _cmd_joint_jog,
         "command": _cmd_command,
         "gripper": _cmd_gripper,
         "grasp_close": _cmd_grasp_close,
@@ -1071,6 +1410,8 @@ class RobotServer:
     _MOTION_COMMANDS = frozenset(
         {
             "move",
+            "cartesian_jog",
+            "joint_jog",
             "command",
             "gripper",
             "grasp_close",

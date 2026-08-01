@@ -7,6 +7,7 @@ Rectangle {
     id: root
 
     required property var theme
+    required property var controller
     required property string currentPage
     signal pageRequested(string route)
 
@@ -37,7 +38,18 @@ Rectangle {
                 text: modelData.label
                 iconName: modelData.icon
                 selected: root.currentPage === modelData.route
-                onClicked: root.pageRequested(modelData.route)
+                routeEnabled: modelData.route === "overview"
+                              || modelData.route === "settings"
+                              || modelData.route === "diagnostics"
+                              || root.controller.startupReady
+                blockedText: qsTr("启动引导尚未完成：%1")
+                             .arg(root.controller.startupGateText)
+                onClicked: {
+                    if (routeEnabled)
+                        root.pageRequested(modelData.route)
+                    else
+                        root.controller.explainStartupGate()
+                }
             }
         }
 

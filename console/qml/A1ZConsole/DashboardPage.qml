@@ -8,6 +8,7 @@ Item {
 
     required property var theme
     required property var controller
+    signal pageRequested(string route)
     readonly property var jointSnapshot:
         root.visible ? root.controller.joints : []
     readonly property var emptyJointData: ({
@@ -29,6 +30,16 @@ Item {
         ColumnLayout {
             width: dashboardScroll.availableWidth
             spacing: root.theme.spacingM
+
+            StartupGuidePanel {
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                theme: root.theme
+                controller: root.controller
+                onRouteRequested: function(route) {
+                    root.pageRequested(route)
+                }
+            }
 
             GlassCard {
                 Layout.fillWidth: true

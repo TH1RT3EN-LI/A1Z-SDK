@@ -12,12 +12,19 @@ GlassCard {
     property bool anyDraftPending: false
     property string calibrationProfile: ""
     property bool calibrationConnected: false
+    readonly property int selectedMotorNumber: motorSelector.currentIndex + 1
+    readonly property bool selectedMotorSupportsClear:
+        root.selectedMotorNumber >= 4
+    readonly property string selectedMotorName:
+        "J" + root.selectedMotorNumber
 
-    implicitHeight: 370
+    implicitHeight: 560
 
     onVisibleChanged: {
-        if (!visible)
+        if (!visible) {
+            motorClearPhrase.clear()
             calibrationPhrase.clear()
+        }
     }
 
     ColumnLayout {
@@ -69,6 +76,110 @@ GlassCard {
                          && !root.gripperDraftPending
                 onClicked: root.controller.runMaintenance("gripper_test", "")
             }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: root.theme.border
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("单电机检查会短暂使能后失能选中轴；操作前请支撑机械臂")
+            color: root.theme.orange
+            wrapMode: Text.Wrap
+            textFormat: Text.PlainText
+            font.family: root.theme.fontFamily
+            font.pixelSize: root.theme.typeCaption
+            font.weight: Font.DemiBold
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            AppComboBox {
+                id: motorSelector
+                Layout.preferredWidth: 190
+                theme: root.theme
+                currentIndex: 3
+                model: [
+                    qsTr("J1 · MotorA"),
+                    qsTr("J2 · MotorA"),
+                    qsTr("J3 · MotorA"),
+                    qsTr("J4 · MotorB 4340"),
+                    qsTr("J5 · MotorB 4310"),
+                    qsTr("J6 · MotorB 4310")
+                ]
+                Accessible.name: qsTr("单电机选择")
+                onActivated: motorClearPhrase.clear()
+            }
+            AppButton {
+                Layout.preferredWidth: 128
+                theme: root.theme
+                text: qsTr("检查 ") + root.selectedMotorName
+                enabled: root.controller.offlineMaintenanceEnabled
+                         && !root.armDraftPending
+                onClicked: root.controller.runMaintenance(
+                               "motor_check_j" + root.selectedMotorNumber, "")
+            }
+            Text {
+                Layout.fillWidth: true
+                text: root.selectedMotorSupportsClear
+                      ? qsTr("检查结果会显示位置、温度和错误码")
+                      : qsTr("J1–J3 为 MotorA，官方 SDK 不支持 0xFB 清错")
+                color: root.selectedMotorSupportsClear
+                       ? root.theme.secondaryText : root.theme.tertiaryText
+                wrapMode: Text.Wrap
+                textFormat: Text.PlainText
+                font.family: root.theme.fontFamily
+                font.pixelSize: root.theme.typeCaption
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            AppTextField {
+                id: motorClearPhrase
+                Layout.fillWidth: true
+                theme: root.theme
+                dangerFocus: true
+                enabled: root.selectedMotorSupportsClear
+                placeholderText: root.selectedMotorSupportsClear
+                                 ? qsTr("输入：清错 ") + root.selectedMotorName
+                                 : qsTr("仅 J4–J6 支持官方清错指令")
+                Accessible.name: qsTr("单电机清错确认短语")
+            }
+            AppButton {
+                Layout.preferredWidth: 128
+                theme: root.theme
+                kind: "danger"
+                text: qsTr("清除 ") + root.selectedMotorName + qsTr(" 错误")
+                enabled: root.controller.offlineMaintenanceEnabled
+                         && !root.armDraftPending
+                         && root.selectedMotorSupportsClear
+                         && motorClearPhrase.text.trim()
+                            === "清错 " + root.selectedMotorName
+                onClicked: {
+                    root.controller.runMaintenance(
+                                "motor_clear_j" + root.selectedMotorNumber,
+                                motorClearPhrase.text)
+                    motorClearPhrase.clear()
+                }
+            }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("清错只解除故障锁存，不会修复欠压、过温或接线问题；清除后请再点“检查”确认")
+            color: root.theme.red
+            wrapMode: Text.Wrap
+            textFormat: Text.PlainText
+            font.family: root.theme.fontFamily
+            font.pixelSize: root.theme.typeCaption
         }
 
         Item { Layout.fillHeight: true }

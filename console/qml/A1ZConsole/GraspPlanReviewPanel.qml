@@ -67,6 +67,82 @@ GlassCard {
             }
         }
 
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 410
+            visible: root.controller.planSegments.length > 0
+                     && root.controller.graspPreviewAvailable
+            radius: root.theme.radiusControl
+            color: root.theme.tile
+            border.width: 0
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 7
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("最终物体点云 + 夹爪 6-DoF")
+                        color: root.theme.secondaryText
+                        font.family: root.theme.fontFamily
+                        font.pixelSize: root.theme.typeCaption
+                        font.weight: Font.DemiBold
+                    }
+
+                    Text {
+                        text: qsTr("红 X 接近 · 绿 Y 开口 · 蓝 Z 工具上")
+                        color: root.theme.tertiaryText
+                        font.family: root.theme.fontFamily
+                        font.pixelSize: root.theme.typeCaption
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: root.theme.radiusSmall
+                    color: "#0c121c"
+                    clip: true
+
+                    Image {
+                        id: selectedGraspPointCloudPreview
+                        objectName: "selectedGraspPointCloudPreview"
+
+                        anchors.fill: parent
+                        anchors.margins: 6
+                        source: root.controller.graspPreviewSource
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        cache: false
+                        smooth: true
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        visible: selectedGraspPointCloudPreview.status === Image.Error
+                        text: qsTr("抓取点云预览无法载入")
+                        color: root.theme.secondaryText
+                        font.family: root.theme.fontFamily
+                        font.pixelSize: root.theme.typeLabel
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.controller.graspBasePositionText
+                    textFormat: Text.PlainText
+                    color: root.theme.text
+                    font.family: root.theme.fontFamily
+                    font.pixelSize: root.theme.typeLabel
+                    font.weight: Font.DemiBold
+                }
+            }
+        }
+
         ColumnLayout {
             Layout.fillWidth: true
             visible: root.controller.planSegments.length > 0
