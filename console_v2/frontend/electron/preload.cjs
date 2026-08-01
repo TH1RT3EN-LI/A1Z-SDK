@@ -25,5 +25,22 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.on("terminal:exit", listener);
       return () => ipcRenderer.removeListener("terminal:exit", listener);
     },
+    getWindowState() {
+      return ipcRenderer.invoke("window:get-state");
+    },
+    minimizeWindow() {
+      ipcRenderer.send("window:minimize");
+    },
+    toggleMaximizeWindow() {
+      ipcRenderer.send("window:toggle-maximize");
+    },
+    closeWindow() {
+      ipcRenderer.send("window:close");
+    },
+    onWindowMaximizedChange(callback) {
+      const listener = (_event, maximized) => callback(maximized);
+      ipcRenderer.on("window:maximized-changed", listener);
+      return () => ipcRenderer.removeListener("window:maximized-changed", listener);
+    },
   }),
 );

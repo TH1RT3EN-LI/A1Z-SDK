@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import {
   Blocks,
   Bot,
@@ -7,10 +7,13 @@ import {
   FileClock,
   Gamepad2,
   LayoutDashboard,
+  Minus,
   RadioTower,
   ScanLine,
   Settings,
+  Square,
   Waypoints,
+  X,
 } from "lucide-react";
 import RobotViewport from "./components/RobotViewport";
 import TerminalPanel from "./components/TerminalPanel";
@@ -70,6 +73,14 @@ function EmptyCameraView({ mode }: { mode: Exclude<ViewMode, "model"> }) {
 export default function App() {
   const [activeNavigation, setActiveNavigation] = useState(navigation[0]);
   const [viewMode, setViewMode] = useState<ViewMode>("model");
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const desktopApi = window.a1zDesktop;
+
+  useEffect(() => {
+    if (!desktopApi) return;
+    void desktopApi.getWindowState().then(({ maximized }) => setIsWindowMaximized(maximized));
+    return desktopApi.onWindowMaximizedChange(setIsWindowMaximized);
+  }, [desktopApi]);
 
   return (
     <div className="app-shell">
@@ -96,6 +107,43 @@ export default function App() {
           <span className="status-dot" />
           FRAMEWORK
         </div>
+
+        {desktopApi ? (
+          <div className="window-controls" aria-label="窗口控制">
+            <button
+              className="window-control-button"
+              type="button"
+              aria-label="最小化窗口"
+              title="最小化"
+              onClick={() => desktopApi.minimizeWindow()}
+            >
+              <Minus size={16} strokeWidth={1.5} aria-hidden="true" />
+            </button>
+            <button
+              className="window-control-button"
+              type="button"
+              aria-label={isWindowMaximized ? "还原窗口" : "最大化窗口"}
+              aria-pressed={isWindowMaximized}
+              title={isWindowMaximized ? "还原" : "最大化"}
+              onClick={() => desktopApi.toggleMaximizeWindow()}
+            >
+              {isWindowMaximized ? (
+                <span className="restore-window-icon" aria-hidden="true" />
+              ) : (
+                <Square size={13} strokeWidth={1.5} aria-hidden="true" />
+              )}
+            </button>
+            <button
+              className="window-control-button close-window-button"
+              type="button"
+              aria-label="关闭窗口"
+              title="关闭"
+              onClick={() => desktopApi.closeWindow()}
+            >
+              <X size={17} strokeWidth={1.5} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
       </header>
 
       <div className="app-body">

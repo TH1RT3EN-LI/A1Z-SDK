@@ -69,6 +69,14 @@ def _config() -> dict[str, object]:
     return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 
 
+def _inertial_signature(inertial: ET.Element) -> dict[str, dict[str, str]]:
+    return {
+        child.tag: dict(child.attrib)
+        for child in inertial
+        if child.tag in {"origin", "mass", "inertia"}
+    }
+
+
 def test_d405_rear_holes_and_bracket_holes_are_coincident() -> None:
     config = _config()
     mount_rotation = _rpy_matrix(config["mount_rpy_deg"])
@@ -130,6 +138,48 @@ def test_control_and_isaac_urdfs_share_d405_mount_and_frame_tree() -> None:
         actual_rpy = [float(value) for value in mount.find("origin").get("rpy").split()]
         assert max(abs(a - e) for a, e in zip(actual_xyz, expected_xyz, strict=True)) < 1e-12
         assert max(abs(a - e) for a, e in zip(actual_rpy, expected_rpy, strict=True)) < 1e-12
+
+
+def test_generated_urdfs_preserve_official_g1z_inertials_and_d405_mass() -> None:
+    config = _config()
+    assert config["mass_kg"] == 0.072
+
+    official = ET.parse(
+        ROOT
+        / "vendor"
+        / "GALAXEA-A1Z"
+        / "a1z"
+        / "robot_models"
+        / "a1z"
+        / "A1Z_G1Z.urdf"
+    ).getroot()
+    official_links = {
+        link.get("name"): link
+        for link in official.findall("link")
+    }
+    dynamic_links = (
+        "arm_link3",
+        "arm_link4",
+        "arm_link5",
+        "arm_link6",
+        "gripper_finger_left_link",
+        "gripper_finger_rIght_link",
+    )
+
+    for filename in ("A1Z_G1Z_control.urdf", "A1Z_G1Z_isaac.urdf"):
+        generated = ET.parse(ROBOT_URDF_DIR / filename).getroot()
+        generated_links = {
+            link.get("name"): link
+            for link in generated.findall("link")
+        }
+        for link_name in dynamic_links:
+            expected = official_links[link_name].find("inertial")
+            actual = generated_links[link_name].find("inertial")
+            assert _inertial_signature(actual) == _inertial_signature(expected)
+
+        d405_mass = generated.find("./link[@name='d405_link']/inertial/mass")
+        assert d405_mass is not None
+        assert float(d405_mass.get("value")) == config["mass_kg"]
 
 
 def test_d405_pose_values_have_one_project_source(monkeypatch) -> None:
