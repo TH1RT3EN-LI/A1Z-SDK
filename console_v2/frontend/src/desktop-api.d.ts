@@ -24,6 +24,11 @@ declare global {
       closeTerminal(sessionId: string): void;
       onTerminalData(callback: (payload: TerminalDataPayload) => void): () => void;
       onTerminalExit(callback: (payload: TerminalExitPayload) => void): () => void;
+      getWindowState(): Promise<{ maximized: boolean }>;
+      minimizeWindow(): void;
+      toggleMaximizeWindow(): void;
+      closeWindow(): void;
+      onWindowMaximizedChange(callback: (maximized: boolean) => void): () => void;
     };
   }
 }

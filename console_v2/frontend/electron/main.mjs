@@ -57,6 +57,32 @@ function closeOwnedTerminalSessions(ownerId) {
   }
 }
 
+function windowFromEvent(event) {
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
+function registerWindowIpc() {
+  ipcMain.handle("window:get-state", (event) => {
+    const window = windowFromEvent(event);
+    return { maximized: window?.isMaximized() ?? false };
+  });
+
+  ipcMain.on("window:minimize", (event) => {
+    windowFromEvent(event)?.minimize();
+  });
+
+  ipcMain.on("window:toggle-maximize", (event) => {
+    const window = windowFromEvent(event);
+    if (!window) return;
+    if (window.isMaximized()) window.unmaximize();
+    else window.maximize();
+  });
+
+  ipcMain.on("window:close", (event) => {
+    windowFromEvent(event)?.close();
+  });
+}
+
 function registerTerminalIpc() {
   ipcMain.handle("terminal:start", (event, options = {}) => {
     const sessionId = options.sessionId;
@@ -151,6 +177,7 @@ async function createMainWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 680,
+    frame: false,
     show: false,
     title: "A1Z Console",
     backgroundColor: "#0b0e13",
@@ -177,6 +204,13 @@ async function createMainWindow() {
     window.show();
     void captureFrameworkScreenshot(window);
   });
+  const sendMaximizedState = () => {
+    if (!window.webContents.isDestroyed()) {
+      window.webContents.send("window:maximized-changed", window.isMaximized());
+    }
+  };
+  window.on("maximize", sendMaximizedState);
+  window.on("unmaximize", sendMaximizedState);
   const webContentsId = window.webContents.id;
   window.webContents.once("destroyed", () => closeOwnedTerminalSessions(webContentsId));
 
@@ -189,6 +223,7 @@ async function createMainWindow() {
 
 Menu.setApplicationMenu(null);
 registerTerminalIpc();
+registerWindowIpc();
 
 app.whenReady().then(async () => {
   await registerDesktopProtocol();
