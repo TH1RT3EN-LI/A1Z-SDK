@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Maximize2, Minimize2, RotateCcw, TerminalSquare } from "lucide-react";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
+import { terminalThemes, type ThemeMode } from "../theme";
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
 
@@ -11,20 +11,12 @@ function buildTerminalSocketUrl() {
   return `${protocol}//${window.location.host}/api/terminal`;
 }
 
-export default function TerminalPanel() {
+export default function TerminalPanel({ theme }: { theme: ThemeMode }) {
   const terminalHost = useRef<HTMLDivElement>(null);
-  const [session, setSession] = useState(0);
+  const terminalInstance = useRef<Terminal | null>(null);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
-  const [maximized, setMaximized] = useState(false);
-
-  useEffect(() => {
-    if (!maximized) return undefined;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMaximized(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [maximized]);
 
   useEffect(() => {
     const host = terminalHost.current;
@@ -39,23 +31,9 @@ export default function TerminalPanel() {
       lineHeight: 1.25,
       scrollback: 5000,
       allowTransparency: true,
-      theme: {
-        background: "#0b0f15",
-        foreground: "#d7e0e8",
-        cursor: "#77d4f4",
-        cursorAccent: "#0b0f15",
-        selectionBackground: "#29495a",
-        black: "#11161c",
-        red: "#ef767a",
-        green: "#72d8a0",
-        yellow: "#e9c46a",
-        blue: "#6cb6ff",
-        magenta: "#c099ff",
-        cyan: "#67d4df",
-        white: "#d7e0e8",
-        brightBlack: "#66717d",
-      },
+      theme: terminalThemes[themeRef.current],
     });
+    terminalInstance.current = terminal;
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
@@ -143,42 +121,28 @@ export default function TerminalPanel() {
       if (desktop && desktopSessionId) desktop.closeTerminal(desktopSessionId);
       socket?.close();
       terminal.dispose();
+      if (terminalInstance.current === terminal) terminalInstance.current = null;
     };
-  }, [session]);
+  }, []);
+
+  useEffect(() => {
+    if (terminalInstance.current) {
+      terminalInstance.current.options.theme = terminalThemes[theme];
+    }
+  }, [theme]);
 
   return (
-    <section className={`panel terminal-panel ${maximized ? "is-maximized" : ""}`}>
-      <div className="panel-header terminal-header">
-        <div className="terminal-heading">
-          <TerminalSquare size={17} strokeWidth={1.7} />
-          <div>
-            <span className="eyebrow">LOCAL PTY</span>
-            <h2>终端</h2>
-          </div>
-        </div>
-        <div className="terminal-tools">
-          <span className={`connection-state is-${connectionState}`}>
-            <i />
-            {connectionState === "connected" ? "已连接" : connectionState === "connecting" ? "连接中" : "已断开"}
-          </span>
-          <button
-            type="button"
-            title="新建终端会话"
-            aria-label="新建终端会话"
-            onClick={() => setSession((value) => value + 1)}
-          >
-            <RotateCcw size={14} />
-          </button>
-          <button
-            type="button"
-            title={maximized ? "还原终端" : "最大化终端"}
-            aria-label={maximized ? "还原终端" : "最大化终端"}
-            onClick={() => setMaximized((value) => !value)}
-          >
-            {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </button>
-        </div>
-      </div>
+    <section
+      className="panel terminal-panel"
+      aria-label="终端"
+      data-connection-state={connectionState}
+    >
+      {connectionState === "connected" ? null : (
+        <span className={`connection-state is-${connectionState}`}>
+          <i />
+          {connectionState === "connecting" ? "连接中" : "已断开"}
+        </span>
+      )}
       <div className="terminal-surface" ref={terminalHost} />
     </section>
   );

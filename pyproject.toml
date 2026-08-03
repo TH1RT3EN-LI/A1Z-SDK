@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "a1z-control-sdk"
+version = "0.1.0"
+description = "A stable, feedback-aware control SDK for the Galaxea A1Z robot arm"
+readme = "docs/SDK_ARCHITECTURE.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+hardware = [
+    "numpy",
+    "pin",
+    "python-can>=4.0",
+]
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+a1z = "a1z_sdk.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["a1z_sdk*", "a1z_ext*"]
+exclude = ["vendor*", "tests*"]
+
+[tool.setuptools.package-data]
+"a1z_ext.config" = ["*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

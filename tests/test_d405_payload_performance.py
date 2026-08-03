@@ -258,8 +258,15 @@ class D405PayloadPerformanceTests(unittest.TestCase):
 
         self.assertEqual(result, {"ok": True, "data": {"ready": True}})
         self.assertTrue(server._dispatch_request("status", {})["ok"])
+        # Latest-target commands deliberately bypass the legacy command lock;
+        # otherwise a newer target could not supersede a blocking move.
+        move_result = server._dispatch_request(
+            "command", {"joints": [0.0] * 6, "speed": 0.5}
+        )
+        self.assertTrue(move_result["ok"])
+        # Mutually exclusive control-mode transitions remain serialized.
         with self.assertRaisesRegex(AssertionError, "robot command lock"):
-            server._dispatch_request("move", {"preset": "home"})
+            server._dispatch_request("gravity_mode", {"enabled": True})
 
     def test_on_demand_capture_waits_for_a_new_render_generation_and_keeps_graph_warm(self) -> None:
         session = self._bare_session()

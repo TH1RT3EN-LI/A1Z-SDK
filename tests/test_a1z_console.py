@@ -3240,11 +3240,15 @@ def test_estop_and_status_bypass_a_blocking_move() -> None:
 def test_console_sdk_recording_and_control_modes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pytest.importorskip("numpy")
+    np = pytest.importorskip("numpy")
     from a1z_ext.robots.mock_robot import MockArmRobot
     from a1z_ext.robots.server import RobotServer
 
-    robot = MockArmRobot(with_gripper=True, zero_gravity_mode=False)
+    robot = MockArmRobot(
+        with_gripper=True,
+        zero_gravity_mode=False,
+        joint_limits=[(-np.pi, np.pi)] * 6,
+    )
     robot.start()
     server = RobotServer(robot, with_gripper=True)
     monkeypatch.setattr(
@@ -3261,6 +3265,18 @@ def test_console_sdk_recording_and_control_modes(
     gravity = server._dispatch_request("gravity_mode", {"enabled": True})
     assert gravity["ok"] is True
     assert gravity["data"]["gravity_comp_factor"] == pytest.approx(1.0)
+    status = server._dispatch_request("status", {})["data"]
+    assert status["control_mode"] == "gravity_comp_effort"
+    assert status["gravity_comp_factor"] == pytest.approx(1.0)
+    np.testing.assert_allclose(
+        status["joint_limits_deg"],
+        [[-180.0, 180.0]] * 6,
+    )
+    assert status["arm_motion_speed_rad_s"] == {
+        "minimum": pytest.approx(0.05),
+        "default": pytest.approx(0.5),
+        "maximum": pytest.approx(1.5),
+    }
     assert server._dispatch_request("info", {})["data"]["gravity_comp_factor"] == pytest.approx(1.0)
     rejected = server._dispatch_request("gravity_factor", {"factor": 0.65})
     assert rejected["ok"] is False
@@ -3349,6 +3365,22 @@ def test_gravity_mode_transition_never_mutates_startup_factor() -> None:
     assert robot.calls == []
     assert robot.factor == pytest.approx(1.0)
 
+    robot.factor = 0.0
+    rejected_zero_factor = server._dispatch_request(
+        "gravity_mode", {"enabled": True}
+    )
+    assert rejected_zero_factor["ok"] is False
+    assert "(0.0, 1.0]" in rejected_zero_factor["error"]
+    assert robot.calls == []
+
+    robot.factor = 1.1
+    rejected_excess_factor = server._dispatch_request(
+        "gravity_mode", {"enabled": True}
+    )
+    assert rejected_excess_factor["ok"] is False
+    assert robot.calls == []
+
+    robot.factor = 1.0
     assert server._dispatch_request("gravity_mode", {"enabled": True})["ok"]
     assert robot.calls == [("mode", True)]
     assert robot.factor == pytest.approx(1.0)
@@ -3432,7 +3464,7 @@ def test_recording_start_rolls_back_zero_force_modes_on_failure() -> None:
     assert server._dispatch_request("info", {})["data"]["recording"] is False
 
 
-def test_move_is_submitted_once_and_fails_when_sdk_feedback_does_not_reach() -> None:
+def test_move_fails_when_endpoint_feedback_stalls_outside_half_mm() -> None:
     np = pytest.importorskip("numpy")
     from a1z_ext.robots.server import RobotServer
 
@@ -3441,34 +3473,54 @@ def test_move_is_submitted_once_and_fails_when_sdk_feedback_does_not_reach() -> 
         is_running = True
 
         def __init__(self) -> None:
-            self.move_calls = 0
+            self.frame_calls = 0
+            self.writer_threads: set[int] = set()
+            self.command = np.zeros(6, dtype=np.float64)
 
         def get_robot_info(self) -> dict[str, object]:
-            return {"control_mode": "position_hold"}
+            return {
+                "control_mode": "position_hold",
+                "command_pos": self.command.copy(),
+            }
 
         def get_joint_pos(self):
             return np.zeros(6, dtype=np.float64)
 
-        def move_joints(self, target, speed: float) -> None:
-            del target, speed
-            self.move_calls += 1
+        def command_motion_frame(self, target, velocity, acceleration) -> None:
+            del velocity, acceleration
+            self.command = np.asarray(target, dtype=np.float64).copy()
+            self.frame_calls += 1
+            self.writer_threads.add(threading.get_ident())
+
+    def linear_fk(joints):
+        pose = np.eye(4, dtype=np.float64)
+        pose[0, 3] = float(np.sum(joints)) * 0.1
+        return pose
 
     robot = MotionFeedbackSpy()
     server = RobotServer(
         robot,
         with_gripper=False,
-        joint_feedback_timeout_s=0.0,
+        forward_kinematics=linear_fk,
+        endpoint_feedback_timeout_s=0.0,
+        endpoint_stable_samples=2,
     )
     result = server._dispatch_request(
         "move",
-        {"joints": [5.0, 0.0, 0.0, 0.0, 0.0, 0.0], "speed": 0.5},
+        {
+            "joints": [5.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "speed": 0.5,
+            "timeout_s": 3.0,
+        },
     )
     assert result["ok"] is False
     assert result["execution_state"] == "submitted_unverified"
-    assert robot.move_calls == 1
+    assert robot.frame_calls > 1
+    assert len(robot.writer_threads) == 1
     verification = result["data"]["verification"]
     assert verification["reached"] is False
-    assert verification["max_error_deg"] == pytest.approx(5.0)
+    assert verification["position_error_mm"] > 0.5
+    assert verification["position_tolerance_mm"] == pytest.approx(0.5)
 
 
 def test_joint_jog_preserves_unselected_command_targets_and_feedback_pose() -> None:
@@ -3483,9 +3535,7 @@ def test_joint_jog_preserves_unselected_command_targets_and_feedback_pose() -> N
             self.command = np.deg2rad(
                 np.array([0.0, 30.0, -30.0, 5.0, 40.0, 0.0])
             )
-            self.measured = np.deg2rad(
-                np.array([-0.75, 31.29, -25.41, 4.27, 42.61, 0.82])
-            )
+            self.measured = self.command.copy()
             self.submitted_targets: list[object] = []
 
         def get_robot_info(self) -> dict[str, object]:
@@ -3509,24 +3559,25 @@ def test_joint_jog_preserves_unselected_command_targets_and_feedback_pose() -> N
         def get_joint_pos(self):
             return self.measured.copy()
 
-        def move_joints(self, target, speed: float) -> None:
-            assert speed == pytest.approx(0.5)
+        def command_motion_frame(self, target, velocity, acceleration) -> None:
+            del velocity, acceleration
             target = np.asarray(target, dtype=np.float64).copy()
             self.submitted_targets.append(target)
-            command_delta = target - self.command
-            self.measured = self.measured + command_delta
             self.command = target
+            self.measured = target.copy()
+
+    def linear_fk(joints):
+        pose = np.eye(4, dtype=np.float64)
+        pose[0, 3] = float(np.sum(joints)) * 0.1
+        return pose
 
     robot = CommandSpaceJogSpy()
     command_before = robot.command.copy()
-    measured_before = robot.measured.copy()
-    assert np.max(np.abs(np.rad2deg(command_before - measured_before))) > 4.0
     server = RobotServer(
         robot,
         with_gripper=False,
-        joint_feedback_timeout_s=0.2,
-        joint_settle_delta_deg=0.01,
-        joint_settle_stable_samples=2,
+        forward_kinematics=linear_fk,
+        endpoint_stable_samples=2,
     )
 
     result = server._dispatch_request(
@@ -3535,19 +3586,16 @@ def test_joint_jog_preserves_unselected_command_targets_and_feedback_pose() -> N
     )
 
     assert result["ok"] is True
-    assert len(robot.submitted_targets) == 1
-    submitted = np.asarray(robot.submitted_targets[0])
-    assert np.rad2deg(submitted[0] - command_before[0]) == pytest.approx(5.0)
-    assert submitted[1:] == pytest.approx(command_before[1:])
-    measured_delta_deg = np.rad2deg(robot.measured - measured_before)
-    assert measured_delta_deg[0] == pytest.approx(5.0)
-    assert measured_delta_deg[1:] == pytest.approx(np.zeros(5))
+    assert len(robot.submitted_targets) > 1
+    expected = command_before.copy()
+    expected[0] += np.deg2rad(5.0)
+    assert robot.command == pytest.approx(expected)
+    assert robot.measured == pytest.approx(expected)
     verification = result["data"]["verification"]
     assert verification["reached"] is True
-    assert verification["settled"] is True
     assert verification["joint_index"] == 1
-    assert verification["max_sample_delta_deg"] == pytest.approx(0.0)
-    assert "max_error_deg" not in verification
+    assert verification["target_deg"] == pytest.approx(np.rad2deg(expected), abs=1e-3)
+    assert verification["position_error_mm"] <= 0.5
 
 
 def test_cartesian_jog_uses_command_space_and_feedback_settling() -> None:
@@ -3564,9 +3612,7 @@ def test_cartesian_jog_uses_command_space_and_feedback_settling() -> None:
             self.command = np.deg2rad(
                 np.array([0.0, 30.0, -30.0, 5.0, 40.0, 0.0])
             )
-            self.measured = np.deg2rad(
-                np.array([-0.75, 31.29, -25.41, 4.27, 42.61, 0.82])
-            )
+            self.measured = self.command.copy()
             self.submitted_targets: list[object] = []
 
         def get_robot_info(self) -> dict[str, object]:
@@ -3590,24 +3636,26 @@ def test_cartesian_jog_uses_command_space_and_feedback_settling() -> None:
         def get_joint_pos(self):
             return self.measured.copy()
 
-        def move_joints(self, target, speed: float) -> None:
-            assert speed == pytest.approx(0.4)
+        def command_motion_frame(self, target, velocity, acceleration) -> None:
+            del velocity, acceleration
             target = np.asarray(target, dtype=np.float64).copy()
             self.submitted_targets.append(target)
-            joint_delta = target - self.command
-            self.measured = self.measured + joint_delta
             self.command = target
+            self.measured = target.copy()
+
+    def linear_fk(joints):
+        pose = np.eye(4, dtype=np.float64)
+        pose[0, 3] = float(np.sum(joints)) * 0.1
+        return pose
 
     robot = CartesianCommandSpaceSpy()
     command_before = robot.command.copy()
-    measured_before = robot.measured.copy()
     requested_delta_deg = [1.2, -0.4, 0.8, 0.1, -0.2, 0.3]
     server = RobotServer(
         robot,
         with_gripper=False,
-        joint_feedback_timeout_s=0.2,
-        joint_settle_delta_deg=0.01,
-        joint_settle_stable_samples=2,
+        forward_kinematics=linear_fk,
+        endpoint_stable_samples=2,
     )
 
     result = server._dispatch_request(
@@ -3616,21 +3664,14 @@ def test_cartesian_jog_uses_command_space_and_feedback_settling() -> None:
     )
 
     assert result["ok"] is True
-    assert len(robot.submitted_targets) == 1
-    submitted = np.asarray(robot.submitted_targets[0])
+    assert len(robot.submitted_targets) > 1
     expected_delta = np.deg2rad(requested_delta_deg)
-    assert submitted == pytest.approx(command_before + expected_delta)
-    assert robot.measured == pytest.approx(measured_before + expected_delta)
+    expected = command_before + expected_delta
     verification = result["data"]["verification"]
-    assert verification["settled"] is True
-    assert verification["command_start_deg"] == pytest.approx(
-        np.rad2deg(command_before), abs=1e-3
-    )
-    assert verification["command_target_deg"] == pytest.approx(
-        np.rad2deg(command_before + expected_delta), abs=1e-3
-    )
-    assert verification["max_sample_delta_deg"] == pytest.approx(0.0)
-    assert "max_error_deg" not in verification
+    assert verification["reached"] is True
+    assert verification["joint_delta_deg"] == pytest.approx(requested_delta_deg)
+    assert verification["target_deg"] == pytest.approx(np.rad2deg(expected), abs=1e-3)
+    assert verification["position_error_mm"] <= 0.5
 
 
 def test_move_reports_runtime_fault_instead_of_hiding_it_as_tolerance() -> None:
@@ -3652,8 +3693,8 @@ def test_move_reports_runtime_fault_instead_of_hiding_it_as_tolerance() -> None:
         def get_joint_pos(self):
             return np.zeros(6, dtype=np.float64)
 
-        def move_joints(self, target, speed: float) -> None:
-            del target, speed
+        def command_motion_frame(self, target, velocity, acceleration) -> None:
+            del target, velocity, acceleration
             self.move_calls += 1
             self.is_running = False
             self.is_faulted = True
@@ -3663,7 +3704,7 @@ def test_move_reports_runtime_fault_instead_of_hiding_it_as_tolerance() -> None:
     server = RobotServer(
         robot,
         with_gripper=False,
-        joint_feedback_timeout_s=0.0,
+        forward_kinematics=lambda joints: np.eye(4, dtype=np.float64),
     )
     result = server._dispatch_request(
         "move",
@@ -3676,7 +3717,7 @@ def test_move_reports_runtime_fault_instead_of_hiding_it_as_tolerance() -> None:
     assert "control loop faulted" in result["error"]
     assert "MotorB fault on joint4: under voltage" in result["error"]
     assert "tolerance" not in result["error"]
-    assert result["data"]["verification"]["faulted"] is True
+    assert result["data"]["verification"] == {}
 
 
 def test_move_reports_already_at_target_without_submitting_sdk_motion() -> None:
@@ -3697,7 +3738,11 @@ def test_move_reports_already_at_target_without_submitting_sdk_motion() -> None:
             del target, speed
             raise AssertionError("already-at-target must not call move_joints")
 
-    server = RobotServer(AlreadyAtTarget(), with_gripper=False)
+    server = RobotServer(
+        AlreadyAtTarget(),
+        with_gripper=False,
+        forward_kinematics=lambda joints: np.eye(4, dtype=np.float64),
+    )
     result = server._dispatch_request(
         "move",
         {"joints": [0.0] * 6, "speed": 0.5},

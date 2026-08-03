@@ -1,0 +1,4 @@
+[submodule "vendor/GALAXEA-A1Z"]
+	path = vendor/GALAXEA-A1Z
+	url = https://github.com/userguide-galaxea/GALAXEA-A1Z.git
+	branch = gripper

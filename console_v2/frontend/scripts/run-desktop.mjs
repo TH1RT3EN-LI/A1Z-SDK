@@ -10,13 +10,37 @@ const electronCommand = resolve(
   frontendRoot,
   `node_modules/.bin/electron${process.platform === "win32" ? ".cmd" : ""}`,
 );
+const rawArguments = process.argv.slice(2);
+const unsupportedArguments = rawArguments.filter(
+  (argument) => argument !== "--development-mode",
+);
+if (unsupportedArguments.length > 0) {
+  throw new Error(
+    `Unsupported argument(s): ${unsupportedArguments.join(", ")}. ` +
+      "Usage: npm run desktop:dev -- [--development-mode]",
+  );
+}
+const developmentMode = rawArguments.includes("--development-mode");
 let closing = false;
 
-const vite = spawn(npmCommand, ["run", "dev", "--", "--host", "127.0.0.1", "--port", "5173"], {
-  cwd: frontendRoot,
-  detached: process.platform !== "win32",
-  stdio: "inherit",
-});
+const vite = spawn(
+  npmCommand,
+  [
+    "run",
+    "dev",
+    "--",
+    ...(developmentMode ? ["--development-mode"] : []),
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "5173",
+  ],
+  {
+    cwd: frontendRoot,
+    detached: process.platform !== "win32",
+    stdio: "inherit",
+  },
+);
 
 function stopVite() {
   if (vite.exitCode !== null || vite.signalCode !== null) return;
@@ -43,7 +67,11 @@ async function run() {
   // This Ubuntu host disables unprivileged user namespaces and the source-tree
   // Electron binary cannot own a root/setuid sandbox helper. Renderer content
   // remains local, context-isolated and without Node integration.
-  const electronArguments = process.platform === "linux" ? ["--no-sandbox", "."] : ["."];
+  const electronArguments = [
+    ...(process.platform === "linux" ? ["--no-sandbox"] : []),
+    ".",
+    ...(developmentMode ? ["--development-mode"] : []),
+  ];
   const electron = spawn(electronCommand, electronArguments, {
     cwd: frontendRoot,
     env: {

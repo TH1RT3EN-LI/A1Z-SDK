@@ -1,14 +1,12 @@
 # A1Z Console V2
 
-从空白开始构建的 A1Z Web Console。当前迭代只提供界面框架：
+面向真实 A1Z 的本地控制台，当前提供：
 
 - 顶部菜单栏和左侧功能导航；
-- 中央主工作区；
+- 机械臂模式和关节目标控制；
+- SDK 关节状态回读；
 - 基于本地 PTY 的真实交互式终端；
-- 可旋转、缩放和平移的完整 A1Z G1Z + D405 模型；
-- 模型、RGB 和深度视图切换框架。
-
-本迭代不连接 ROS、控制服务、CAN 或真实相机。
+- 可旋转、缩放和平移的 A1Z G1Z 模型。
 
 ## 启动
 
@@ -17,6 +15,16 @@
 ```bash
 ./scripts/run_a1z_console_v2_desktop.sh
 ```
+
+默认按真机模式启动：连接真实 SDK 遥测，操作会提交到真实控制服务，且启动步骤不可跳过。
+仅在明确进行无硬件界面测试时启用开发模式：
+
+```bash
+./scripts/run_a1z_console_v2_desktop.sh --development-mode
+```
+
+开发模式不会连接遥测或发送机械臂命令，并允许跳过启动步骤。Vite 的普通
+`DEV` 状态不会再自动启用该模式。
 
 桌面模式使用 Electron 内置渲染内核，本地终端直接通过受限 IPC 连接 PTY，
 不需要启动 Python 终端后端。
@@ -43,6 +51,9 @@ npm run desktop:package
 ```bash
 ./scripts/run_a1z_console_v2.sh --no-open
 ```
+
+浏览器界面的显式开发模式同样使用 `--development-mode`，可与 `--no-open`
+组合。
 
 终端后端只绑定 `127.0.0.1:8765`，新终端会话的初始工作目录是仓库根目录。
 

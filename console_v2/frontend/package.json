@@ -9,7 +9,7 @@
   "scripts": {
     "prepare:model": "node scripts/sync-model-assets.mjs",
     "predev": "npm run prepare:model",
-    "dev": "vite",
+    "dev": "node scripts/run-vite.mjs",
     "predesktop:dev": "npm run prepare:model",
     "desktop:dev": "node scripts/run-desktop.mjs",
     "desktop:rebuild": "node scripts/rebuild-node-pty.mjs",

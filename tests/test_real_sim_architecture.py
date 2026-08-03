@@ -156,6 +156,10 @@ class RealSimArchitectureTests(unittest.TestCase):
         revision = (ROOT / "vendor" / "GALAXEA-A1Z_UPSTREAM").read_text()
         self.assertIn("branch=gripper", revision)
         self.assertIn("commit=e931ecd0e25ad35df251097ba42921b3d2fa7224", revision)
+        self.assertIn("transport=git-submodule", revision)
+        submodules = (ROOT / ".gitmodules").read_text()
+        self.assertIn("vendor/GALAXEA-A1Z", submodules)
+        self.assertIn("branch = gripper", submodules)
 
 
 if __name__ == "__main__":

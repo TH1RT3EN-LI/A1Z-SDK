@@ -289,18 +289,25 @@ done
 
 ## 8. 阶段 E：单轴与六轴小步 A/B 测试
 
-项目 `move` 的行为是：调用一次 SDK `move_joints()`，轨迹完成后每 50 ms 读取反馈，要求最大绝对
-关节误差不超过 `0.75 deg` 且连续两次满足；等待上限为 2 秒。返回中的关键字段是：
+项目 `move` 由服务端唯一的最新目标控制器执行。控制器以 50 Hz 连续进行反馈读取、正运动学、
+到达判定和下一运动帧写入；不存在 GUI、CLI 或回放各自补发命令的队列。到达必须同时满足：规划目标
+帧已发送、`grasp_tcp` 位置误差不超过 `0.5 mm`、姿态误差不超过 `0.5°`、最大实测关节速度不超过
+`0.02 rad/s`，并连续 5 个样本稳定。返回中的关键字段是：
 
 - `ok`；
 - `data.completion`；
 - `data.verification.target_deg`；
 - `data.verification.measured_deg`；
-- `data.verification.error_deg`；
-- `data.verification.max_error_deg`。
+- `data.verification.joint_error_deg`；
+- `data.verification.position_error_mm`；
+- `data.verification.position_tolerance_mm`；
+- `data.verification.orientation_error_deg`；
+- `data.verification.max_velocity_rad_s`；
+- `data.verification.stable_samples`。
 
-`0.75 deg` 是当前项目的命令验收阈值，不是 GALAXEA 官方精度承诺。官方 `±0.1 mm` 是重复定位
-规格，也不能直接换算成每个关节的一次绝对角度误差。
+`0.5 mm` 是使用关节编码器回读、控制 URDF 与 `grasp_tcp` 正运动学计算的软件门限，不是对真实
+TCP 绝对精度的承诺。机械零点、工具坐标、减速器回差、负载形变和标定误差必须另外实测；官方重复
+定位规格也不能直接替代这项整机验收。
 
 ### E1. 建立本次记录目录
 

@@ -6,6 +6,20 @@ FRONTEND_DIR="$REPO_ROOT/console_v2/frontend"
 RUNTIME_DIR="$REPO_ROOT/runtime/a1z-console-v2"
 PTY_MARKER="$RUNTIME_DIR/electron-pty-43.2.0"
 DEPENDENCY_MARKER="$RUNTIME_DIR/electron-dependencies"
+DEVELOPMENT_MODE=0
+
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --development-mode)
+            DEVELOPMENT_MODE=1
+            ;;
+        *)
+            echo "Usage: $0 [--development-mode]" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
 
 mkdir -p "$RUNTIME_DIR"
 
@@ -24,4 +38,7 @@ if [[ ! -f "$PTY_MARKER" || "$FRONTEND_DIR/package.json" -nt "$PTY_MARKER" || "$
 fi
 
 cd "$FRONTEND_DIR"
+if [[ "$DEVELOPMENT_MODE" -eq 1 ]]; then
+    exec npm run desktop:dev -- --development-mode
+fi
 exec npm run desktop:dev

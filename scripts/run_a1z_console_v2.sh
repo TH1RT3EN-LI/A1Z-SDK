@@ -8,13 +8,23 @@ RUNTIME_DIR="$REPO_ROOT/runtime/a1z-console-v2"
 PYTHON_ENV="$RUNTIME_DIR/python"
 BACKEND_LOG="$RUNTIME_DIR/backend.log"
 OPEN_BROWSER=1
+DEVELOPMENT_MODE=0
 
-if [[ "${1:-}" == "--no-open" ]]; then
-    OPEN_BROWSER=0
-elif [[ -n "${1:-}" ]]; then
-    echo "Usage: $0 [--no-open]" >&2
-    exit 2
-fi
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --no-open)
+            OPEN_BROWSER=0
+            ;;
+        --development-mode)
+            DEVELOPMENT_MODE=1
+            ;;
+        *)
+            echo "Usage: $0 [--no-open] [--development-mode]" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
 
 mkdir -p "$RUNTIME_DIR"
 
@@ -61,6 +71,9 @@ for _ in $(seq 1 50); do
 done
 
 VITE_ARGS=(--host 127.0.0.1 --port 5173)
+if [[ "$DEVELOPMENT_MODE" -eq 1 ]]; then
+    VITE_ARGS=(--development-mode "${VITE_ARGS[@]}")
+fi
 if [[ "$OPEN_BROWSER" -eq 1 ]]; then
     VITE_ARGS+=(--open)
 fi

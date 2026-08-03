@@ -11,9 +11,16 @@ import numpy as np
 
 from a1z.motor_drivers.motor_b_driver import MOTOR_B_ERROR_CODES
 from a1z.robots.arm_robot import ArmRobot
+from a1z_ext.robots.connection_monitor import (
+    ArmFeedbackMonitor,
+    SocketCANLinkMonitor,
+)
 
 
 logger = logging.getLogger(__name__)
+
+_SERVICE_MAX_COMMAND_VELOCITY_RAD_S = 4.0
+_SERVICE_MAX_COMMAND_ACCELERATION_RAD_S2 = 20.0
 
 
 class SocketCANArmRobot(ArmRobot):
@@ -31,6 +38,7 @@ class SocketCANArmRobot(ArmRobot):
         empty_close_threshold: float = 0.04,
         feedback_tolerance: float = 0.01,
         stable_samples: int = 5,
+        can_channel: str = "can0",
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -43,6 +51,38 @@ class SocketCANArmRobot(ArmRobot):
         self._runtime_fault_lock = threading.Lock()
         self._runtime_fault = ""
         self._motor_a_status_codes = [0, 0, 0]
+        self._can_channel = str(can_channel)
+        self._can_link_monitor = SocketCANLinkMonitor(self._can_channel)
+        self._arm_motor_entries = self._build_arm_motor_entries()
+        self._arm_feedback_monitor = ArmFeedbackMonitor(
+            [motor_id for _joint_index, motor_id, _motor in self._arm_motor_entries],
+            stale_after_s=float(self._stale_estop_s),
+        )
+        self._last_arm_connection_log_signature: Optional[
+            tuple[str, tuple[int, ...]]
+        ] = None
+
+    def _build_arm_motor_entries(self) -> tuple[tuple[int, int, Any], ...]:
+        entries: list[tuple[int, int, Any]] = []
+        for motor, joint_index in zip(
+            self._motor_chain._motor_a_list,
+            self._motor_chain._motor_a_joint_indices,
+        ):
+            entries.append((int(joint_index), int(motor.motor_id), motor))
+        for motor, joint_index in zip(
+            self._motor_chain._motor_b_list,
+            self._motor_chain._motor_b_joint_indices,
+        ):
+            entries.append((int(joint_index), int(motor.motor_id), motor))
+        entries.sort(key=lambda entry: entry[0])
+        actual_indices = [joint_index for joint_index, _motor_id, _motor in entries]
+        expected_indices = list(range(self._num_joints))
+        if actual_indices != expected_indices:
+            raise ValueError(
+                "Arm motor chain must map exactly one CAN motor to every joint; "
+                f"expected indices {expected_indices}, got {actual_indices}"
+            )
+        return tuple(entries)
 
     @property
     def runtime_fault(self) -> str:
@@ -66,7 +106,63 @@ class SocketCANArmRobot(ArmRobot):
     ) -> None:
         with self._runtime_fault_lock:
             self._runtime_fault = ""
-        super().start(initial_kp=initial_kp, initial_kd=initial_kd)
+        self._last_arm_connection_log_signature = None
+        self._arm_feedback_monitor.reset()
+        self._can_link_monitor.start()
+        try:
+            super().start(initial_kp=initial_kp, initial_kd=initial_kd)
+        except Exception:
+            self._can_link_monitor.stop()
+            raise
+
+    def stop(self) -> None:
+        try:
+            super().stop()
+        finally:
+            self._can_link_monitor.stop()
+
+    def _read_state(self) -> None:
+        previous_feedback = [
+            motor.last_feedback
+            for _joint_index, _motor_id, motor in self._arm_motor_entries
+        ]
+        super()._read_state()
+        updated_joints = [
+            joint_index
+            for (joint_index, _motor_id, motor), previous in zip(
+                self._arm_motor_entries,
+                previous_feedback,
+            )
+            if motor.last_feedback is not None and motor.last_feedback is not previous
+        ]
+        if updated_joints:
+            self._arm_feedback_monitor.observe(updated_joints)
+        self._log_arm_connection_transition()
+
+    def _check_feedback_stale(self) -> None:
+        snapshot = self._arm_feedback_monitor.snapshot()
+        maximum_age = float(snapshot["maximum_feedback_age_s"])
+        unavailable = [int(value) for value in snapshot["unavailable_joints"]]
+        if maximum_age > self._stale_estop_s:
+            joints = ", ".join(f"J{index}" for index in unavailable) or "unknown"
+            raise RuntimeError(
+                "Arm CAN feedback stale or missing for "
+                f"{joints} ({maximum_age * 1000.0:.0f}ms, "
+                f"limit {self._stale_estop_s * 1000.0:.0f}ms)"
+            )
+        now = time.monotonic()
+        if maximum_age > self._stale_warn_s and now - self._last_stale_warn_t > 1.0:
+            lagging = [
+                index + 1
+                for index, age_ms in enumerate(snapshot["feedback_age_ms"])
+                if age_ms is None or float(age_ms) > self._stale_warn_s * 1000.0
+            ]
+            logger.warning(
+                "Arm CAN feedback delayed: joints=%s maximum_age=%.0fms",
+                lagging,
+                maximum_age * 1000.0,
+            )
+            self._last_stale_warn_t = now
 
     def _update(self) -> None:
         try:
@@ -75,10 +171,75 @@ class SocketCANArmRobot(ArmRobot):
             self._set_runtime_fault(exc)
             raise
 
+    def get_joint_state(self) -> Dict[str, Any]:
+        state = dict(super().get_joint_state())
+        monitor = getattr(self, "_arm_feedback_monitor", None)
+        if monitor is not None:
+            snapshot = monitor.snapshot()
+            feedback_time = snapshot["oldest_feedback_monotonic_s"]
+            if feedback_time is None:
+                feedback_time = (
+                    float(snapshot["observed_at_monotonic_s"])
+                    - float(snapshot["maximum_feedback_age_s"])
+                )
+            state["feedback_monotonic_s"] = float(feedback_time)
+            state["joint_feedback_age_ms"] = list(snapshot["feedback_age_ms"])
+        return state
+
     def _control_loop(self) -> None:
         super()._control_loop()
+        self._log_arm_connection_transition()
         if not self._stop_event.is_set() and not self.runtime_fault:
             self._set_runtime_fault("A1Z SDK control loop stopped unexpectedly.")
+
+    def _log_arm_connection_transition(self) -> None:
+        monitor = getattr(self, "_arm_feedback_monitor", None)
+        if monitor is None:
+            return
+        snapshot = monitor.snapshot()
+        signature = (
+            str(snapshot["status"]),
+            tuple(int(value) for value in snapshot["unavailable_joints"]),
+        )
+        if signature == self._last_arm_connection_log_signature:
+            return
+        self._last_arm_connection_log_signature = signature
+        message = "Arm connection: status=%s online=%s unavailable=%s" % (
+            snapshot["status"],
+            snapshot["online_joints"],
+            snapshot["unavailable_joints"],
+        )
+        if snapshot["status"] in {"connected", "connecting"}:
+            logger.info(message)
+        else:
+            logger.warning(message)
+
+    def get_connection_status(self) -> Dict[str, Any]:
+        """Return backend diagnostics without opening another CAN reader."""
+
+        can_monitor = getattr(self, "_can_link_monitor", None)
+        arm_monitor = getattr(self, "_arm_feedback_monitor", None)
+        can_status = (
+            can_monitor.snapshot()
+            if can_monitor is not None
+            else {
+                "channel": getattr(self, "_can_channel", "unknown"),
+                "status": "unknown",
+                "connected": False,
+                "healthy": False,
+                "diagnostic": "monitor_unavailable",
+            }
+        )
+        arm_status = (
+            arm_monitor.snapshot()
+            if arm_monitor is not None
+            else {
+                "status": "unknown",
+                "connected": False,
+                "diagnostic": "monitor_unavailable",
+            }
+        )
+        return {"can": can_status, "arm": arm_status}
 
     def _check_motor_errors(self) -> None:
         """Apply MotorB fault semantics only to the MotorB joints.
@@ -136,6 +297,7 @@ class SocketCANArmRobot(ArmRobot):
                 "faulted": self.is_faulted,
                 "fault_message": self.runtime_fault,
                 "motor_a_status_codes": list(self._motor_a_status_codes),
+                "connections": self.get_connection_status(),
                 # A relative joint jog must preserve the controller's existing
                 # six-axis reference.  Reconstructing it from measured
                 # feedback discards the position error that is currently
@@ -198,6 +360,60 @@ class SocketCANArmRobot(ArmRobot):
         if self._gripper_free_drive:
             raise RuntimeError("Gripper is in free-drive mode.")
         super().command_gripper(value)
+
+    def command_motion_frame(
+        self,
+        position: np.ndarray,
+        velocity: np.ndarray,
+        acceleration: np.ndarray,
+    ) -> None:
+        """Atomically accept one server-planned position-mode command frame.
+
+        The latest-target controller is the sole caller.  Keeping position,
+        velocity, and acceleration in one command-lock transaction prevents a
+        replacement target from exposing a partially updated feedforward state
+        to the 250 Hz hardware loop.
+        """
+
+        if not self.is_running:
+            raise RuntimeError("Robot not running. Call start() first.")
+        if self.is_estopped:
+            raise RuntimeError("Robot is in estop.")
+        if self.zero_gravity_mode:
+            raise RuntimeError("Position command requires position-hold mode.")
+
+        pos = np.asarray(position, dtype=np.float64).reshape(-1)
+        vel = np.asarray(velocity, dtype=np.float64).reshape(-1)
+        acc = np.asarray(acceleration, dtype=np.float64).reshape(-1)
+        if pos.size != self._num_joints:
+            raise ValueError(f"Expected {self._num_joints} positions, got {pos.size}")
+        if vel.size != self._num_joints or acc.size != self._num_joints:
+            raise ValueError("Velocity and acceleration must match the arm joint count")
+        if not (
+            np.all(np.isfinite(pos))
+            and np.all(np.isfinite(vel))
+            and np.all(np.isfinite(acc))
+        ):
+            raise ValueError("Motion command frame must contain only finite values")
+        safe_pos = self._validate_joint_pos(pos)
+        if np.any(np.abs(vel) > _SERVICE_MAX_COMMAND_VELOCITY_RAD_S):
+            raise ValueError(
+                "Motion command velocity exceeds the service safety limit of "
+                f"{_SERVICE_MAX_COMMAND_VELOCITY_RAD_S:g} rad/s"
+            )
+        if np.any(np.abs(acc) > _SERVICE_MAX_COMMAND_ACCELERATION_RAD_S2):
+            raise ValueError(
+                "Motion command acceleration exceeds the service safety limit of "
+                f"{_SERVICE_MAX_COMMAND_ACCELERATION_RAD_S2:g} rad/s²"
+            )
+
+        with self._command_lock:
+            self._command.pos = safe_pos.copy()
+            self._command.vel = vel.copy()
+            self._command.acc = acc.copy()
+            self._command.kp = self._default_kp.copy()
+            self._command.kd = self._default_kd.copy()
+            self._command.torque_ff = np.zeros(self._num_joints, dtype=np.float64)
 
     def _require_live_gripper_feedback(self) -> float:
         if not self.is_running:

@@ -7,6 +7,7 @@ from typing import Optional
 import numpy as np
 
 from a1z_ext.config import get_control_defaults, get_default_backend, get_default_can_channel
+from a1z_ext.robots.connection_monitor import probe_socketcan_link
 from a1z_ext.robots.mock_robot import MockArmRobot
 from a1z.robots.robot import Robot
 
@@ -64,6 +65,14 @@ def get_a1z_robot(
     gripper_empty_close_threshold: float = 0.04,
 ):
     """Create and return a configured SocketCAN-backed A1Z ArmRobot."""
+    link_status = probe_socketcan_link(can_channel)
+    if not bool(link_status.get("connected", False)):
+        raise RuntimeError(
+            f"SocketCAN {can_channel} is unavailable: "
+            f"status={link_status.get('status', 'unknown')}, "
+            f"bus_state={link_status.get('bus_state', 'unknown')}, "
+            f"diagnostic={link_status.get('diagnostic', 'unknown')}"
+        )
     import can
     from a1z.robots.gripper import GRIPPER_CAN_ID, GRIPPER_MOTOR_RANGES, Gripper
 
@@ -130,6 +139,7 @@ def get_a1z_robot(
         motor_a_kt=_MOTOR_A_KT,
         gripper_max_torque_nm=gripper_max_torque,
         empty_close_threshold=gripper_empty_close_threshold,
+        can_channel=can_channel,
     )
 
 

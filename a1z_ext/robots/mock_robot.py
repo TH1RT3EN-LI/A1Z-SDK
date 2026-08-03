@@ -259,6 +259,15 @@ class MockArmRobot:
         eff = np.asarray(joint_state.get("eff", np.zeros(self._num_joints)), dtype=np.float64)
         self._set_arm_state(pos, vel=vel, eff=eff)
 
+    def command_motion_frame(
+        self,
+        position: np.ndarray,
+        velocity: np.ndarray,
+        acceleration: np.ndarray,
+    ) -> None:
+        del acceleration
+        self.command_joint_state({"pos": position, "vel": velocity})
+
     def move_joints(
         self,
         target_pos: np.ndarray,
