@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -226,9 +227,9 @@ def test_control_and_isaac_urdfs_share_d405_mount_and_frame_tree() -> None:
         assert max(abs(a - e) for a, e in zip(actual_rpy, expected_rpy, strict=True)) < 1e-12
 
 
-def test_generated_urdfs_preserve_expected_g1z_inertials_and_d405_mass() -> None:
+def test_generated_urdfs_preserve_expected_g1z_and_d405_inertials() -> None:
     config = _config()
-    assert config["mass_kg"] == 0.072
+    assert config["mass_kg"] == 0.06
 
     official = ET.parse(
         ROOT
@@ -270,9 +271,46 @@ def test_generated_urdfs_preserve_expected_g1z_inertials_and_d405_mass() -> None
         assert actual_link6 == expected_link6
         _assert_physically_realizable_inertia(actual_link6)
 
-        d405_mass = generated.find("./link[@name='d405_link']/inertial/mass")
-        assert d405_mass is not None
-        assert float(d405_mass.get("value")) == config["mass_kg"]
+        actual_d405 = _numeric_inertial_signature(
+            generated_links["d405_link"].find("inertial")
+        )
+        expected_d405 = {
+            "origin_xyz": tuple(config["center_of_mass_xyz_m"]),
+            "mass": float(config["mass_kg"]),
+            **{
+                key: float(config["inertia_kg_m2"][key])
+                for key in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+            },
+        }
+        for key, expected in expected_d405.items():
+            actual = actual_d405[key]
+            if isinstance(expected, tuple):
+                assert max(
+                    abs(a - e) for a, e in zip(actual, expected, strict=True)
+                ) < 1e-12
+            else:
+                assert math.isclose(actual, expected, rel_tol=1e-10, abs_tol=1e-15)
+        _assert_physically_realizable_inertia(actual_d405)
+
+
+def test_d405_mass_property_report_matches_the_configured_mesh() -> None:
+    report = json.loads(
+        (
+            ROOT
+            / "assets"
+            / "realsense_d405"
+            / "d405.mass-properties.json"
+        ).read_text(encoding="utf-8")
+    )
+    mesh = ROOT / report["mesh"]
+    config = _config()
+
+    assert hashlib.sha256(mesh.read_bytes()).hexdigest() == report["mesh_sha256"]
+    assert report["mesh_watertight"] is True
+    assert report["mesh_winding_consistent"] is True
+    assert report["mass_kg"] == config["mass_kg"] == 0.06
+    assert report["center_of_mass_link_m"] == config["center_of_mass_xyz_m"]
+    assert report["inertia_link_kg_m2"] == config["inertia_kg_m2"]
 
 
 def test_sim_profile_does_not_override_official_gripper_inertials() -> None:

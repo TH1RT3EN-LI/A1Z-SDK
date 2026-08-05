@@ -15,11 +15,21 @@ RUN_LOG_PATH="${A1Z_ROS2_MOTION_LOG_PATH:-/tmp/a1z_ros2_motion.log}"
 RUN_PID_PATH="${A1Z_ROS2_MOTION_PID_PATH:-/tmp/a1z_ros2_motion.pid}"
 RUN_LOG_MAX_BYTES="${A1Z_ROS2_MOTION_LOG_MAX_BYTES:-67108864}"
 RUN_LOG_BACKUP_COUNT="${A1Z_ROS2_MOTION_LOG_BACKUP_COUNT:-3}"
+CAMERA_MODE="${A1Z_CAMERA_MODE:-auto}"
+CAMERA_ENABLED=0
 
 case "$ACTION" in
   run|start|ensure|stop|restart|status|wait) ;;
   *)
     echo "usage: $0 [run|start|ensure|stop|restart|status|wait]" >&2
+    exit 2
+    ;;
+esac
+
+case "$CAMERA_MODE" in
+  auto|on|off) ;;
+  *)
+    echo "A1Z_CAMERA_MODE must be auto, on, or off; got '$CAMERA_MODE'" >&2
     exit 2
     ;;
 esac
@@ -57,6 +67,38 @@ validate_realsense_usb_link() {
   echo "RealSense D405 USB link: ${actual_speed} Mb/s"
 }
 
+resolve_camera_mode() {
+  local actual_speed=""
+  local minimum_speed="${A1Z_REALSENSE_MIN_USB_SPEED_MBPS:-5000}"
+  if [[ "$CAMERA_MODE" == "off" ]]; then
+    CAMERA_ENABLED=0
+    echo "Camera disabled by A1Z_CAMERA_MODE=off."
+    return 0
+  fi
+  if [[ "$A1Z_CAMERA_SOURCE" != "realsense" ]]; then
+    CAMERA_ENABLED=1
+    return 0
+  fi
+  if [[ "$CAMERA_MODE" == "on" ]]; then
+    validate_realsense_usb_link
+    CAMERA_ENABLED=1
+    return 0
+  fi
+  if ! actual_speed="$(realsense_usb_speed_mbps)"; then
+    CAMERA_ENABLED=0
+    echo "No RealSense D405 detected; starting the ROS 2 stack without camera nodes."
+    return 0
+  fi
+  if (( actual_speed < minimum_speed )); then
+    CAMERA_ENABLED=0
+    echo "RealSense D405 USB link is ${actual_speed} Mb/s; camera nodes remain disabled in auto mode." >&2
+    echo "Reconnect through USB 3.x, then run this command with restart or ensure." >&2
+    return 0
+  fi
+  CAMERA_ENABLED=1
+  echo "RealSense D405 detected at ${actual_speed} Mb/s; enabling camera nodes."
+}
+
 if ! docker inspect "$ROS_CONTAINER_NAME" >/dev/null 2>&1; then
   case "$ACTION" in
     stop)
@@ -88,16 +130,18 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "$ROS_CONTAINER_NAME" 2>/dev/nul
 fi
 
 if [[ "$ACTION" != "stop" ]]; then
-  validate_realsense_usb_link
+  resolve_camera_mode
 fi
 
 check_a1z_ros_stack() {
   local process_status=0
   local camera_response=""
-  docker exec -i "$ROS_CONTAINER_NAME" bash -s -- "$A1Z_CAMERA_SOURCE" <<'EOF' || process_status=$?
+  docker exec -i "$ROS_CONTAINER_NAME" bash -s -- "$A1Z_CAMERA_SOURCE" "$CAMERA_ENABLED" <<'EOF' || process_status=$?
 set -uo pipefail
 
-case "$1" in
+camera_source="$1"
+camera_enabled="$2"
+case "$camera_source" in
   isaac)
     camera_pattern="/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/isaac_d405_bridge"
     ;;
@@ -112,8 +156,6 @@ esac
 
 missing=0
 for item in \
-  "camera:$camera_pattern" \
-  "console_bridge:/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/camera_console_bridge" \
   "robot_state:/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/robot_state" \
   "motion_executor:/workspace/A1Z/ros2_ws/install/a1z_motion/lib/a1z_motion/motion_executor"
 do
@@ -127,10 +169,37 @@ do
     echo "RUNNING $label: $line"
   fi
 done
+camera_bridge_pattern="/workspace/A1Z/ros2_ws/install/a1z_d405/lib/a1z_d405/camera_console_bridge"
+if [[ "$camera_enabled" == "1" ]]; then
+  for item in "camera:$camera_pattern" "console_bridge:$camera_bridge_pattern"; do
+    label="${item%%:*}"
+    pattern="${item#*:}"
+    line="$(ps -eo pid=,stat=,args= | grep -F "$pattern" | grep -v -F "grep -F" | head -n 1 || true)"
+    if [[ -z "$line" ]]; then
+      echo "MISSING $label: $pattern" >&2
+      missing=1
+    else
+      echo "RUNNING $label: $line"
+    fi
+  done
+else
+  for pattern in "$camera_pattern" "$camera_bridge_pattern"; do
+    line="$(ps -eo pid=,stat=,args= | grep -F "$pattern" | grep -v -F "grep -F" | head -n 1 || true)"
+    if [[ -n "$line" ]]; then
+      echo "UNEXPECTED camera process while camera mode is disabled: $line" >&2
+      missing=1
+    fi
+  done
+fi
 exit "$missing"
 EOF
   if [[ "$process_status" -ne 0 ]]; then
     return "$process_status"
+  fi
+
+  if [[ "$CAMERA_ENABLED" != "1" ]]; then
+    echo "RUNNING camera: disabled (${CAMERA_MODE})"
+    return 0
   fi
 
   if ! camera_response="$(
@@ -164,6 +233,10 @@ if [[ "$ACTION" == "ensure" ]]; then
 fi
 
 if [[ "$ACTION" == "wait" ]]; then
+  if [[ "$CAMERA_ENABLED" != "1" ]]; then
+    echo "Camera frames are unavailable because the camera is disabled or not detected." >&2
+    exit 1
+  fi
   WAIT_SOURCE_FRAME="${A1Z_D405_COLOR_FRAME_ID:-d405_color_optical_frame}"
   WAIT_TARGET_FRAME="${A1Z_BASE_LINK_FRAME:-base_link}"
   WAIT_UID="$(id -u)"
@@ -253,6 +326,7 @@ docker exec \
   -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-62}" \
   -e A1Z_PROFILE="${A1Z_PROFILE:-sim}" \
   -e A1Z_CAMERA_SOURCE="${A1Z_CAMERA_SOURCE}" \
+  -e A1Z_CAMERA_ENABLED="${CAMERA_ENABLED}" \
   -e A1Z_CAMERA_BRIDGE_HOST="${A1Z_CAMERA_BRIDGE_HOST:-127.0.0.1}" \
   -e A1Z_CAMERA_BRIDGE_PORT="${A1Z_CAMERA_BRIDGE_PORT}" \
   -e A1Z_CAMERA_PREVIEW_MAX_WIDTH="${A1Z_CAMERA_PREVIEW_MAX_WIDTH:-960}" \

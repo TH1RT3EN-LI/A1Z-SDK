@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -23,7 +24,9 @@ def test_camera_bracket_has_one_authoritative_mount_pose() -> None:
     assert config["mount_orient_deg"] == [-90.0, -90.0, 0.0]
     assert "mount_rpy_deg" not in config
     assert config["mesh_scale"] == [0.001, 0.001, 0.001]
-    assert config["mass_kg"] == 0.03
+    assert config["material_model"]["nominal_density_kg_m3"] == 1200.0
+    assert config["material_model"]["density_range_kg_m3"] == [1000.0, 1400.0]
+    assert math.isclose(config["mass_kg"], 0.029270651684159033)
 
     generator = (ROOT / "scripts" / "prepare_a1z_urdfs.py").read_text(
         encoding="utf-8"
@@ -49,6 +52,7 @@ def test_camera_bracket_source_and_normalized_mesh_are_tracked_assets() -> None:
 
 
 def test_control_and_isaac_urdfs_share_the_fixed_bracket_contract() -> None:
+    config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     for filename in ("A1Z_G1Z_control.urdf", "A1Z_G1Z_isaac.urdf"):
         root = ET.parse(ROBOT_DIR / "urdf" / filename).getroot()
         links = root.findall("./link[@name='camera_bracket_link']")
@@ -75,16 +79,29 @@ def test_control_and_isaac_urdfs_share_the_fixed_bracket_contract() -> None:
             "package://A1Z_G1Z/meshes/camera_bracket.stl"
         )
         assert mesh.get("scale") == "0.001 0.001 0.001"
-        assert links[0].find("./inertial/mass").get("value") == "0.03"
+        assert math.isclose(
+            float(links[0].find("./inertial/mass").get("value")),
+            config["mass_kg"],
+            rel_tol=1e-10,
+        )
         actual_com = [
             float(value)
             for value in links[0].find("./inertial/origin").get("xyz").split()
         ]
-        expected_com = [0.0000076511, 0.0107364317, 0.0283061975]
+        expected_com = config["center_of_mass_xyz_m"]
         assert all(
             abs(actual - expected) < 1e-10
             for actual, expected in zip(actual_com, expected_com, strict=True)
         )
+        actual_inertia = links[0].find("./inertial/inertia")
+        assert actual_inertia is not None
+        for key, expected in config["inertia_kg_m2"].items():
+            assert math.isclose(
+                float(actual_inertia.get(key)),
+                expected,
+                rel_tol=1e-10,
+                abs_tol=1e-15,
+            )
 
 
 def test_packaged_mesh_matches_the_normalized_source_mesh() -> None:

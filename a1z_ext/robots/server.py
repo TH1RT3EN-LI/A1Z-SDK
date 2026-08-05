@@ -99,6 +99,12 @@ class RobotServer:
         endpoint_orientation_tolerance_deg: float = 0.5,
         endpoint_feedback_timeout_s: float = 2.0,
         endpoint_stable_samples: int = 5,
+        joint_position_tolerance_deg: float = 0.5,
+        joint_feedback_timeout_s: Optional[float] = None,
+        joint_stable_samples: Optional[int] = None,
+        joint_correction_integral_gain_s_inv: float = 0.6,
+        joint_correction_rate_limit_deg_s: float = 0.5,
+        max_joint_correction_deg: float = 3.0,
         settle_velocity_rad_s: float = 0.02,
         gripper_feedback_tolerance: float = 0.025,
         gripper_feedback_timeout_s: float = 3.0,
@@ -121,8 +127,17 @@ class RobotServer:
             endpoint_position_tolerance_mm=endpoint_position_tolerance_mm,
             endpoint_orientation_tolerance_deg=endpoint_orientation_tolerance_deg,
             endpoint_stable_samples=endpoint_stable_samples,
+            joint_position_tolerance_deg=joint_position_tolerance_deg,
+            joint_stable_samples=joint_stable_samples,
             settle_velocity_rad_s=settle_velocity_rad_s,
-            feedback_timeout_s=endpoint_feedback_timeout_s,
+            feedback_timeout_s=(
+                endpoint_feedback_timeout_s
+                if joint_feedback_timeout_s is None
+                else joint_feedback_timeout_s
+            ),
+            correction_integral_gain_s_inv=joint_correction_integral_gain_s_inv,
+            correction_rate_limit_deg_s=joint_correction_rate_limit_deg_s,
+            max_correction_deg=max_joint_correction_deg,
         )
         self._gripper_feedback_tolerance = float(gripper_feedback_tolerance)
         self._gripper_feedback_timeout_s = float(gripper_feedback_timeout_s)

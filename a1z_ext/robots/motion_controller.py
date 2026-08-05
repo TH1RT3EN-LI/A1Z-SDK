@@ -1,8 +1,13 @@
 """Single-owner, latest-target-wins arm motion controller.
 
 Every arm target source submits into this controller.  One worker owns the
-feedback -> FK -> arrival decision -> command-frame cycle, so SDK writes can
+joint-feedback -> arrival decision -> command-frame cycle, so SDK writes can
 never race and a replacement target never waits behind a command queue.
+
+Forward kinematics is retained for diagnostics only.  Physical arrival and the
+outer correction loop are deliberately evaluated in joint space so a TCP model
+or an equivalent-pose ambiguity cannot make the arm chase a different joint
+configuration.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ def _rotation_error_deg(target: np.ndarray, measured: np.ndarray) -> float:
 class MotionGoal:
     goal_id: int
     target_rad: np.ndarray
-    target_pose: np.ndarray
+    target_pose: Optional[np.ndarray]
     speed_rad_s: float
     source: str
     timeout_s: float
@@ -53,18 +58,40 @@ class LatestTargetMotionController:
         endpoint_position_tolerance_mm: float = 0.5,
         endpoint_orientation_tolerance_deg: float = 0.5,
         endpoint_stable_samples: int = 5,
+        joint_position_tolerance_deg: float = 0.5,
+        joint_stable_samples: Optional[int] = None,
         settle_velocity_rad_s: float = 0.02,
         feedback_timeout_s: float = 2.0,
         feedback_stale_timeout_s: float = 0.25,
         control_period_s: float = 0.02,
         acceleration_limit_rad_s2: float = 2.0,
         jerk_limit_rad_s3: float = 12.0,
-        correction_gain: float = 0.2,
-        correction_period_s: float = 0.1,
+        correction_integral_gain_s_inv: float = 0.6,
+        correction_rate_limit_deg_s: float = 0.5,
         max_correction_deg: float = 3.0,
     ) -> None:
         self._robot = robot
+        self._native_target_writer = getattr(
+            robot,
+            "set_joint_trajectory_target",
+            None,
+        )
+        self._native_status_reader = getattr(
+            robot,
+            "get_joint_trajectory_status",
+            None,
+        )
+        self._native_cancel_writer = getattr(
+            robot,
+            "cancel_joint_trajectory",
+            None,
+        )
+        self._uses_native_joint_trajectory = bool(
+            callable(self._native_target_writer)
+            and callable(self._native_status_reader)
+        )
         self._forward_kinematics = forward_kinematics
+        self._fk_diagnostic_error = ""
         self._endpoint_frame = str(endpoint_frame)
         self._position_tolerance_mm = self._positive(
             endpoint_position_tolerance_mm,
@@ -74,7 +101,18 @@ class LatestTargetMotionController:
             endpoint_orientation_tolerance_deg,
             "endpoint_orientation_tolerance_deg",
         )
-        self._stable_samples_required = max(1, int(endpoint_stable_samples))
+        self._joint_tolerance_rad = math.radians(
+            self._positive(
+                joint_position_tolerance_deg,
+                "joint_position_tolerance_deg",
+            )
+        )
+        stable_samples = (
+            endpoint_stable_samples
+            if joint_stable_samples is None
+            else joint_stable_samples
+        )
+        self._stable_samples_required = max(1, int(stable_samples))
         self._settle_velocity_rad_s = self._positive(
             settle_velocity_rad_s,
             "settle_velocity_rad_s",
@@ -93,10 +131,15 @@ class LatestTargetMotionController:
             "acceleration_limit_rad_s2",
         )
         self._jerk_limit = self._positive(jerk_limit_rad_s3, "jerk_limit_rad_s3")
-        self._correction_gain = self._positive(correction_gain, "correction_gain")
-        self._correction_period_s = self._positive(
-            correction_period_s,
-            "correction_period_s",
+        self._correction_integral_gain = self._positive(
+            correction_integral_gain_s_inv,
+            "correction_integral_gain_s_inv",
+        )
+        self._correction_rate_limit = math.radians(
+            self._positive(
+                correction_rate_limit_deg_s,
+                "correction_rate_limit_deg_s",
+            )
         )
         self._max_correction_rad = math.radians(
             self._positive(max_correction_deg, "max_correction_deg")
@@ -112,6 +155,10 @@ class LatestTargetMotionController:
         self._reference_target_rad: Optional[np.ndarray] = None
         self._status: dict[str, Any] = {
             "state": "idle",
+            "arrival_basis": "joint_feedback_settled",
+            "joint_position_tolerance_deg": math.degrees(
+                self._joint_tolerance_rad
+            ),
             "endpoint_position_tolerance_mm": self._position_tolerance_mm,
             "endpoint_orientation_tolerance_deg": self._orientation_tolerance_deg,
         }
@@ -162,6 +209,17 @@ class LatestTargetMotionController:
             raise ValueError("Forward kinematics returned an invalid 4x4 transform")
         return transform.copy()
 
+    def _diagnostic_fk(self, joints_rad: np.ndarray) -> Optional[np.ndarray]:
+        """Return optional TCP diagnostics without controlling joint motion."""
+
+        try:
+            transform = self._fk(joints_rad)
+        except Exception as exc:
+            self._fk_diagnostic_error = str(exc)
+            return None
+        self._fk_diagnostic_error = ""
+        return transform
+
     def _robot_info(self) -> dict[str, Any]:
         reader = getattr(self._robot, "get_robot_info", None)
         return dict(reader()) if callable(reader) else {}
@@ -178,7 +236,10 @@ class LatestTargetMotionController:
             return None
         return limits.copy()
 
-    def _validate_target(self, target_rad: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
+    def _validate_target(
+        self,
+        target_rad: Sequence[float],
+    ) -> tuple[np.ndarray, Optional[np.ndarray]]:
         target = np.asarray(target_rad, dtype=np.float64).reshape(-1)
         if target.size != 6 or not np.all(np.isfinite(target)):
             raise ValueError("Arm target must contain exactly 6 finite joint values")
@@ -193,7 +254,7 @@ class LatestTargetMotionController:
                     f"[{math.degrees(float(limits[index, 0])):.3f}°, "
                     f"{math.degrees(float(limits[index, 1])):.3f}°]"
                 )
-        return target.copy(), self._fk(target)
+        return target.copy(), self._diagnostic_fk(target)
 
     def _initial_reference(self) -> np.ndarray:
         info = self._robot_info()
@@ -211,7 +272,7 @@ class LatestTargetMotionController:
     def _new_goal_locked(
         self,
         target: np.ndarray,
-        target_pose: np.ndarray,
+        target_pose: Optional[np.ndarray],
         *,
         speed_rad_s: float,
         source: str,
@@ -221,7 +282,7 @@ class LatestTargetMotionController:
         goal = MotionGoal(
             goal_id=self._next_goal_id,
             target_rad=target.copy(),
-            target_pose=target_pose.copy(),
+            target_pose=None if target_pose is None else target_pose.copy(),
             speed_rad_s=self._positive(speed_rad_s, "speed_rad_s"),
             source=str(source or "unknown"),
             timeout_s=self._positive(timeout_s, "timeout_s"),
@@ -390,11 +451,18 @@ class LatestTargetMotionController:
             self._status = {
                 "state": execution_state,
                 "reason": str(reason),
+                "arrival_basis": "joint_feedback_settled",
+                "joint_position_tolerance_deg": math.degrees(
+                    self._joint_tolerance_rad
+                ),
                 "endpoint_position_tolerance_mm": self._position_tolerance_mm,
                 "endpoint_orientation_tolerance_deg": self._orientation_tolerance_deg,
             }
             self._condition.notify_all()
         self._reset_planner_state()
+        if callable(self._native_cancel_writer):
+            with self._sdk_write_lock:
+                self._native_cancel_writer()
 
     def run_exclusive(self, callback: Callable[[], Any], *, reason: str) -> Any:
         """Cancel motion, finish one command-frame write, then run an SDK transition."""
@@ -431,8 +499,21 @@ class LatestTargetMotionController:
 
     def config_snapshot(self) -> dict[str, Any]:
         return {
-            "owner": "server_latest_target_controller",
+            "owner": (
+                "socketcan_250hz_control_loop"
+                if self._uses_native_joint_trajectory
+                else "server_latest_target_controller"
+            ),
             "policy": "latest_target_wins",
+            "trajectory_generator": (
+                "ruckig"
+                if self._uses_native_joint_trajectory
+                else "service_jerk_limited_fallback"
+            ),
+            "arrival_basis": "joint_feedback_settled",
+            "joint_position_tolerance_deg": math.degrees(
+                self._joint_tolerance_rad
+            ),
             "endpoint_frame": self._endpoint_frame,
             "endpoint_position_tolerance_mm": self._position_tolerance_mm,
             "endpoint_orientation_tolerance_deg": self._orientation_tolerance_deg,
@@ -442,6 +523,10 @@ class LatestTargetMotionController:
             "control_period_s": self._period_s,
             "acceleration_limit_rad_s2": self._acceleration_limit,
             "jerk_limit_rad_s3": self._jerk_limit,
+            "correction_integral_gain_s_inv": self._correction_integral_gain,
+            "correction_rate_limit_deg_s": math.degrees(
+                self._correction_rate_limit
+            ),
             "max_correction_deg": math.degrees(self._max_correction_rad),
         }
 
@@ -456,6 +541,10 @@ class LatestTargetMotionController:
             "source": goal.source,
             "target_deg": self._degrees(goal.target_rad),
             "speed_rad_s": goal.speed_rad_s,
+            "arrival_basis": "joint_feedback_settled",
+            "joint_position_tolerance_deg": math.degrees(
+                self._joint_tolerance_rad
+            ),
             "endpoint_position_tolerance_mm": self._position_tolerance_mm,
             "endpoint_orientation_tolerance_deg": self._orientation_tolerance_deg,
             **extra,
@@ -575,6 +664,29 @@ class LatestTargetMotionController:
                 self._last_command_velocity = velocity.copy()
                 self._last_command_acceleration = acceleration.copy()
 
+    def _write_native_target(self, goal: MotionGoal) -> int:
+        if not callable(self._native_target_writer):
+            raise RuntimeError("Robot backend exposes no native joint trajectory writer")
+        with self._sdk_write_lock:
+            generation = self._native_target_writer(
+                goal.target_rad,
+                max_velocity_rad_s=goal.speed_rad_s,
+                max_acceleration_rad_s2=self._acceleration_limit,
+                max_jerk_rad_s3=self._jerk_limit,
+                integral_gain_s_inv=self._correction_integral_gain,
+                correction_rate_limit_rad_s=self._correction_rate_limit,
+                max_correction_rad=self._max_correction_rad,
+            )
+        return int(generation)
+
+    def _read_native_status(self) -> dict[str, Any]:
+        if not callable(self._native_status_reader):
+            raise RuntimeError("Robot backend exposes no native trajectory status")
+        status = dict(self._native_status_reader())
+        if "generation" not in status or "finished" not in status:
+            raise RuntimeError("Robot backend returned incomplete trajectory status")
+        return status
+
     def _reset_planner_state(self) -> None:
         with self._planner_state_lock:
             self._last_command_position = None
@@ -672,10 +784,13 @@ class LatestTargetMotionController:
         goal: MotionGoal,
         measured: np.ndarray,
         velocity: np.ndarray,
-        measured_pose: np.ndarray,
+        measured_pose: Optional[np.ndarray],
         *,
-        position_error_mm: float,
-        orientation_error_deg: float,
+        position_error_mm: Optional[float],
+        orientation_error_deg: Optional[float],
+        correction: np.ndarray,
+        correction_saturated: bool,
+        within_joint_tolerance: bool,
         stable_samples: int,
         reached: bool,
         destination_commanded: bool,
@@ -686,16 +801,43 @@ class LatestTargetMotionController:
             "target_deg": self._degrees(goal.target_rad),
             "measured_deg": self._degrees(measured),
             "joint_error_deg": self._degrees(np.abs(goal.target_rad - measured), digits=4),
-            "target_tcp_m": [round(float(value), 6) for value in goal.target_pose[:3, 3]],
-            "measured_tcp_m": [round(float(value), 6) for value in measured_pose[:3, 3]],
-            "position_error_mm": round(position_error_mm, 4),
+            "max_joint_error_deg": round(
+                math.degrees(float(np.max(np.abs(goal.target_rad - measured)))),
+                4,
+            ),
+            "joint_position_tolerance_deg": math.degrees(
+                self._joint_tolerance_rad
+            ),
+            "within_joint_tolerance": within_joint_tolerance,
+            "joint_correction_deg": self._degrees(correction, digits=4),
+            "joint_correction_saturated": correction_saturated,
+            "arrival_basis": "joint_feedback_settled",
+            "target_tcp_m": (
+                None
+                if goal.target_pose is None
+                else [round(float(value), 6) for value in goal.target_pose[:3, 3]]
+            ),
+            "measured_tcp_m": (
+                None
+                if measured_pose is None
+                else [round(float(value), 6) for value in measured_pose[:3, 3]]
+            ),
+            "position_error_mm": (
+                None if position_error_mm is None else round(position_error_mm, 4)
+            ),
             "position_tolerance_mm": self._position_tolerance_mm,
-            "orientation_error_deg": round(orientation_error_deg, 4),
+            "orientation_error_deg": (
+                None
+                if orientation_error_deg is None
+                else round(orientation_error_deg, 4)
+            ),
             "orientation_tolerance_deg": self._orientation_tolerance_deg,
+            "fk_diagnostic_error": self._fk_diagnostic_error,
             "max_velocity_rad_s": round(float(np.max(np.abs(velocity))), 5),
             "settle_velocity_rad_s": self._settle_velocity_rad_s,
             "stable_samples": stable_samples,
             "stable_samples_required": self._stable_samples_required,
+            "target_reference_commanded": destination_commanded,
             "target_frame_commanded": destination_commanded,
             **goal.metadata,
         }
@@ -732,10 +874,12 @@ class LatestTargetMotionController:
         *,
         verification: Optional[dict[str, Any]] = None,
     ) -> None:
+        cancel_native = False
         with self._condition:
             if self._latest_goal is goal:
                 self._latest_goal = None
                 self._reference_target_rad = None
+                cancel_native = True
                 self._status = self._goal_status(
                     goal,
                     state="failed",
@@ -756,6 +900,9 @@ class LatestTargetMotionController:
                 }
                 goal.completion_event.set()
             self._condition.notify_all()
+        if cancel_native and callable(self._native_cancel_writer):
+            with self._sdk_write_lock:
+                self._native_cancel_writer()
 
     def _runtime_failure(self) -> Optional[str]:
         fault = str(getattr(self._robot, "runtime_fault", "") or "").strip()
@@ -771,7 +918,198 @@ class LatestTargetMotionController:
             return f"Position target lost position-hold mode; current mode is {mode}."
         return None
 
+    def _maintain_native_goal(self, goal: MotionGoal) -> None:
+        """Submit once, then verify the 250 Hz backend-owned trajectory."""
+
+        previous_measured: Optional[np.ndarray] = None
+        previous_feedback_time: Optional[float] = None
+        stable_samples = 0
+        reached_once = False
+        best_max_joint_error = float("inf")
+        last_progress_time = time.monotonic()
+        progress_epsilon_rad = math.radians(0.02)
+        try:
+            measured, measured_velocity, feedback_time = self._read_feedback(None, None)
+            generation = self._write_native_target(goal)
+        except Exception as exc:
+            self._complete_failed(
+                goal,
+                f"Failed to start native joint trajectory: {exc}",
+            )
+            return
+        previous_measured = measured.copy()
+        previous_feedback_time = feedback_time
+        last_progress_time = feedback_time
+        goal.motion_performed = bool(
+            np.max(np.abs(goal.target_rad - measured)) > 1e-7
+        )
+
+        while self._is_current(goal):
+            cycle_started = time.monotonic()
+            try:
+                runtime_failure = self._runtime_failure()
+            except Exception as exc:
+                self._complete_failed(
+                    goal,
+                    f"Failed to inspect arm runtime state: {exc}",
+                )
+                return
+            if runtime_failure is not None:
+                self._complete_failed(goal, runtime_failure)
+                return
+
+            try:
+                measured, measured_velocity, feedback_time = self._read_feedback(
+                    previous_measured,
+                    previous_feedback_time,
+                )
+                measured_pose = self._diagnostic_fk(measured)
+                native_status = self._read_native_status()
+            except Exception as exc:
+                self._complete_failed(goal, f"Failed to read arm feedback: {exc}")
+                return
+            previous_measured = measured.copy()
+            previous_feedback_time = feedback_time
+
+            if goal.target_pose is None or measured_pose is None:
+                position_error_mm = None
+                orientation_error_deg = None
+            else:
+                position_error_mm = float(
+                    np.linalg.norm(goal.target_pose[:3, 3] - measured_pose[:3, 3])
+                    * 1000.0
+                )
+                orientation_error_deg = _rotation_error_deg(
+                    goal.target_pose,
+                    measured_pose,
+                )
+
+            joint_error = goal.target_rad - measured
+            max_joint_error = float(np.max(np.abs(joint_error)))
+            max_velocity = float(np.max(np.abs(measured_velocity)))
+            within_joint_tolerance = bool(
+                np.all(np.abs(joint_error) <= self._joint_tolerance_rad)
+            )
+            settled = max_velocity <= self._settle_velocity_rad_s
+            generation_matches = int(native_status.get("generation", -1)) == generation
+            target_reference_commanded = bool(
+                generation_matches and native_status.get("finished", False)
+            )
+            raw_correction = native_status.get(
+                "equivalent_position_correction_rad",
+                [0.0] * 6,
+            )
+            correction = np.asarray(raw_correction, dtype=np.float64).reshape(-1)[:6]
+            if correction.size != 6 or not np.all(np.isfinite(correction)):
+                raise RuntimeError("Robot backend returned an invalid residual correction")
+            correction_saturated = bool(
+                generation_matches
+                and native_status.get("correction_saturated", False)
+            )
+            stable_samples = (
+                stable_samples + 1
+                if (
+                    within_joint_tolerance
+                    and settled
+                    and target_reference_commanded
+                )
+                else 0
+            )
+            reached = stable_samples >= self._stable_samples_required
+            verification = self._verification(
+                goal,
+                measured,
+                measured_velocity,
+                measured_pose,
+                position_error_mm=position_error_mm,
+                orientation_error_deg=orientation_error_deg,
+                correction=correction,
+                correction_saturated=correction_saturated,
+                within_joint_tolerance=within_joint_tolerance,
+                stable_samples=stable_samples,
+                reached=reached,
+                destination_commanded=target_reference_commanded,
+            )
+            verification.update(
+                {
+                    "control_owner": "socketcan_250hz_control_loop",
+                    "trajectory_generator": "ruckig",
+                    "trajectory_generation": generation,
+                    "integral_torque_bias_nm": list(
+                        native_status.get("integral_torque_bias_nm", [0.0] * 6)
+                    ),
+                }
+            )
+
+            if reached:
+                if not reached_once:
+                    self._complete_reached(goal, verification)
+                    reached_once = True
+                self._set_status(
+                    goal,
+                    state="holding",
+                    max_joint_error_deg=verification["max_joint_error_deg"],
+                    position_error_mm=verification["position_error_mm"],
+                    orientation_error_deg=verification["orientation_error_deg"],
+                    max_velocity_rad_s=verification["max_velocity_rad_s"],
+                    stable_samples=stable_samples,
+                    control_owner="socketcan_250hz_control_loop",
+                )
+            else:
+                self._set_status(
+                    goal,
+                    state=("correcting" if target_reference_commanded else "running"),
+                    max_joint_error_deg=verification["max_joint_error_deg"],
+                    position_error_mm=verification["position_error_mm"],
+                    orientation_error_deg=verification["orientation_error_deg"],
+                    max_velocity_rad_s=verification["max_velocity_rad_s"],
+                    stable_samples=stable_samples,
+                    control_owner="socketcan_250hz_control_loop",
+                )
+
+            if max_joint_error + progress_epsilon_rad < best_max_joint_error:
+                best_max_joint_error = max_joint_error
+                last_progress_time = feedback_time
+            elif within_joint_tolerance:
+                best_max_joint_error = max_joint_error
+                last_progress_time = feedback_time
+
+            if (
+                target_reference_commanded
+                and correction_saturated
+                and feedback_time - last_progress_time >= self._feedback_timeout_s
+                and settled
+            ):
+                self._complete_failed(
+                    goal,
+                    (
+                        "Joint feedback stalled after the bounded integral torque "
+                        "authority was exhausted: "
+                        f"maximum joint error {math.degrees(max_joint_error):.3f}° "
+                        f"(limit {math.degrees(self._joint_tolerance_rad):.3f}°)."
+                    ),
+                    verification=verification,
+                )
+                return
+            if not reached_once and feedback_time - goal.submitted_at >= goal.timeout_s:
+                self._complete_failed(
+                    goal,
+                    (
+                        f"Joint-space goal {goal.goal_id} timed out after "
+                        f"{goal.timeout_s:.3f} s."
+                    ),
+                    verification=verification,
+                )
+                return
+
+            elapsed = time.monotonic() - cycle_started
+            if not self._pause_while_current(goal, self._period_s - elapsed):
+                return
+
     def _maintain_goal(self, goal: MotionGoal) -> None:
+        if self._uses_native_joint_trajectory:
+            self._maintain_native_goal(goal)
+            return
         previous_measured: Optional[np.ndarray] = None
         previous_feedback_time: Optional[float] = None
         try:
@@ -784,11 +1122,13 @@ class LatestTargetMotionController:
             self._complete_failed(goal, f"Failed to initialize arm feedback: {exc}")
             return
         correction = np.zeros(6, dtype=np.float64)
-        next_correction_time = feedback_time
+        previous_correction_time = feedback_time
         stable_samples = 0
         reached_once = False
-        outside_tolerance_since: Optional[float] = None
-        destination_was_commanded = False
+        nominal_target_commanded = False
+        best_max_joint_error = float("inf")
+        last_progress_time = feedback_time
+        progress_epsilon_rad = math.radians(0.02)
 
         while self._is_current(goal):
             cycle_started = time.monotonic()
@@ -806,36 +1146,77 @@ class LatestTargetMotionController:
                     previous_measured,
                     previous_feedback_time,
                 )
-                measured_pose = self._fk(measured)
+                measured_pose = self._diagnostic_fk(measured)
             except Exception as exc:
                 self._complete_failed(goal, f"Failed to read arm feedback: {exc}")
                 return
             previous_measured = measured.copy()
             previous_feedback_time = feedback_time
 
-            position_error_mm = float(
-                np.linalg.norm(goal.target_pose[:3, 3] - measured_pose[:3, 3])
-                * 1000.0
-            )
-            orientation_error_deg = _rotation_error_deg(goal.target_pose, measured_pose)
+            if goal.target_pose is None or measured_pose is None:
+                position_error_mm = None
+                orientation_error_deg = None
+            else:
+                position_error_mm = float(
+                    np.linalg.norm(goal.target_pose[:3, 3] - measured_pose[:3, 3])
+                    * 1000.0
+                )
+                orientation_error_deg = _rotation_error_deg(
+                    goal.target_pose,
+                    measured_pose,
+                )
             max_velocity = float(np.max(np.abs(measured_velocity)))
-            within_pose = (
-                position_error_mm <= self._position_tolerance_mm
-                and orientation_error_deg <= self._orientation_tolerance_deg
+            joint_error = goal.target_rad - measured
+            max_joint_error = float(np.max(np.abs(joint_error)))
+            within_joint_tolerance = bool(
+                np.all(np.abs(joint_error) <= self._joint_tolerance_rad)
             )
             settled = max_velocity <= self._settle_velocity_rad_s
 
             limits = self._joint_limits()
+            nominal_target_commanded = nominal_target_commanded or (
+                float(np.max(np.abs(command_pos - goal.target_rad))) <= 1e-5
+                and float(np.max(np.abs(command_vel))) <= self._settle_velocity_rad_s
+            )
+            if nominal_target_commanded and not within_joint_tolerance:
+                correction_dt = min(
+                    max(0.0, feedback_time - previous_correction_time),
+                    self._period_s * 2.0,
+                )
+                correction_rate = np.clip(
+                    self._correction_integral_gain * joint_error,
+                    -self._correction_rate_limit,
+                    self._correction_rate_limit,
+                )
+                correction = np.clip(
+                    correction + correction_rate * correction_dt,
+                    -self._max_correction_rad,
+                    self._max_correction_rad,
+                )
+            previous_correction_time = feedback_time
+
             destination = goal.target_rad + correction
+            limited_by_joint_range = np.zeros(6, dtype=bool)
             if limits is not None:
-                destination = np.clip(destination, limits[:, 0], limits[:, 1])
+                clipped_destination = np.clip(destination, limits[:, 0], limits[:, 1])
+                limited_by_joint_range = np.abs(clipped_destination - destination) > 1e-12
+                destination = clipped_destination
+                # The integral state must represent only commandable bias. This
+                # is the anti-windup boundary when a goal sits at a joint limit.
+                correction = destination - goal.target_rad
             destination_commanded = (
                 float(np.max(np.abs(command_pos - destination))) <= 1e-5
                 and float(np.max(np.abs(command_vel))) <= self._settle_velocity_rad_s
             )
+            correction_saturated_axes = (
+                ((correction >= self._max_correction_rad - 1e-12) & (joint_error > 0.0))
+                | ((correction <= -self._max_correction_rad + 1e-12) & (joint_error < 0.0))
+                | limited_by_joint_range
+            ) & (np.abs(joint_error) > self._joint_tolerance_rad)
+            correction_saturated = bool(np.any(correction_saturated_axes))
             stable_samples = (
                 stable_samples + 1
-                if within_pose and settled and destination_commanded
+                if within_joint_tolerance and settled and destination_commanded
                 else 0
             )
             reached = stable_samples >= self._stable_samples_required
@@ -847,6 +1228,9 @@ class LatestTargetMotionController:
                 measured_pose,
                 position_error_mm=position_error_mm,
                 orientation_error_deg=orientation_error_deg,
+                correction=correction,
+                correction_saturated=correction_saturated,
+                within_joint_tolerance=within_joint_tolerance,
                 stable_samples=stable_samples,
                 reached=reached,
                 destination_commanded=destination_commanded,
@@ -858,6 +1242,7 @@ class LatestTargetMotionController:
                 self._set_status(
                     goal,
                     state="holding",
+                    max_joint_error_deg=verification["max_joint_error_deg"],
                     position_error_mm=verification["position_error_mm"],
                     orientation_error_deg=verification["orientation_error_deg"],
                     max_velocity_rad_s=verification["max_velocity_rad_s"],
@@ -866,58 +1251,35 @@ class LatestTargetMotionController:
             else:
                 self._set_status(
                     goal,
-                    state="correcting" if reached_once else "running",
+                    state="correcting" if nominal_target_commanded else "running",
+                    max_joint_error_deg=verification["max_joint_error_deg"],
                     position_error_mm=verification["position_error_mm"],
                     orientation_error_deg=verification["orientation_error_deg"],
                     max_velocity_rad_s=verification["max_velocity_rad_s"],
                     stable_samples=stable_samples,
                 )
 
-            if (
-                destination_commanded
-                and feedback_time >= next_correction_time
-                and not within_pose
-            ):
-                correction = np.clip(
-                    correction
-                    + self._correction_gain * (goal.target_rad - measured),
-                    -self._max_correction_rad,
-                    self._max_correction_rad,
-                )
-                next_correction_time = feedback_time + self._correction_period_s
-                destination = goal.target_rad + correction
-                if limits is not None:
-                    destination = np.clip(destination, limits[:, 0], limits[:, 1])
-                destination_commanded = (
-                    float(np.max(np.abs(command_pos - destination))) <= 1e-5
-                    and float(np.max(np.abs(command_vel)))
-                    <= self._settle_velocity_rad_s
-                )
-
-            if within_pose:
-                outside_tolerance_since = None
-            elif destination_commanded:
-                if not destination_was_commanded or outside_tolerance_since is None:
-                    outside_tolerance_since = feedback_time
-            else:
-                outside_tolerance_since = None
-            destination_was_commanded = destination_commanded
+            if max_joint_error + progress_epsilon_rad < best_max_joint_error:
+                best_max_joint_error = max_joint_error
+                last_progress_time = feedback_time
+            elif within_joint_tolerance:
+                best_max_joint_error = max_joint_error
+                last_progress_time = feedback_time
 
             if (
-                destination_commanded
-                and outside_tolerance_since is not None
+                nominal_target_commanded
+                and correction_saturated
                 and self._feedback_timeout_s >= 0.0
-                and feedback_time - outside_tolerance_since >= self._feedback_timeout_s
+                and feedback_time - last_progress_time >= self._feedback_timeout_s
                 and settled
             ):
                 self._complete_failed(
                     goal,
                     (
-                        "End-effector stalled outside the arrival tolerance: "
-                        f"position error {position_error_mm:.3f} mm "
-                        f"(limit {self._position_tolerance_mm:.3f} mm), "
-                        f"orientation error {orientation_error_deg:.3f}° "
-                        f"(limit {self._orientation_tolerance_deg:.3f}°)."
+                        "Joint feedback stalled after the bounded correction "
+                        "authority was exhausted: "
+                        f"maximum joint error {math.degrees(max_joint_error):.3f}° "
+                        f"(limit {math.degrees(self._joint_tolerance_rad):.3f}°)."
                     ),
                     verification=verification,
                 )
@@ -926,18 +1288,18 @@ class LatestTargetMotionController:
                 self._complete_failed(
                     goal,
                     (
-                        f"End-effector goal {goal.goal_id} timed out after "
+                        f"Joint-space goal {goal.goal_id} timed out after "
                         f"{goal.timeout_s:.3f} s."
                     ),
                     verification=verification,
                 )
                 return
 
-            # If feedback is already settled at the requested endpoint, keep
+            # If feedback is already settled at the requested joint target, keep
             # observing it without emitting a redundant command frame.  This
             # makes an already-satisfied goal a truly no-motion operation and
             # avoids microscopic twitches while the stability dwell completes.
-            if within_pose and settled and destination_commanded:
+            if within_joint_tolerance and settled and destination_commanded:
                 elapsed = time.monotonic() - cycle_started
                 if not self._pause_while_current(goal, self._period_s - elapsed):
                     return

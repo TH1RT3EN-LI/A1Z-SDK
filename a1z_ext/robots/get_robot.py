@@ -6,9 +6,16 @@ from typing import Optional
 
 import numpy as np
 
-from a1z_ext.config import get_control_defaults, get_default_backend, get_default_can_channel
+from a1z_ext.config import (
+    get_arm_feedback_startup_timeout_s,
+    get_can_inter_command_delay_s,
+    get_control_defaults,
+    get_default_backend,
+    get_default_can_channel,
+)
 from a1z_ext.robots.connection_monitor import probe_socketcan_link
 from a1z_ext.robots.mock_robot import MockArmRobot
+from a1z_ext.robots.realtime_joint_controller import require_ruckig_dependency
 from a1z.robots.robot import Robot
 
 _CONTROL_DEFAULTS = get_control_defaults()
@@ -28,6 +35,10 @@ _JOINT_SIGN = np.array(_CONTROL_DEFAULTS["joint_sign"], dtype=np.float64)
 _GRAVITY_TORQUE_SCALE = np.array(_CONTROL_DEFAULTS["gravity_torque_scale"], dtype=np.float64)
 _MAX_GRAVITY_TORQUE = np.array(_CONTROL_DEFAULTS["max_gravity_torque"], dtype=np.float64)
 _TORQUE_CLIP = np.array(_CONTROL_DEFAULTS["torque_clip"], dtype=np.float64)
+_TORQUE_SLEW_RATE_NM_S = np.array(
+    _CONTROL_DEFAULTS["torque_slew_rate_nm_s"],
+    dtype=np.float64,
+)
 _MOTOR_A_KT = float(_CONTROL_DEFAULTS["motor_a_kt"])
 
 
@@ -63,8 +74,13 @@ def get_a1z_robot(
     with_gripper: bool = False,
     gripper_max_torque: float = 0.5,
     gripper_empty_close_threshold: float = 0.04,
+    feedback_startup_timeout_s: Optional[float] = None,
+    can_inter_command_delay_s: Optional[float] = None,
 ):
     """Create and return a configured SocketCAN-backed A1Z ArmRobot."""
+    # Fail before opening the CAN bus so a missing trajectory dependency cannot
+    # leave a partially constructed hardware backend behind.
+    require_ruckig_dependency()
     link_status = probe_socketcan_link(can_channel)
     if not bool(link_status.get("connected", False)):
         raise RuntimeError(
@@ -77,7 +93,8 @@ def get_a1z_robot(
     from a1z.robots.gripper import GRIPPER_CAN_ID, GRIPPER_MOTOR_RANGES, Gripper
 
     from a1z.motor_drivers.motor_a_driver import MotorA, MotorARanges
-    from a1z.motor_drivers.motor_b_driver import MotorB, MotorBRanges, MixedMotorChain
+    from a1z.motor_drivers.motor_b_driver import MotorB, MotorBRanges
+    from a1z_ext.robots.paced_motor_chain import PacedMixedMotorChain
     from a1z_ext.robots.socketcan_robot import SocketCANArmRobot
     urdf = urdf_path or _DEFAULT_URDF_PATH
     motor_a_ranges = MotorARanges(**_CONTROL_DEFAULTS["motor_a_ranges"])
@@ -104,12 +121,17 @@ def get_a1z_robot(
         ranges = motor_b_ranges_overrides.get(joint_idx, motor_b_ranges_default)
         motor_b_list.append(MotorB(motor_id=mid, bus=bus, ranges=ranges))
 
-    motor_chain = MixedMotorChain(
+    motor_chain = PacedMixedMotorChain(
         motor_a_list=motor_a_list,
         motor_b_list=motor_b_list,
         motor_a_joint_indices=_MOTOR_A_JOINT_INDICES,
         motor_b_joint_indices=_MOTOR_B_JOINT_INDICES,
         motor_a_kt=_MOTOR_A_KT,
+        inter_command_delay_s=(
+            get_can_inter_command_delay_s()
+            if can_inter_command_delay_s is None
+            else can_inter_command_delay_s
+        ),
     )
 
     gravity_model, joint_limits = _load_control_model(urdf)
@@ -140,6 +162,12 @@ def get_a1z_robot(
         gripper_max_torque_nm=gripper_max_torque,
         empty_close_threshold=gripper_empty_close_threshold,
         can_channel=can_channel,
+        feedback_startup_timeout_s=(
+            get_arm_feedback_startup_timeout_s()
+            if feedback_startup_timeout_s is None
+            else feedback_startup_timeout_s
+        ),
+        torque_slew_rate_nm_s=_TORQUE_SLEW_RATE_NM_S,
     )
 
 
@@ -209,6 +237,8 @@ def create_a1z_robot(
     with_gripper: bool = False,
     gripper_max_torque: float = 0.5,
     gripper_empty_close_threshold: float = 0.04,
+    feedback_startup_timeout_s: Optional[float] = None,
+    can_inter_command_delay_s: Optional[float] = None,
     articulation_root_prim: Optional[str] = None,
 ) -> Robot:
     """Create the requested A1Z backend."""
@@ -226,6 +256,8 @@ def create_a1z_robot(
             with_gripper=with_gripper,
             gripper_max_torque=gripper_max_torque,
             gripper_empty_close_threshold=gripper_empty_close_threshold,
+            feedback_startup_timeout_s=feedback_startup_timeout_s,
+            can_inter_command_delay_s=can_inter_command_delay_s,
         )
     if backend == "mock":
         return get_a1z_mock_robot(

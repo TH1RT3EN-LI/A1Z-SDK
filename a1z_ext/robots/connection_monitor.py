@@ -306,6 +306,91 @@ class SocketCANLinkMonitor:
             logger.warning(message)
 
 
+class ArmFeedbackStartupGate:
+    """Separate slow hardware initialisation from strict runtime freshness.
+
+    Gripper homing and the SDK's initial probe happen before the arm control
+    loop is fully running.  Feedback that is missing during that phase must not
+    consume the runtime stale-feedback budget.  Once all required joints have
+    produced fresh feedback, the gate permanently enters ``monitoring`` and the
+    normal per-joint stale check applies.
+    """
+
+    def __init__(self, *, timeout_s: float) -> None:
+        self._timeout_s = float(timeout_s)
+        if not math.isfinite(self._timeout_s) or self._timeout_s <= 0.0:
+            raise ValueError("timeout_s must be positive and finite")
+        self._lock = threading.Lock()
+        self._phase = "stopped"
+        self._deadline_monotonic_s: Optional[float] = None
+
+    @property
+    def phase(self) -> str:
+        with self._lock:
+            return self._phase
+
+    @property
+    def active(self) -> bool:
+        return self.phase in {"initializing", "waiting"}
+
+    def begin_initialization(self) -> None:
+        with self._lock:
+            self._phase = "initializing"
+            self._deadline_monotonic_s = None
+
+    def begin_waiting(self, *, now: Optional[float] = None) -> None:
+        timestamp = time.monotonic() if now is None else float(now)
+        with self._lock:
+            self._phase = "waiting"
+            self._deadline_monotonic_s = timestamp + self._timeout_s
+
+    def stop(self) -> None:
+        with self._lock:
+            self._phase = "stopped"
+            self._deadline_monotonic_s = None
+
+    def evaluate(
+        self,
+        arm_snapshot: Mapping[str, Any],
+        *,
+        now: Optional[float] = None,
+    ) -> str:
+        """Return ``probe``, ``ready``, ``timeout``, ``monitor``, or ``stopped``."""
+
+        timestamp = time.monotonic() if now is None else float(now)
+        with self._lock:
+            if self._phase == "initializing":
+                return "probe"
+            if self._phase == "waiting":
+                if bool(arm_snapshot.get("connected", False)):
+                    self._phase = "monitoring"
+                    self._deadline_monotonic_s = None
+                    return "ready"
+                deadline = self._deadline_monotonic_s
+                if deadline is not None and timestamp < deadline:
+                    return "probe"
+                self._phase = "failed"
+                self._deadline_monotonic_s = None
+                return "timeout"
+            if self._phase == "monitoring":
+                return "monitor"
+            return "stopped"
+
+    def snapshot(self, *, now: Optional[float] = None) -> dict[str, Any]:
+        timestamp = time.monotonic() if now is None else float(now)
+        with self._lock:
+            phase = self._phase
+            deadline = self._deadline_monotonic_s
+        remaining_ms = None
+        if deadline is not None:
+            remaining_ms = round(max(0.0, deadline - timestamp) * 1000.0, 1)
+        return {
+            "phase": phase,
+            "timeout_ms": round(self._timeout_s * 1000.0, 1),
+            "remaining_ms": remaining_ms,
+        }
+
+
 class ArmFeedbackMonitor:
     """Maintain connection evidence independently for every required joint."""
 

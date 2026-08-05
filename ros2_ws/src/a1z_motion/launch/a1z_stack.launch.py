@@ -47,31 +47,36 @@ def _real_d405_node() -> Node:
 
 
 def generate_launch_description() -> LaunchDescription:
-    camera_source = os.environ.get("A1Z_CAMERA_SOURCE", "").strip()
-    if camera_source == "isaac":
-        camera_node = Node(
-            package="a1z_d405",
-            executable="isaac_d405_bridge",
-            name="a1z_isaac_d405_bridge",
-            output="screen",
-        )
-    elif camera_source == "realsense":
-        camera_node = _real_d405_node()
-    else:
-        raise RuntimeError(
-            "A1Z_CAMERA_SOURCE must be 'isaac' or 'realsense'; "
-            f"got {camera_source!r}"
-        )
-
-    return LaunchDescription(
-        [
-            camera_node,
+    actions = []
+    if _env_bool("A1Z_CAMERA_ENABLED", True):
+        camera_source = os.environ.get("A1Z_CAMERA_SOURCE", "").strip()
+        if camera_source == "isaac":
+            actions.append(
+                Node(
+                    package="a1z_d405",
+                    executable="isaac_d405_bridge",
+                    name="a1z_isaac_d405_bridge",
+                    output="screen",
+                )
+            )
+        elif camera_source == "realsense":
+            actions.append(_real_d405_node())
+        else:
+            raise RuntimeError(
+                "A1Z_CAMERA_SOURCE must be 'isaac' or 'realsense'; "
+                f"got {camera_source!r}"
+            )
+        actions.append(
             Node(
                 package="a1z_d405",
                 executable="camera_console_bridge",
                 name="a1z_camera_console_bridge",
                 output="screen",
-            ),
+            )
+        )
+
+    actions.extend(
+        [
             Node(
                 package="a1z_motion",
                 executable="robot_state",
@@ -86,3 +91,4 @@ def generate_launch_description() -> LaunchDescription:
             ),
         ]
     )
+    return LaunchDescription(actions)

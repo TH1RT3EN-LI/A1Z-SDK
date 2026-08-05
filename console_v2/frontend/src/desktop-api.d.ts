@@ -15,11 +15,23 @@ type DeploymentMode = "host" | "docker";
 type RobotControlModeCommand = "hold" | "zero-force";
 type StartupCheckCode =
   | "ready"
+  | "configuration_required"
   | "deployment_unavailable"
   | "device_missing"
   | "device_inactive"
   | "communication_fault"
   | "check_unavailable";
+
+type StartupEnvironmentStatus = {
+  available: boolean;
+  code: "ready" | "setup_required" | "repair_required" | "unavailable";
+  detail: string;
+};
+
+type StartupParameters = {
+  controlMode: "position_hold" | "zero_force";
+  gravityCompensation: number;
+};
 
 type RobotTelemetryPayload = {
   ok: boolean;
@@ -54,9 +66,22 @@ declare global {
       closeTerminal(sessionId: string): void;
       onTerminalData(callback: (payload: TerminalDataPayload) => void): () => void;
       onTerminalExit(callback: (payload: TerminalExitPayload) => void): () => void;
+      inspectStartupEnvironments(): Promise<{
+        host: StartupEnvironmentStatus;
+        docker: StartupEnvironmentStatus;
+      }>;
       checkStartupReadiness(deploymentMode: DeploymentMode): Promise<{
         ok: boolean;
         code: StartupCheckCode;
+      }>;
+      startControlService(
+        deploymentMode: DeploymentMode,
+        parameters: StartupParameters,
+      ): Promise<{
+        started: true;
+        reused: boolean;
+        controlMode: string;
+        gravityCompensation: number;
       }>;
       startRobotTelemetry(
         deploymentMode: DeploymentMode,

@@ -5,14 +5,22 @@
   "mount_orient_deg": [-90.0, -90.0, 0.0],
   "mesh_scale": [0.001, 0.001, 0.001],
   "material_rgba": [0.18, 0.2, 0.22, 1.0],
-  "mass_kg": 0.03,
-  "center_of_mass_xyz_m": [0.0000076511, 0.0107364317, 0.0283061975],
+  "material_model": {
+    "description": "uniform generic engineering plastic estimate",
+    "nominal_density_kg_m3": 1200.0,
+    "density_range_kg_m3": [1000.0, 1400.0],
+    "cad_volume_m3": 0.000024392209736799196,
+    "estimated_mass_range_kg": [0.024392209736799196, 0.03414909363151887],
+    "source": "assets/camera_bracket/camera_bracket.conversion.json"
+  },
+  "mass_kg": 0.029270651684159033,
+  "center_of_mass_xyz_m": [0.00000765111054172473, 0.010736431713642565, 0.028306197464929444],
   "inertia_kg_m2": {
-    "ixx": 0.000017361317,
-    "ixy": 0.000000025639,
-    "ixz": 0.000000009962,
-    "iyy": 0.000005539932,
-    "iyz": 0.000002082749,
-    "izz": 0.000017136905
+    "ixx": 0.000016939235365374873,
+    "ixy": 0.000000025015411480728703,
+    "ixz": 0.000000009719738036881374,
+    "iyy": 0.000005405247681218492,
+    "iyz": 0.0000020321143206355647,
+    "izz": 0.00001672027941903781
   }
 }

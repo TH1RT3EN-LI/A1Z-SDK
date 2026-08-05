@@ -40,17 +40,43 @@ esac
 
 EXPECTED_BACKEND="${A1Z_BACKEND:?profile must define A1Z_BACKEND}"
 PROFILE_NAME="${A1Z_PROFILE:?profile must be explicit}"
+SERVICE_DEPLOYMENT="${A1Z_SERVICE_DEPLOYMENT:-docker}"
+case "$SERVICE_DEPLOYMENT" in
+  host|docker) ;;
+  *)
+    echo "Unsupported A1Z_SERVICE_DEPLOYMENT='$SERVICE_DEPLOYMENT' (expected host or docker)" >&2
+    exit 2
+    ;;
+esac
 SIM_LAUNCH_MODE="${A1Z_ISAAC_LAUNCH_MODE:-container}"
 CAN_BITRATE="${A1Z_CAN_BITRATE:-1000000}"
 LOG_DIR="$ROOT_DIR/runtime/logs"
-LOG_PATH="$LOG_DIR/a1z-control-${PROFILE_NAME}.log"
+if [[ "$PROFILE_NAME" == "real" && "$SERVICE_DEPLOYMENT" == "host" ]]; then
+  LOG_PATH="$LOG_DIR/a1z-control-${PROFILE_NAME}-host.log"
+else
+  LOG_PATH="$LOG_DIR/a1z-control-${PROFILE_NAME}.log"
+fi
+HOST_PID_PATH="$LOG_DIR/a1z-control-${PROFILE_NAME}-host.pid"
 mkdir -p "$LOG_DIR"
+
+run_control_cli() {
+  if [[ "$PROFILE_NAME" == "real" && "$SERVICE_DEPLOYMENT" == "host" ]]; then
+    env \
+      A1Z_SOCKET_PATH="${A1Z_SOCKET_PATH:-}" \
+      A1Z_TCP_HOST="${A1Z_TCP_HOST:-127.0.0.1}" \
+      A1Z_TCP_PORT="${A1Z_TCP_PORT:-37104}" \
+      PYTHONPATH="$ROOT_DIR/vendor/GALAXEA-A1Z:$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+      "${A1Z_PYTHON:-python3}" "$ROOT_DIR/tools/a1zctl" "$@"
+    return
+  fi
+  A1Z_PROFILE="$PROFILE_NAME" \
+    "$ROOT_DIR/scripts/a1zctl_in_container.sh" "$@"
+}
 
 probe_identity() {
   local output
   if ! output="$(
-    A1Z_PROFILE="$PROFILE_NAME" \
-      "$ROOT_DIR/scripts/a1zctl_in_container.sh" --json info 2>/dev/null
+    run_control_cli --json info 2>/dev/null
   )"; then
     return 1
   fi
@@ -60,6 +86,7 @@ import sys
 
 expected = sys.argv[1]
 payload = json.loads(sys.argv[2])
+payload = payload.get("data", payload)
 raise SystemExit(0 if payload.get("backend") == expected else 3)
 PY
 }
@@ -67,8 +94,7 @@ PY
 probe_healthy() {
   local output
   if ! output="$(
-    A1Z_PROFILE="$PROFILE_NAME" \
-      "$ROOT_DIR/scripts/a1zctl_in_container.sh" --json info 2>/dev/null
+    run_control_cli --json info 2>/dev/null
   )"; then
     return 1
   fi
@@ -78,6 +104,7 @@ import sys
 
 expected = sys.argv[1]
 payload = json.loads(sys.argv[2])
+payload = payload.get("data", payload)
 healthy = (
     payload.get("backend") == expected
     and payload.get("running") is True
@@ -87,8 +114,44 @@ raise SystemExit(0 if healthy else 3)
 PY
 }
 
+probe_terminal_fault() {
+  local output
+  if ! output="$(
+    run_control_cli --json info 2>/dev/null
+  )"; then
+    return 1
+  fi
+  python3 - "$EXPECTED_BACKEND" "$output" <<'PY'
+import json
+import sys
+
+expected = sys.argv[1]
+payload = json.loads(sys.argv[2])
+payload = payload.get("data", payload)
+message = str(payload.get("fault_message", "") or "").strip()
+terminal = (
+    payload.get("backend") == expected
+    and (payload.get("faulted") is True or bool(message))
+)
+if terminal:
+    print(message or "robot control loop reported a fault")
+raise SystemExit(0 if terminal else 3)
+PY
+}
+
 find_real_server_pids() {
   [[ "$PROFILE_NAME" == "real" ]] || return 1
+  if [[ "$SERVICE_DEPLOYMENT" == "host" ]]; then
+    local pid="" command_line=""
+    pid="$(cat "$HOST_PID_PATH" 2>/dev/null || true)"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    [[ -r "/proc/$pid/cmdline" ]] || return 1
+    command_line="$(tr '\0' ' ' <"/proc/$pid/cmdline")"
+    [[ "$command_line" == *"/tools/a1zctl serve"* ]] || return 1
+    printf '%s\n' "$pid"
+    return 0
+  fi
   local container_name="${A1Z_ROS2_CONTAINER_NAME:-}"
   [[ -n "$container_name" ]] || return 1
   docker inspect "$container_name" >/dev/null 2>&1 || return 1
@@ -99,18 +162,26 @@ find_real_server_pids() {
 
 ensure_real_can_ready() {
   [[ "$PROFILE_NAME" == "real" ]] || return 0
-  local container_name="${A1Z_ROS2_CONTAINER_NAME:?}"
+  local container_name="${A1Z_ROS2_CONTAINER_NAME:-}"
   local can_channel="${A1Z_CAN_CHANNEL:?real profile needs A1Z_CAN_CHANNEL}"
   local details="" flags
+
+  if [[ "$SERVICE_DEPLOYMENT" == "docker" && -z "$container_name" ]]; then
+    echo "Docker deployment requires A1Z_ROS2_CONTAINER_NAME." >&2
+    return 2
+  fi
 
   if [[ ! "$CAN_BITRATE" =~ ^[1-9][0-9]*$ ]]; then
     echo "Invalid A1Z_CAN_BITRATE='$CAN_BITRATE'; expected a positive integer." >&2
     return 2
   fi
   for _ in $(seq 1 20); do
-    if details="$(
-      docker exec "$container_name" ip -details link show "$can_channel" 2>/dev/null
-    )"; then
+    if [[ "$SERVICE_DEPLOYMENT" == "host" ]]; then
+      details="$(ip -details link show "$can_channel" 2>/dev/null || true)"
+    else
+      details="$(docker exec "$container_name" ip -details link show "$can_channel" 2>/dev/null || true)"
+    fi
+    if [[ -n "$details" ]]; then
       break
     fi
     details=""
@@ -128,6 +199,12 @@ ensure_real_can_ready() {
      [[ "$details" == *"bitrate $CAN_BITRATE"* ]]; then
     echo "Reusing ${can_channel}: UP at ${CAN_BITRATE} bit/s."
     return 0
+  fi
+
+  if [[ "$SERVICE_DEPLOYMENT" == "host" ]]; then
+    echo "Host SocketCAN '$can_channel' must already be UP at ${CAN_BITRATE} bit/s." >&2
+    echo "Configure the host interface explicitly or select Docker for managed CAN setup." >&2
+    return 1
   fi
 
   echo "Configuring ${can_channel}: ${CAN_BITRATE} bit/s and UP."
@@ -158,6 +235,21 @@ stop_orphaned_real_servers() {
     pid_args+=("$pid")
   done <<<"$pids"
   [[ "${#pid_args[@]}" -gt 0 ]] || return 0
+  if [[ "$SERVICE_DEPLOYMENT" == "host" ]]; then
+    for pid in "${pid_args[@]}"; do
+      kill -INT "$pid" 2>/dev/null || true
+    done
+    for _ in $(seq 1 40); do
+      if ! find_real_server_pids >/dev/null; then
+        rm -f "$HOST_PID_PATH"
+        echo "Stopped orphaned A1Z real host control-server process."
+        return 0
+      fi
+      sleep 0.25
+    done
+    echo "Timed out waiting for orphaned A1Z real host control-server process to stop." >&2
+    return 1
+  fi
   docker exec "$container_name" bash -lc '
     for pid in "$@"; do
       kill -INT "$pid" 2>/dev/null || true
@@ -217,12 +309,14 @@ stop_service() {
     echo "A1Z ${PROFILE_NAME} control service is already stopped."
     return 0
   fi
-  A1Z_PROFILE="$PROFILE_NAME" \
-    "$ROOT_DIR/scripts/a1zctl_in_container.sh" --json stop
+  run_control_cli --json stop
   for _ in $(seq 1 30); do
     if ! probe_identity; then
       if [[ -n "$native_pid" ]]; then
         stop_native_kit "$native_pid"
+      fi
+      if [[ "$PROFILE_NAME" == "real" && "$SERVICE_DEPLOYMENT" == "host" ]]; then
+        rm -f "$HOST_PID_PATH"
       fi
       echo "A1Z ${PROFILE_NAME} control service stopped."
       return 0
@@ -239,6 +333,11 @@ if [[ "$ACTION" == "status" ]]; then
     exit 0
   fi
   if probe_identity; then
+    TERMINAL_FAULT="$(probe_terminal_fault || true)"
+    if [[ -n "$TERMINAL_FAULT" ]]; then
+      echo "A1Z ${PROFILE_NAME} endpoint is reachable, but its robot control loop faulted: $TERMINAL_FAULT" >&2
+      exit 1
+    fi
     echo "A1Z ${PROFILE_NAME} endpoint is reachable, but its robot control loop is not healthy." >&2
     exit 1
   fi
@@ -289,33 +388,7 @@ if [[ "$PROFILE_NAME" == "sim" ]]; then
     exit 2
   fi
 else
-  "$ROOT_DIR/scripts/create_a1z_ros2_container.sh"
-  CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:?real profile needs a ROS container}"
-  docker start "$CONTAINER_NAME" >/dev/null
-  ORPHANED_REAL_PIDS="$(find_real_server_pids || true)"
-  if [[ -n "$ORPHANED_REAL_PIDS" ]]; then
-    echo "Refusing to start a second SDK owner; existing control-server pid(s): $ORPHANED_REAL_PIDS" >&2
-    echo "Run '$0 stop' to terminate the selected profile's stale owner first." >&2
-    exit 1
-  fi
-  ensure_real_can_ready
-
-  ENV_ARGS=()
-  for name in \
-    A1Z_PROFILE A1Z_BACKEND A1Z_CAN_CHANNEL A1Z_CONTROL_FREQ_HZ \
-    A1Z_MIN_CONTROL_FREQ_HZ A1Z_GRIPPER_MAX_TORQUE \
-    A1Z_GRIPPER_EMPTY_CLOSE_THRESHOLD A1Z_SOCKET_PATH \
-    A1Z_TCP_HOST A1Z_TCP_PORT A1Z_WITH_GRIPPER; do
-    if [[ -n "${!name:-}" ]]; then
-      ENV_ARGS+=(-e "$name=${!name}")
-    fi
-  done
-  ENV_ARGS+=(-e "PYTHONPATH=/workspace/A1Z/vendor/GALAXEA-A1Z:/workspace/A1Z")
-
-  SERVER_ARGS=(
-    /usr/bin/python3
-    /workspace/A1Z/tools/a1zctl
-    serve
+  SERVER_OPTIONS=(
     --backend "$A1Z_BACKEND"
     --can "$A1Z_CAN_CHANNEL"
     --tcp-host "$A1Z_TCP_HOST"
@@ -328,17 +401,68 @@ else
     --gravity-factor "$GRAVITY_FACTOR"
   )
   if [[ "$GRAVITY_MODE" == "1" ]]; then
-    SERVER_ARGS+=(--gravity-mode)
+    SERVER_OPTIONS+=(--gravity-mode)
   fi
 
-  docker exec -d \
-    -u "$(id -u):$(id -g)" \
-    -w /workspace/A1Z \
-    "${ENV_ARGS[@]}" \
-    "$CONTAINER_NAME" \
-    bash -lc 'log_path="$1"; shift; exec "$@" > "$log_path" 2>&1' bash \
-    "/workspace/A1Z/runtime/logs/a1z-control-${A1Z_PROFILE}.log" \
-    "${SERVER_ARGS[@]}"
+  if [[ "$SERVICE_DEPLOYMENT" == "host" ]]; then
+    ensure_real_can_ready
+    ORPHANED_REAL_PIDS="$(find_real_server_pids || true)"
+    if [[ -n "$ORPHANED_REAL_PIDS" ]]; then
+      echo "Refusing to start a second SDK owner; existing host control-server pid(s): $ORPHANED_REAL_PIDS" >&2
+      echo "Run '$0 stop' with A1Z_SERVICE_DEPLOYMENT=host before retrying." >&2
+      exit 1
+    fi
+    setsid env \
+      A1Z_PROFILE="$A1Z_PROFILE" \
+      A1Z_BACKEND="$A1Z_BACKEND" \
+      A1Z_CAN_CHANNEL="$A1Z_CAN_CHANNEL" \
+      A1Z_SOCKET_PATH="$A1Z_SOCKET_PATH" \
+      A1Z_TCP_HOST="$A1Z_TCP_HOST" \
+      A1Z_TCP_PORT="$A1Z_TCP_PORT" \
+      PYTHONPATH="$ROOT_DIR/vendor/GALAXEA-A1Z:$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+      "${A1Z_PYTHON:-python3}" "$ROOT_DIR/tools/a1zctl" serve \
+      "${SERVER_OPTIONS[@]}" \
+      >"$LOG_PATH" 2>&1 </dev/null &
+    printf '%s\n' "$!" >"$HOST_PID_PATH"
+  else
+    "$ROOT_DIR/scripts/create_a1z_ros2_container.sh"
+    CONTAINER_NAME="${A1Z_ROS2_CONTAINER_NAME:?real profile needs a ROS container}"
+    docker start "$CONTAINER_NAME" >/dev/null
+    ORPHANED_REAL_PIDS="$(find_real_server_pids || true)"
+    if [[ -n "$ORPHANED_REAL_PIDS" ]]; then
+      echo "Refusing to start a second SDK owner; existing control-server pid(s): $ORPHANED_REAL_PIDS" >&2
+      echo "Run '$0 stop' to terminate the selected profile's stale owner first." >&2
+      exit 1
+    fi
+    ensure_real_can_ready
+
+	ENV_ARGS=()
+	for name in \
+	  A1Z_PROFILE A1Z_BACKEND A1Z_CAN_CHANNEL A1Z_CONTROL_FREQ_HZ \
+      A1Z_MIN_CONTROL_FREQ_HZ A1Z_CAN_INTER_COMMAND_DELAY_S \
+      A1Z_GRIPPER_MAX_TORQUE \
+      A1Z_GRIPPER_EMPTY_CLOSE_THRESHOLD A1Z_ARM_FEEDBACK_STARTUP_TIMEOUT_S \
+      A1Z_SOCKET_PATH \
+      A1Z_TCP_HOST A1Z_TCP_PORT A1Z_WITH_GRIPPER; do
+      if [[ -n "${!name:-}" ]]; then
+	    ENV_ARGS+=(-e "$name=${!name}")
+	  fi
+	done
+	if [[ -n "${A1Z_CONTROL_SERVER_URDF:-}" ]]; then
+	  ENV_ARGS+=(-e "A1Z_CONTROL_URDF=$A1Z_CONTROL_SERVER_URDF")
+	fi
+	ENV_ARGS+=(-e "PYTHONPATH=/workspace/A1Z/vendor/GALAXEA-A1Z:/workspace/A1Z")
+
+    docker exec -d \
+      -u "$(id -u):$(id -g)" \
+      -w /workspace/A1Z \
+      "${ENV_ARGS[@]}" \
+      "$CONTAINER_NAME" \
+      bash -lc 'log_path="$1"; shift; exec "$@" > "$log_path" 2>&1' bash \
+      "/workspace/A1Z/runtime/logs/a1z-control-${A1Z_PROFILE}.log" \
+      /usr/bin/python3 /workspace/A1Z/tools/a1zctl serve \
+      "${SERVER_OPTIONS[@]}"
+  fi
 fi
 
 READY_COUNT=0
@@ -353,6 +477,13 @@ for READY_ATTEMPT in $(seq 1 90); do
     fi
   else
     READY_COUNT=0
+    TERMINAL_FAULT="$(probe_terminal_fault || true)"
+    if [[ -n "$TERMINAL_FAULT" ]]; then
+      echo "A1Z ${PROFILE_NAME} control loop faulted before becoming ready: $TERMINAL_FAULT" >&2
+      echo "Log: $LOG_PATH" >&2
+      tail -n 20 "$LOG_PATH" >&2 || true
+      exit 1
+    fi
   fi
   if [[ "$PROFILE_NAME" == "real" ]]; then
     if find_real_server_pids >/dev/null; then
@@ -368,4 +499,5 @@ for READY_ATTEMPT in $(seq 1 90); do
 done
 
 echo "A1Z ${PROFILE_NAME} service did not become ready. Log: $LOG_PATH" >&2
+tail -n 20 "$LOG_PATH" >&2 || true
 exit 1

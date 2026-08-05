@@ -41,6 +41,7 @@ class RealSimArchitectureTests(unittest.TestCase):
         self.assertEqual(real["A1Z_REALSENSE_INITIAL_RESET"], "0")
         self.assertEqual(real["A1Z_CAN_CHANNEL"], "can0")
         self.assertEqual(real["A1Z_CAN_BITRATE"], "1000000")
+        self.assertEqual(real["A1Z_CAN_INTER_COMMAND_DELAY_S"], "0.0001")
         self.assertEqual(real["A1Z_GRIPPER_MAX_TORQUE"], "0.5")
         self.assertNotIn("A1Z_HAND_EYE_CALIBRATION_STATUS", real)
 
@@ -101,22 +102,53 @@ class RealSimArchitectureTests(unittest.TestCase):
 
     def test_real_container_has_required_can_and_d405_packages(self) -> None:
         dockerfile = (ROOT / "docker" / "ros2-humble" / "Dockerfile").read_text()
+        base_dockerfile = (
+            ROOT / "docker" / "ros2-humble" / "Dockerfile.base"
+        ).read_text()
+        sdk_setup = (
+            ROOT / "scripts" / "setup_a1z_sdk_in_container.sh"
+        ).read_text()
         create = (ROOT / "scripts" / "create_a1z_ros2_container.sh").read_text()
         for package in (
             "can-utils",
             "iproute2",
-            "python3-can",
             "ros-humble-realsense2-camera",
         ):
             self.assertIn(package, dockerfile)
-        self.assertIn("/dev/bus/usb:/dev/bus/usb", create)
-        self.assertIn('c 189:* rmw', create)
+        self.assertNotIn("python3-can", dockerfile)
+        self.assertNotIn("python-can", base_dockerfile)
+        self.assertIn("python-can>=4.0", dockerfile)
+        self.assertIn("python-can>=4.0", sdk_setup)
+        self.assertIn("-v /dev:/dev", create)
+        self.assertIn('device_major video4linux', create)
+        self.assertIn('device_major usb_device', create)
+        self.assertIn('device_major media', create)
         self.assertIn("--cap-add NET_ADMIN", create)
         self.assertIn("--group-add 0", create)
-        self.assertIn("discover_realsense_device_nodes", create)
-        self.assertIn('--device "$node:$node"', create)
+        self.assertNotIn("discover_realsense_device_nodes", create)
+        self.assertNotIn('--device "$node:$node"', create)
         for hardcoded_node in ("/dev/video0", "/dev/video4", "/dev/media2"):
             self.assertNotIn(hardcoded_node, create)
+
+    def test_real_camera_is_optional_and_resolved_at_ros_start(self) -> None:
+        real = read_env(ROOT / "config" / "real.env")
+        launch = (
+            ROOT
+            / "ros2_ws"
+            / "src"
+            / "a1z_motion"
+            / "launch"
+            / "a1z_stack.launch.py"
+        ).read_text(encoding="utf-8")
+        runner = (
+            ROOT / "scripts" / "run_a1z_ros2_stack_in_container.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(real["A1Z_CAMERA_MODE"], "auto")
+        self.assertIn('_env_bool("A1Z_CAMERA_ENABLED", True)', launch)
+        self.assertIn('CAMERA_MODE="${A1Z_CAMERA_MODE:-auto}"', runner)
+        self.assertIn("starting the ROS 2 stack without camera nodes", runner)
+        self.assertIn('-e A1Z_CAMERA_ENABLED="${CAMERA_ENABLED}"', runner)
 
     def test_realsense_reset_is_opt_in_and_forwarded_to_ros(self) -> None:
         launch = (
@@ -160,6 +192,18 @@ class RealSimArchitectureTests(unittest.TestCase):
         submodules = (ROOT / ".gitmodules").read_text()
         self.assertIn("vendor/GALAXEA-A1Z", submodules)
         self.assertIn("branch = gripper", submodules)
+
+    def test_real_control_service_uses_configurable_can_command_pacing(self) -> None:
+        factory = (ROOT / "a1z_ext" / "robots" / "get_robot.py").read_text()
+        manager = (ROOT / "scripts" / "manage_a1z_control_server.sh").read_text()
+        sdk_runner = (
+            ROOT / "scripts" / "a1z_sdk_python_in_container.sh"
+        ).read_text()
+
+        self.assertIn("PacedMixedMotorChain(", factory)
+        self.assertIn("get_can_inter_command_delay_s()", factory)
+        self.assertIn("A1Z_CAN_INTER_COMMAND_DELAY_S", manager)
+        self.assertIn("A1Z_CAN_INTER_COMMAND_DELAY_S", sdk_runner)
 
 
 if __name__ == "__main__":

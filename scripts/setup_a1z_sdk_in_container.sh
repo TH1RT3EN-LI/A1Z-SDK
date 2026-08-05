@@ -72,7 +72,7 @@ set -euo pipefail
 /isaac-sim/kit/python/bin/python3 -m venv '$VENV_DIR'
 source '$VENV_DIR/bin/activate'
 python -m pip install --upgrade pip
-python -m pip install python-can pin
+python -m pip install 'python-can>=4.0' pin ruckig==0.19.4
 python -m pip install -e '$SDK_DIR'
 "
 

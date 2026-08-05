@@ -91,7 +91,9 @@ ${ISAAC_SIM_ROOT:-$HOME/isaacsim}/python.sh \
 ```
 
 The collision mesh is intentionally disabled until clearances are checked on
-the physical assembly. The current `0.03 kg` mass is a provisional estimate;
-its center of mass and inertia tensor come from the exact CAD volume assuming
-uniform density. After weighing the bracket, update `mass_kg` in the JSON and
-scale all six inertia values by `measured_mass / 0.03`.
+the physical assembly. The CAD volume is `24.3922 cm³`. The current mass,
+center of mass, and inertia tensor use a uniform generic engineering-plastic
+estimate of `1200 kg/m³`, giving `29.2707 g`. A broad `1000–1400 kg/m³`
+material range gives `24.39–34.15 g`; both the assumption and range are stored
+in `config/camera_bracket.json`. After weighing the bracket, scale all six
+inertia values by `measured_mass / 0.029270651684159033`.

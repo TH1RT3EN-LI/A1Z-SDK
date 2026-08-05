@@ -28,12 +28,15 @@ GALAXEA 官方公开资料给出了控制原理、API、示例和首轮重力补
 
 - 使用当前 G1Z + 相机支架 + D405 的生成控制 URDF；
 - 保证同一时刻只有一个进程占用 CAN 控制权；
-- 每次 `move` 后读取 SDK 反馈并检查目标误差；
+- 服务端以关节反馈闭环跟踪每个 `move` 目标，并检查目标误差；
 - 保存 `target/measured/error` JSON，比较单轴运动和六轴同时运动；
 - 只有在质量、重心、重力方向和零点排除后才调整 KP/KD。
 
-这里的 `move` 仍然只向 SDK 提交一次轨迹。项目服务随后验证反馈，但不会根据残余误差自动再次
-补发目标。因此它不是新增的一层 PID，也不是迭代式闭环补偿。
+这里的 `move` 只向服务端提交一个最终关节目标。SocketCAN 的唯一硬件控制线程用 Ruckig 0.19.4
+在 250 Hz 生成受速度、加速度和 jerk 约束的参考位置、速度与加速度；同一帧再用一致的参考状态计算
+Pinocchio/RNEA 前馈并发送官方 MIT KP/KD 阻抗命令。名义轨迹结束后，关节残差由带限速、限幅和
+抗饱和的连续积分转换为力矩偏置，不再通过 50 Hz 位置偏置微调参考值。服务层仍以 50 Hz 监视反馈、
+判定到达和处理最新目标替换，但不参与实时参考生成。
 
 ## 2. 必须先满足的安全条件
 
@@ -137,7 +140,7 @@ print(f"{'TOTAL':32s} {sum(value for _, value in rows):.9f} kg")
 PY
 ```
 
-预期 `TOTAL` 为 `5.411113370 kg`。如果不一致，先停止真机调试，检查
+预期 `TOTAL` 为 `5.398384022 kg`。如果不一致，先停止真机调试，检查
 `config/d405.json`、`config/camera_bracket.json`、官方源 URDF、
 `A1Z_nogripper.csv` 中的 `arm_link6` 行和生成脚本。
 
@@ -289,25 +292,30 @@ done
 
 ## 8. 阶段 E：单轴与六轴小步 A/B 测试
 
-项目 `move` 由服务端唯一的最新目标控制器执行。控制器以 50 Hz 连续进行反馈读取、正运动学、
-到达判定和下一运动帧写入；不存在 GUI、CLI 或回放各自补发命令的队列。到达必须同时满足：规划目标
-帧已发送、`grasp_tcp` 位置误差不超过 `0.5 mm`、姿态误差不超过 `0.5°`、最大实测关节速度不超过
-`0.02 rad/s`，并连续 5 个样本稳定。返回中的关键字段是：
+项目 `move` 由服务端唯一的最新目标控制器执行。服务线程以 50 Hz 连续进行关节反馈读取和关节空间
+到达判定；SocketCAN 硬件线程以 250 Hz 生成并写入下一参考帧。不存在 GUI、CLI 或回放各自补发命令
+的队列。到达必须同时满足：Ruckig 最终参考已生成、J1-J6 每轴实测误差不超过 `0.5°`、最大实测关节
+速度不超过 `0.02 rad/s`，并连续 5 个监视样本稳定。返回中的关键字段是：
 
 - `ok`；
 - `data.completion`；
 - `data.verification.target_deg`；
 - `data.verification.measured_deg`；
 - `data.verification.joint_error_deg`；
+- `data.verification.max_joint_error_deg`；
+- `data.verification.joint_position_tolerance_deg`；
+- `data.verification.joint_correction_deg`；
 - `data.verification.position_error_mm`；
-- `data.verification.position_tolerance_mm`；
 - `data.verification.orientation_error_deg`；
 - `data.verification.max_velocity_rad_s`；
-- `data.verification.stable_samples`。
+- `data.verification.stable_samples`；
+- `data.verification.control_owner`；
+- `data.verification.trajectory_generator`；
+- `data.verification.integral_torque_bias_nm`。
 
-`0.5 mm` 是使用关节编码器回读、控制 URDF 与 `grasp_tcp` 正运动学计算的软件门限，不是对真实
-TCP 绝对精度的承诺。机械零点、工具坐标、减速器回差、负载形变和标定误差必须另外实测；官方重复
-定位规格也不能直接替代这项整机验收。
+末端位置与姿态误差由关节编码器回读、控制 URDF 与 `grasp_tcp` 正运动学计算，只用于诊断，不参与
+关节目标到达判定，也不是对真实 TCP 绝对精度的承诺。机械零点、工具坐标、减速器回差、负载形变和
+标定误差必须另外实测；官方重复定位规格也不能直接替代这项整机验收。
 
 ### E1. 建立本次记录目录
 

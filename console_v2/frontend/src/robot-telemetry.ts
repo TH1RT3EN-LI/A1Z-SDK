@@ -22,6 +22,8 @@ export type ArmMotionSpeedLimits = {
 export type ArmMotionRuntime = {
   goalId: number | null;
   state: string;
+  maxJointErrorDeg: number | null;
+  jointPositionToleranceDeg: number | null;
   positionErrorMm: number | null;
   positionToleranceMm: number | null;
   orientationErrorDeg: number | null;
@@ -107,12 +109,17 @@ function measuredMotion(value: unknown): ArmMotionRuntime | null {
   const raw = value as Record<string, unknown>;
   const rawGoalId = Number(raw.goal_id);
   const numberOrNull = (candidate: unknown) => {
+    if (candidate === null || candidate === undefined || candidate === "") {
+      return null;
+    }
     const number = Number(candidate);
     return Number.isFinite(number) ? number : null;
   };
   return {
     goalId: Number.isInteger(rawGoalId) && rawGoalId > 0 ? rawGoalId : null,
     state: typeof raw.state === "string" ? raw.state : "idle",
+    maxJointErrorDeg: numberOrNull(raw.max_joint_error_deg),
+    jointPositionToleranceDeg: numberOrNull(raw.joint_position_tolerance_deg),
     positionErrorMm: numberOrNull(raw.position_error_mm),
     positionToleranceMm: numberOrNull(raw.endpoint_position_tolerance_mm),
     orientationErrorDeg: numberOrNull(raw.orientation_error_deg),

@@ -39,6 +39,23 @@ drives the imported model. At runtime, `RectifiedFrame`, `DepthOpticalFrame`,
 imported `d405_link`, so they inherit every future mechanical mount change
 without a second pose update.
 
+## Dynamic properties
+
+The D405 mass is the Intel data-sheet nominal `0.060 kg` (`0.058–0.062 kg`
+range). Its center of mass and inertia are an engineering estimate obtained by
+distributing that measured total mass uniformly over the watertight exterior
+STL and rotating the resulting tensor from mesh coordinates into `d405_link`
+coordinates. The traceable calculation inputs and results are stored in:
+
+```text
+assets/realsense_d405/d405.mass-properties.json
+```
+
+This is substantially more realistic than the previous `0.072 kg` template
+and its oversized inertia tensor, but it is still an exterior-shape estimate:
+an experimentally measured center of mass or manufacturer inertia should
+replace it if either becomes available.
+
 Rebuild the generated robot and world assets after editing the config:
 
 ```bash

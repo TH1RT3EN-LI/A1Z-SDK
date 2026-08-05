@@ -14,6 +14,7 @@ const sourceRepositoryRoot = resolve(frontendRoot, "../..");
 const terminalSessions = new Map();
 const robotTelemetrySessions = new Map();
 const robotCommandOwners = new Set();
+let controlServiceStartPromise = null;
 const execFileAsync = promisify(execFile);
 const developmentMode = process.argv.includes("--development-mode");
 
@@ -50,6 +51,27 @@ function repositoryRoot() {
     return configuredRoot;
   }
   return app.isPackaged ? homedir() : sourceRepositoryRoot;
+}
+
+function controlContainerName() {
+  return (
+    process.env.A1Z_SDK_CONTAINER_NAME ||
+    process.env.A1Z_ROS2_CONTAINER_NAME ||
+    "a1z-ros2-humble-real"
+  );
+}
+
+function hostSdkEnvironment() {
+  const root = repositoryRoot();
+  return {
+    ...process.env,
+    A1Z_SOCKET_PATH: "",
+    A1Z_TCP_HOST: process.env.A1Z_CONSOLE_TCP_HOST || "127.0.0.1",
+    A1Z_TCP_PORT: process.env.A1Z_CONSOLE_TCP_PORT || "37104",
+    PYTHONPATH: [root, resolve(root, "vendor/GALAXEA-A1Z"), process.env.PYTHONPATH]
+      .filter(Boolean)
+      .join(":"),
+  };
 }
 
 function closeTerminalSession(sessionId) {
@@ -92,10 +114,7 @@ function telemetryCommand(deploymentMode) {
   };
 
   if (deploymentMode === "docker") {
-    const containerName =
-      process.env.A1Z_SDK_CONTAINER_NAME ||
-      process.env.A1Z_ROS2_CONTAINER_NAME ||
-      "a1z-ros2-humble-real";
+    const containerName = controlContainerName();
     return {
       command: "docker",
       args: [
@@ -146,10 +165,7 @@ function robotCliCommand(deploymentMode, cliArguments, requestTimeoutSeconds) {
   };
 
   if (deploymentMode === "docker") {
-    const containerName =
-      process.env.A1Z_SDK_CONTAINER_NAME ||
-      process.env.A1Z_ROS2_CONTAINER_NAME ||
-      "a1z-ros2-humble-real";
+    const containerName = controlContainerName();
     return {
       command: "docker",
       args: [
@@ -444,12 +460,13 @@ function registerWindowIpc() {
   });
 }
 
-async function runStartupCheckCommand(command, args) {
+async function runStartupCheckCommand(command, args, options = {}) {
   try {
     const { stdout, stderr } = await execFileAsync(command, args, {
       encoding: "utf8",
       timeout: 5000,
       maxBuffer: 1024 * 1024,
+      ...options,
     });
     return { ok: true, output: `${stdout}${stderr}` };
   } catch (error) {
@@ -458,6 +475,116 @@ async function runStartupCheckCommand(command, args) {
       .join("\n");
     return { ok: false, output };
   }
+}
+
+async function inspectStartupEnvironments() {
+  const root = repositoryRoot();
+  const projectAvailable = existsSync(resolve(root, "scripts/manage_a1z_control_server.sh"));
+  const python = process.env.A1Z_PYTHON || "python3";
+  const hostProbe = await runStartupCheckCommand(
+    python,
+    [
+      "-c",
+      [
+        "import importlib.util, pathlib, sys",
+        "root = pathlib.Path(sys.argv[1])",
+        "sys.path[:0] = [str(root), str(root / 'vendor' / 'GALAXEA-A1Z')]",
+        "required = ('numpy', 'can', 'pinocchio', 'a1z')",
+        "missing = [name for name in required if importlib.util.find_spec(name) is None]",
+        "assert not missing, 'A1Z_HOST_MISSING=' + ','.join(missing)",
+        "assert (root / 'a1z_sdk' / '__init__.py').is_file(), 'A1Z_REPOSITORY_MISSING'",
+        "print('A1Z_HOST_READY')",
+      ].join("; "),
+      root,
+    ],
+    { cwd: root, env: hostSdkEnvironment() },
+  );
+  const hostIpProbe = await runStartupCheckCommand("ip", ["-Version"], { cwd: root });
+  const missingHostDependencies =
+    hostProbe.output.match(/A1Z_HOST_MISSING=([^\n'\"]+)/)?.[1]?.trim() || "";
+  const hostAvailable = projectAvailable && hostProbe.ok && hostIpProbe.ok;
+
+  const dockerProbe = await runStartupCheckCommand("docker", ["info", "--format", "{{.ServerVersion}}"], {
+    cwd: root,
+  });
+  let dockerCode = "unavailable";
+  let dockerDetail = "Docker daemon 不可用，请启动 Docker 后重新检测。";
+  if (dockerProbe.ok && projectAvailable) {
+    const container = await runStartupCheckCommand(
+      "docker",
+      ["inspect", "-f", "{{.State.Running}}", controlContainerName()],
+      { cwd: root },
+    );
+    if (!container.ok) {
+      dockerCode = "setup_required";
+      dockerDetail = "Docker 可用；首次启动时会创建项目容器。";
+    } else {
+      const hostConfig = await runStartupCheckCommand(
+        "docker",
+        ["inspect", "-f", "{{json .HostConfig}}", controlContainerName()],
+        { cwd: root },
+      );
+      let legacyDevicePaths = [];
+      let hasDynamicDeviceAccess = false;
+      if (hostConfig.ok) {
+        try {
+          const config = JSON.parse(hostConfig.output.trim());
+          const mappings = config?.Devices;
+          if (Array.isArray(mappings) && mappings.length > 0) {
+            legacyDevicePaths = mappings
+              .map((mapping) => mapping?.PathOnHost)
+              .filter((path) => typeof path === "string" && path);
+          }
+          const binds = Array.isArray(config?.Binds) ? config.Binds : [];
+          const rules = Array.isArray(config?.DeviceCgroupRules)
+            ? config.DeviceCgroupRules
+            : [];
+          hasDynamicDeviceAccess =
+            binds.some((binding) => binding === "/dev:/dev" || binding.startsWith("/dev:/dev:")) &&
+            rules.some((rule) => /^c 189:\* rmw$/.test(rule)) &&
+            rules.some((rule) => /^c 81:\* rmw$/.test(rule));
+        } catch {
+          // A malformed inspect response will be caught again by the launch command.
+        }
+      }
+      if (legacyDevicePaths.length > 0) {
+        dockerCode = "repair_required";
+        dockerDetail =
+          `旧容器仍固定映射设备：${legacyDevicePaths.join("、")}。` +
+          "请一次性重建项目容器，之后 D405 插拔不再需要重建。";
+      } else if (!hasDynamicDeviceAccess) {
+        dockerCode = "repair_required";
+        dockerDetail = "项目容器缺少动态相机设备权限，请一次性重建。";
+      } else if (container.output.trim() === "true") {
+        dockerCode = "ready";
+        dockerDetail = `项目容器 ${controlContainerName()} 正在运行。`;
+      } else {
+        dockerCode = "setup_required";
+        dockerDetail = `项目容器 ${controlContainerName()} 将在启动时恢复。`;
+      }
+    }
+  }
+
+  return {
+    host: {
+      available: hostAvailable,
+      code: hostAvailable ? "ready" : "unavailable",
+      detail: hostAvailable
+        ? "宿主机 Python、硬件依赖与网络工具均可用。"
+        : !projectAvailable
+          ? "未找到项目工作区，请设置有效的 A1Z_REPO_ROOT。"
+        : missingHostDependencies
+          ? `宿主机缺少依赖：${missingHostDependencies}。`
+          : "宿主机运行环境不完整，请检查 Python 与 iproute2。",
+    },
+    docker: {
+      available: dockerProbe.ok && projectAvailable && dockerCode !== "repair_required",
+      code: projectAvailable ? dockerCode : "unavailable",
+      detail: projectAvailable
+        ? dockerDetail
+        : "未找到项目工作区，请设置有效的 A1Z_REPO_ROOT。",
+    },
+  };
 }
 
 function classifyCanReadiness(commandResult, expectedBitrate) {
@@ -490,30 +617,42 @@ async function checkStartupReadiness(deploymentMode) {
   let result;
 
   if (deploymentMode === "docker") {
-    const containerName =
-      process.env.A1Z_SDK_CONTAINER_NAME ||
-      process.env.A1Z_ROS2_CONTAINER_NAME ||
-      "a1z-ros2-humble-real";
+    const containerName = controlContainerName();
+    const dockerDaemon = await runStartupCheckCommand("docker", [
+      "info",
+      "--format",
+      "{{.ServerVersion}}",
+    ]);
+    if (!dockerDaemon.ok) {
+      console.warn("A1Z startup check: selected Docker runtime is unavailable.");
+      return { ok: false, code: "deployment_unavailable" };
+    }
     const container = await runStartupCheckCommand("docker", [
       "inspect",
       "-f",
       "{{.State.Running}}",
       containerName,
     ]);
-    if (!container.ok || container.output.trim() !== "true") {
-      console.warn("A1Z startup check: selected Docker runtime is unavailable.");
-      return { ok: false, code: "deployment_unavailable" };
+    if (container.ok && container.output.trim() === "true") {
+      result = await runStartupCheckCommand("docker", [
+        "exec",
+        containerName,
+        "ip",
+        "-details",
+        "-statistics",
+        "link",
+        "show",
+        canChannel,
+      ]);
+    } else {
+      result = await runStartupCheckCommand("ip", [
+        "-details",
+        "-statistics",
+        "link",
+        "show",
+        canChannel,
+      ]);
     }
-    result = await runStartupCheckCommand("docker", [
-      "exec",
-      containerName,
-      "ip",
-      "-details",
-      "-statistics",
-      "link",
-      "show",
-      canChannel,
-    ]);
   } else {
     result = await runStartupCheckCommand("ip", [
       "-details",
@@ -525,16 +664,174 @@ async function checkStartupReadiness(deploymentMode) {
   }
 
   const code = classifyCanReadiness(result, canBitrate);
+  if (deploymentMode === "docker" && code === "device_inactive") {
+    return { ok: true, code: "configuration_required" };
+  }
   if (code !== "ready") {
     console.warn(`A1Z startup check failed (${deploymentMode}/${code}).`);
   }
   return { ok: code === "ready", code };
 }
 
+function startupServiceError(detail) {
+  const staleDevicePath =
+    detail.match(/adding custom device ["']([^"']+)["'].*no such file/i)?.[1] ||
+    detail.match(/maps missing host device:\s*([^\s]+)/i)?.[1];
+  if (staleDevicePath) {
+    return (
+      `Docker 容器仍映射已消失的宿主机设备 ${staleDevicePath}。` +
+      "请恢复设备，或明确重建项目容器。"
+    );
+  }
+  if (/legacy fixed host device mappings|lacks dynamic camera\/SocketCAN access/i.test(detail)) {
+    return "Docker 容器仍使用旧的固定设备映射，请一次性重建项目容器。";
+  }
+  if (/A1Z_HOST_MISSING|hardware dependencies are missing|ModuleNotFoundError|No module named/i.test(detail)) {
+    return "宿主机缺少控制服务依赖，请安装硬件依赖或改用 Docker。";
+  }
+  if (/docker.*(daemon|socket)|cannot connect to the docker daemon/i.test(detail)) {
+    return "Docker daemon 不可用，请启动 Docker 后重试。";
+  }
+  if (/SocketCAN interface.*missing|cannot find device|no such device/i.test(detail)) {
+    return "未找到机械臂 CAN 接口，请检查适配器与驱动。";
+  }
+  if (/must already be UP|bitrate|device_inactive/i.test(detail)) {
+    return "宿主机 CAN 尚未就绪；请完成配置，或选择 Docker 自动配置。";
+  }
+  const staleFeedback = detail.match(/Arm CAN feedback stale or missing for\s+([^\n(]+)/i)?.[1]?.trim();
+  if (staleFeedback) {
+    return `控制循环已安全停止：${staleFeedback} CAN 反馈中断。请检查服务日志与设备连接。`;
+  }
+  if (/fault|under voltage|over voltage|over current/i.test(detail)) {
+    return "控制服务检测到机械臂故障，请先处理硬件状态。";
+  }
+  if (/exited before becoming ready|did not become ready|timed out|timeout/i.test(detail)) {
+    return "控制服务未能在限定时间内就绪，请查看运行日志。";
+  }
+  return "控制服务启动失败，请检查运行环境与服务日志。";
+}
+
+async function readRobotInfo(deploymentMode) {
+  const launch = robotCliCommand(deploymentMode, ["info"], 3);
+  try {
+    const { stdout } = await execFileAsync(launch.command, launch.args, {
+      ...launch.options,
+      encoding: "utf8",
+      timeout: 8000,
+      maxBuffer: 1024 * 1024,
+    });
+    const payload = lastJsonObject(stdout);
+    if (payload?.ok === true && payload.data && typeof payload.data === "object") {
+      return payload.data;
+    }
+    if (payload && payload.ok !== false && typeof payload === "object") return payload;
+    throw new Error(String(payload?.error || "invalid control-service info response"));
+  } catch (error) {
+    const detail = [error?.stderr, error?.stdout, error?.message]
+      .filter((value) => typeof value === "string" && value.trim())
+      .join("\n");
+    throw new Error(startupServiceError(detail));
+  }
+}
+
+async function startControlService(deploymentMode, parameters) {
+  if (deploymentMode !== "host" && deploymentMode !== "docker") {
+    throw new Error("无效的部署方式。");
+  }
+  const controlMode = parameters?.controlMode;
+  const gravityFactor = Number(parameters?.gravityCompensation);
+  if (controlMode !== "position_hold" && controlMode !== "zero_force") {
+    throw new Error("无效的启动控制模式。");
+  }
+  if (!Number.isFinite(gravityFactor) || gravityFactor < 0 || gravityFactor > 1) {
+    throw new Error("重力补偿系数必须位于 0–1。");
+  }
+
+  const manager = resolve(repositoryRoot(), "scripts/manage_a1z_control_server.sh");
+  const managerArguments = ["start", "--gravity-factor", String(gravityFactor)];
+  if (controlMode === "zero_force") managerArguments.push("--gravity-mode");
+  let managerOutput = "";
+  try {
+    const { stdout, stderr } = await execFileAsync(manager, managerArguments, {
+      cwd: repositoryRoot(),
+      env: {
+        ...process.env,
+        A1Z_PROFILE: "real",
+        A1Z_SERVICE_DEPLOYMENT: deploymentMode,
+      },
+      encoding: "utf8",
+      timeout: 10 * 60 * 1000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    managerOutput = `${stdout}${stderr}`;
+  } catch (error) {
+    const detail = [error?.stdout, error?.stderr, error?.message]
+      .filter((value) => typeof value === "string" && value.trim())
+      .join("\n");
+    console.warn(`A1Z control service failed to start (${deploymentMode}): ${detail}`);
+    throw new Error(startupServiceError(detail));
+  }
+
+  let info = await readRobotInfo(deploymentMode);
+  if (info.running !== true || info.faulted === true || info.backend !== "socketcan") {
+    throw new Error("控制服务已响应，但机械臂控制循环尚未健康。");
+  }
+
+  const actualGravityFactor = Number(info.gravity_comp_factor);
+  if (
+    Number.isFinite(actualGravityFactor) &&
+    Math.abs(actualGravityFactor - gravityFactor) > 0.001
+  ) {
+    throw new Error(
+      `现有控制服务使用 ${Math.round(actualGravityFactor * 100)}% 重力补偿；` +
+        "请匹配该值，或在终端明确停止服务后重新启动。",
+    );
+  }
+
+  const expectedMode = controlMode === "zero_force" ? "gravity_comp_effort" : "position_hold";
+  if (info.control_mode !== expectedMode) {
+    await setRobotControlMode(
+      deploymentMode,
+      controlMode === "zero_force" ? "zero-force" : "hold",
+    );
+    info = await readRobotInfo(deploymentMode);
+  }
+  if (
+    info.running !== true ||
+    info.faulted === true ||
+    info.backend !== "socketcan" ||
+    info.control_mode !== expectedMode
+  ) {
+    throw new Error("控制服务未能确认所选启动模式。");
+  }
+
+  return {
+    started: true,
+    reused: /Reusing verified/.test(managerOutput),
+    controlMode: info.control_mode,
+    gravityCompensation: Number.isFinite(actualGravityFactor)
+      ? actualGravityFactor
+      : gravityFactor,
+  };
+}
+
 function registerStartupIpc() {
+  ipcMain.handle("startup:inspect-environments", () => inspectStartupEnvironments());
   ipcMain.handle("startup:check-readiness", (_event, options = {}) =>
     checkStartupReadiness(options.deploymentMode),
   );
+  ipcMain.handle("startup:start-control-service", async (_event, options = {}) => {
+    requireRealHardwareMode();
+    if (!controlServiceStartPromise) {
+      controlServiceStartPromise = startControlService(
+        options.deploymentMode,
+        options.parameters,
+      ).finally(() => {
+        controlServiceStartPromise = null;
+      });
+    }
+    return controlServiceStartPromise;
+  });
 }
 
 function registerRobotIpc() {

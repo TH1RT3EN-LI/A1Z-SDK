@@ -69,6 +69,17 @@ def _validate_config(payload: Any) -> dict[str, Any]:
         raise ValueError("d405.json mesh_scale values must be positive")
     if _number(payload.get("mass_kg"), "mass_kg") <= 0.0:
         raise ValueError("d405.json mass_kg must be positive")
+    _vector(payload, "center_of_mass_xyz_m")
+    inertia = payload.get("inertia_kg_m2")
+    inertia_keys = ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+    if not isinstance(inertia, dict):
+        raise ValueError("d405.json inertia_kg_m2 must be an object")
+    inertia_values = {
+        key: _number(inertia.get(key), f"inertia_kg_m2.{key}")
+        for key in inertia_keys
+    }
+    if any(inertia_values[key] <= 0.0 for key in ("ixx", "iyy", "izz")):
+        raise ValueError("d405.json inertia diagonal values must be positive")
     _vector(payload, "mount_offset_xyz_m")
     _vector(payload, "mount_rpy_deg")
     _vector(payload, "body_visual_rpy_deg")

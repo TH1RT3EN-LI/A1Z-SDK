@@ -294,13 +294,13 @@ export default function JointTargetControl({
       return;
     }
     if (motion.state === "holding") {
-      const error = motion.positionErrorMm;
+      const error = motion.maxJointErrorDeg;
       setFeedback({
         tone: "success",
         message:
           error === null
             ? "已到达"
-            : `已到达 · ${compactNumberFormat.format(error)} mm`,
+            : `已到达 · 最大关节误差 ${compactNumberFormat.format(error)}°`,
       });
       return;
     }
@@ -431,7 +431,7 @@ export default function JointTargetControl({
                   inputMode="decimal"
                   min={minimum}
                   max={maximum}
-                  step="0.1"
+                  step="any"
                   value={value}
                   disabled={!editable}
                   aria-invalid={invalid}

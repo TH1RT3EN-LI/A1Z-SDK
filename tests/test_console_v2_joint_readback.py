@@ -103,6 +103,8 @@ def test_v2_position_mode_direct_joint_target_is_asynchronously_accepted() -> No
     assert "a1z-console:joint-speed-rad-s" in target
     assert 'className="joint-speed-slider"' in target
     assert 'type="range"' in target
+    assert 'step="any"' in target
+    assert 'step="0.1"' not in target
     assert 'step="0.01"' in target
     assert 'aria-label={`转动速度数值' in target
     assert "desktopApi.moveRobotJoints" in target

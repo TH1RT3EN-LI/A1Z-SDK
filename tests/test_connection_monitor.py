@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from a1z_ext.robots.connection_monitor import (
     ArmFeedbackMonitor,
+    ArmFeedbackStartupGate,
     socketcan_snapshot_from_ip,
 )
 
@@ -116,3 +119,67 @@ def test_arm_connection_preserves_missing_vs_stale_diagnostics() -> None:
     assert snapshot["missing_joints"] == [2, 4, 6]
     assert snapshot["stale_joints"] == []
     assert snapshot["online_joints"] == [1, 3, 5]
+
+
+def test_arm_feedback_startup_gate_excludes_initialization_and_waits_for_all_joints() -> None:
+    gate = ArmFeedbackStartupGate(timeout_s=2.0)
+    partial = {"connected": False}
+    connected = {"connected": True}
+
+    gate.begin_initialization()
+    assert gate.evaluate(partial, now=500.0) == "probe"
+    assert gate.snapshot(now=500.0)["remaining_ms"] is None
+
+    gate.begin_waiting(now=500.0)
+    assert gate.evaluate(partial, now=501.9) == "probe"
+    assert gate.evaluate(connected, now=501.95) == "ready"
+    assert gate.phase == "monitoring"
+    assert gate.evaluate(partial, now=600.0) == "monitor"
+
+
+def test_arm_feedback_startup_gate_times_out_only_after_its_own_window() -> None:
+    gate = ArmFeedbackStartupGate(timeout_s=2.0)
+    gate.begin_initialization()
+    assert gate.evaluate({"connected": False}, now=1000.0) == "probe"
+
+    gate.begin_waiting(now=1000.0)
+    assert gate.evaluate({"connected": False}, now=1001.999) == "probe"
+    assert gate.evaluate({"connected": False}, now=1002.0) == "timeout"
+    assert gate.phase == "failed"
+
+
+def test_arm_feedback_startup_timeout_config_is_tunable_and_validated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from a1z_ext.config import get_arm_feedback_startup_timeout_s
+
+    monkeypatch.delenv("A1Z_ARM_FEEDBACK_STARTUP_TIMEOUT_S", raising=False)
+    assert get_arm_feedback_startup_timeout_s() == pytest.approx(2.0)
+
+    monkeypatch.setenv("A1Z_ARM_FEEDBACK_STARTUP_TIMEOUT_S", "3.5")
+    assert get_arm_feedback_startup_timeout_s() == pytest.approx(3.5)
+
+    for value in ("0", "-1", "nan", "inf"):
+        monkeypatch.setenv("A1Z_ARM_FEEDBACK_STARTUP_TIMEOUT_S", value)
+        with pytest.raises(ValueError, match="must be positive and finite"):
+            get_arm_feedback_startup_timeout_s()
+
+
+def test_can_inter_command_delay_config_is_tunable_and_validated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from a1z_ext.config import get_can_inter_command_delay_s
+
+    monkeypatch.delenv("A1Z_CAN_INTER_COMMAND_DELAY_S", raising=False)
+    assert get_can_inter_command_delay_s() == pytest.approx(0.0001)
+
+    monkeypatch.setenv("A1Z_CAN_INTER_COMMAND_DELAY_S", "0")
+    assert get_can_inter_command_delay_s() == pytest.approx(0.0)
+
+    monkeypatch.setenv("A1Z_CAN_INTER_COMMAND_DELAY_S", "0.00025")
+    assert get_can_inter_command_delay_s() == pytest.approx(0.00025)
+
+    for value in ("-1", "nan", "inf"):
+        monkeypatch.setenv("A1Z_CAN_INTER_COMMAND_DELAY_S", value)
+        with pytest.raises(ValueError, match="must be finite and non-negative"):
+            get_can_inter_command_delay_s()

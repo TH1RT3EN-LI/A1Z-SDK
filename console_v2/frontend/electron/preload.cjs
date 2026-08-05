@@ -27,8 +27,17 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.on("terminal:exit", listener);
       return () => ipcRenderer.removeListener("terminal:exit", listener);
     },
+    inspectStartupEnvironments() {
+      return ipcRenderer.invoke("startup:inspect-environments");
+    },
     checkStartupReadiness(deploymentMode) {
       return ipcRenderer.invoke("startup:check-readiness", { deploymentMode });
+    },
+    startControlService(deploymentMode, parameters) {
+      return ipcRenderer.invoke("startup:start-control-service", {
+        deploymentMode,
+        parameters,
+      });
     },
     startRobotTelemetry(deploymentMode) {
       return ipcRenderer.invoke("robot:telemetry-start", { deploymentMode });

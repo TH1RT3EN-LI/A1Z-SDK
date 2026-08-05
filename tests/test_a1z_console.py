@@ -2262,15 +2262,26 @@ def test_direct_can_wrapper_proves_sdk_owner_has_stopped() -> None:
 
 def test_real_service_manager_prepares_can_and_fails_fast() -> None:
     manager = (ROOT / "scripts" / "manage_a1z_control_server.sh").read_text()
+    desktop_main = (
+        ROOT / "console_v2" / "frontend" / "electron" / "main.mjs"
+    ).read_text()
 
     assert 'CAN_BITRATE="${A1Z_CAN_BITRATE:-1000000}"' in manager
     assert "ensure_real_can_ready()" in manager
     assert "for _ in $(seq 1 20)" in manager
     assert 'ip link set "$can_channel" type can bitrate "$CAN_BITRATE"' in manager
     assert 'ip link set "$can_channel" up' in manager
-    assert "ensure_real_can_ready\n\n  ENV_ARGS=()" in manager
+    assert 'SERVICE_DEPLOYMENT="${A1Z_SERVICE_DEPLOYMENT:-docker}"' in manager
+    assert 'if [[ "$SERVICE_DEPLOYMENT" == "host" ]]' in manager
+    assert "Host SocketCAN '$can_channel' must already be UP" in manager
+    assert "A1Z_ARM_FEEDBACK_STARTUP_TIMEOUT_S" in manager
+    assert "probe_terminal_fault" in manager
+    assert "control loop faulted before becoming ready" in manager
+    assert "ensure_real_can_ready\n\n    ENV_ARGS=()" in manager
     assert "A1Z real control-server process exited before becoming ready" in manager
     assert 'tail -n 20 "$LOG_PATH"' in manager
+    assert "Arm CAN feedback stale or missing for" in desktop_main
+    assert "CAN 反馈中断" in desktop_main
 
 
 def test_offline_gripper_maintenance_uses_an_offline_device_contract(
@@ -3464,7 +3475,7 @@ def test_recording_start_rolls_back_zero_force_modes_on_failure() -> None:
     assert server._dispatch_request("info", {})["data"]["recording"] is False
 
 
-def test_move_fails_when_endpoint_feedback_stalls_outside_half_mm() -> None:
+def test_move_does_not_stall_before_joint_correction_authority_is_exhausted() -> None:
     np = pytest.importorskip("numpy")
     from a1z_ext.robots.server import RobotServer
 
@@ -3510,7 +3521,7 @@ def test_move_fails_when_endpoint_feedback_stalls_outside_half_mm() -> None:
         {
             "joints": [5.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             "speed": 0.5,
-            "timeout_s": 3.0,
+            "timeout_s": 0.25,
         },
     )
     assert result["ok"] is False
@@ -3519,8 +3530,11 @@ def test_move_fails_when_endpoint_feedback_stalls_outside_half_mm() -> None:
     assert len(robot.writer_threads) == 1
     verification = result["data"]["verification"]
     assert verification["reached"] is False
-    assert verification["position_error_mm"] > 0.5
-    assert verification["position_tolerance_mm"] == pytest.approx(0.5)
+    assert verification["arrival_basis"] == "joint_feedback_settled"
+    assert verification["max_joint_error_deg"] > 0.5
+    assert verification["joint_position_tolerance_deg"] == pytest.approx(0.5)
+    assert "Joint-space goal" in result["error"]
+    assert "correction authority was exhausted" not in result["error"]
 
 
 def test_joint_jog_preserves_unselected_command_targets_and_feedback_pose() -> None:
@@ -3595,7 +3609,7 @@ def test_joint_jog_preserves_unselected_command_targets_and_feedback_pose() -> N
     assert verification["reached"] is True
     assert verification["joint_index"] == 1
     assert verification["target_deg"] == pytest.approx(np.rad2deg(expected), abs=1e-3)
-    assert verification["position_error_mm"] <= 0.5
+    assert verification["max_joint_error_deg"] <= 0.5
 
 
 def test_cartesian_jog_uses_command_space_and_feedback_settling() -> None:
@@ -3671,7 +3685,7 @@ def test_cartesian_jog_uses_command_space_and_feedback_settling() -> None:
     assert verification["reached"] is True
     assert verification["joint_delta_deg"] == pytest.approx(requested_delta_deg)
     assert verification["target_deg"] == pytest.approx(np.rad2deg(expected), abs=1e-3)
-    assert verification["position_error_mm"] <= 0.5
+    assert verification["max_joint_error_deg"] <= 0.5
 
 
 def test_move_reports_runtime_fault_instead_of_hiding_it_as_tolerance() -> None:
@@ -3831,6 +3845,107 @@ def test_socketcan_adapter_does_not_apply_motor_b_codes_to_motor_a() -> None:
     robot._state.error_codes = np.array([4, 4, 4, 8, 1, 1])
     with pytest.raises(RuntimeError, match="MotorB fault on joint4"):
         robot._check_motor_errors()
+
+
+def test_socketcan_startup_feedback_uses_non_position_probes_before_strict_monitoring() -> None:
+    source = (ROOT / "a1z_ext" / "robots" / "socketcan_robot.py").read_text()
+
+    assert "ArmFeedbackStartupGate" in source
+    assert "self._arm_feedback_startup_gate.begin_initialization()" in source
+    assert "self._arm_feedback_monitor.reset(now=startup_started_at)" in source
+    assert "self._arm_feedback_startup_gate.begin_waiting(now=startup_started_at)" in source
+    assert "with self._arm_feedback_startup_lock:" in source
+    assert "if self._arm_feedback_startup_gate.active:" in source
+    assert "self._run_feedback_startup_step()" in source
+    assert "self._command.pos = measured" in source
+    assert "self._feedback_probe_zero" in source
+    assert "self._feedback_probe_kd" in source
+    assert "self._check_runtime_safety()" in source
+
+
+def test_socketcan_startup_step_probes_safely_then_pins_measured_pose() -> None:
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("can")
+    pytest.importorskip("pinocchio")
+    sdk_path = str(ROOT / "vendor" / "GALAXEA-A1Z")
+    if sdk_path not in sys.path:
+        sys.path.insert(0, sdk_path)
+    from a1z.robots.arm_robot import JointCommand, JointState
+    from a1z_ext.robots.socketcan_robot import SocketCANArmRobot
+
+    class FakeMonitor:
+        snapshot_value = {
+            "connected": False,
+            "online_joints": [1, 2, 3, 4],
+            "unavailable_joints": [5, 6],
+        }
+
+        def snapshot(self):
+            return dict(self.snapshot_value)
+
+    class FakeGate:
+        action = "probe"
+
+        def evaluate(self, _snapshot):
+            return self.action
+
+        def snapshot(self):
+            return {"timeout_ms": 2000.0}
+
+    class FakeMotorChain:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def send_commands(self, **kwargs) -> None:
+            self.calls.append(kwargs)
+
+    robot = SocketCANArmRobot.__new__(SocketCANArmRobot)
+    measured = np.array([0.2, 0.3, -0.4, 0.1, -0.2, 0.05])
+    robot._running = False
+    robot._state_lock = threading.Lock()
+    robot._command_lock = threading.Lock()
+    robot._state = JointState(pos=measured.copy())
+    robot._command = JointCommand(
+        pos=np.full(6, 9.0),
+        vel=np.ones(6),
+        acc=np.ones(6),
+        torque_ff=np.ones(6),
+    )
+    robot._arm_feedback_monitor = FakeMonitor()
+    robot._arm_feedback_startup_gate = FakeGate()
+    robot._motor_chain = FakeMotorChain()
+    robot._feedback_probe_zero = np.zeros(6)
+    robot._feedback_probe_kd = np.full(6, 0.05)
+    safety_checks = []
+    robot._read_state = lambda: None
+    robot._check_runtime_safety = lambda: safety_checks.append(True)
+
+    robot._run_feedback_startup_step()
+
+    assert safety_checks == [True]
+    assert len(robot._motor_chain.calls) == 1
+    probe = robot._motor_chain.calls[0]
+    assert probe["pos"] == pytest.approx(np.zeros(6))
+    assert probe["vel"] == pytest.approx(np.zeros(6))
+    assert probe["kp"] == pytest.approx(np.zeros(6))
+    assert probe["kd"] == pytest.approx(np.full(6, 0.05))
+    assert probe["torque"] == pytest.approx(np.zeros(6))
+    assert robot._command.pos == pytest.approx(np.full(6, 9.0))
+
+    robot._arm_feedback_monitor.snapshot_value = {
+        "connected": True,
+        "online_joints": [1, 2, 3, 4, 5, 6],
+        "unavailable_joints": [],
+    }
+    robot._arm_feedback_startup_gate.action = "ready"
+    robot._run_feedback_startup_step()
+
+    assert safety_checks == [True, True]
+    assert len(robot._motor_chain.calls) == 1
+    assert robot._command.pos == pytest.approx(measured)
+    assert robot._command.vel == pytest.approx(np.zeros(6))
+    assert robot._command.acc == pytest.approx(np.zeros(6))
+    assert robot._command.torque_ff == pytest.approx(np.zeros(6))
 
 
 def test_robot_factory_rejects_unsafe_gravity_scale_before_backend_creation() -> None:

@@ -468,7 +468,11 @@ export default function App() {
       {deploymentSettingsOpen ? (
         <DeploymentSettingsDialog
           mode={deploymentMode}
-          onModeChange={setDeploymentMode}
+          onModeChange={(mode) => {
+            setDeploymentMode(mode);
+            setDeploymentSettingsOpen(false);
+            setStartupAssistantOpen(true);
+          }}
           onClose={() => setDeploymentSettingsOpen(false)}
         />
       ) : null}
@@ -481,6 +485,7 @@ export default function App() {
           theme={themeMode}
           parameters={startupParameters}
           allowSkip={developmentMode}
+          onDeploymentModeChange={setDeploymentMode}
           onParametersChange={setStartupParameters}
           onComplete={() => setStartupAssistantOpen(false)}
         />

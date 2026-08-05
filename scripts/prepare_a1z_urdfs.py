@@ -37,15 +37,6 @@ ASSET_CAMERA_BRACKET_MESH = (
     ROOT_DIR / "assets" / "camera_bracket" / "camera_bracket.stl"
 )
 PACKAGE_CAMERA_BRACKET_MESH = ROBOT_MESH_DIR / "camera_bracket.stl"
-D405_BASE_MASS_KG = 0.072
-D405_BASE_INERTIA = (
-    0.003881243,
-    0.0,
-    0.0,
-    0.00049894,
-    0.0,
-    0.003879257,
-)
 D405_GUNMETAL_RGBA = (0.16, 0.16, 0.15, 1.0)
 ROBOT_DARK_RGBA = (0.32, 0.32, 0.33, 1.0)
 ROBOT_LIGHT_RGBA = (0.72, 0.74, 0.75, 1.0)
@@ -73,7 +64,7 @@ GRIPPER_JOINT_LIMITS_M = {
 D405_LINK_XML = """
 <link name="d405_link">
   <inertial>
-    <origin xyz="0 0 0" rpy="0 0 0" />
+    <origin xyz="{com_x} {com_y} {com_z}" rpy="0 0 0" />
     <mass value="{mass_kg}" />
     <inertia ixx="{ixx}" ixy="{ixy}" ixz="{ixz}" iyy="{iyy}" iyz="{iyz}" izz="{izz}" />
   </inertial>
@@ -313,8 +304,14 @@ def _upsert_d405(root: ET.Element) -> None:
     gripper_link = _find_named_child(root, "link", "gripper_finger_left_link")
     insert_index = gripper_link[0] if gripper_link is not None else len(root)
     d405_mass_kg = float(config["mass_kg"])
-    inertia_scale = d405_mass_kg / D405_BASE_MASS_KG
-    ixx, ixy, ixz, iyy, iyz, izz = (value * inertia_scale for value in D405_BASE_INERTIA)
+    com_x, com_y, com_z = (
+        float(value) for value in config["center_of_mass_xyz_m"]
+    )
+    inertia = dict(config["inertia_kg_m2"])
+    ixx, ixy, ixz, iyy, iyz, izz = (
+        float(inertia[key])
+        for key in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+    )
     visual_roll_deg, visual_pitch_deg, visual_yaw_deg = (
         float(value) for value in config["body_visual_rpy_deg"]
     )
@@ -324,6 +321,9 @@ def _upsert_d405(root: ET.Element) -> None:
     d405_link = ET.fromstring(
         D405_LINK_XML.format(
             mass_kg=_precise_float_string(d405_mass_kg),
+            com_x=_precise_float_string(com_x),
+            com_y=_precise_float_string(com_y),
+            com_z=_precise_float_string(com_z),
             ixx=_precise_float_string(ixx),
             ixy=_precise_float_string(ixy),
             ixz=_precise_float_string(ixz),

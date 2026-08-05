@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "mesh": "assets/realsense_d405/d405.stl",
+  "mesh_sha256": "a248f41149d12b28311829feecbe7a80cf1481fd05e0f5df2c4c7ecd556edd48",
+  "mesh_watertight": true,
+  "mesh_winding_consistent": true,
+  "mesh_volume_m3": 0.000038712911008833405,
+  "mass_kg": 0.06,
+  "mass_source": "Intel RealSense D400 Series Datasheet 337029, D405 nominal mass 60 g (58-62 g range)",
+  "mass_source_url": "https://www.intelrealsense.com/wp-content/uploads/2022/04/Intel-RealSense-D400-Series-Datasheet-April-2022.pdf",
+  "estimation_method": "uniform effective mass distribution over the watertight exterior STL",
+  "effective_density_kg_m3": 1549.8705325029514,
+  "body_visual_rpy_deg": [129.0, 0.0, 90.0],
+  "center_of_mass_mesh_m": [-0.00008269705831665286, 0.00008461038401554799, -0.011409413390289138],
+  "inertia_mesh_kg_m2": {
+    "ixx": 0.000010993654613147473,
+    "ixy": -0.0000000006281991037926647,
+    "ixz": -0.00000002334361923292487,
+    "iyy": 0.000011002189680506572,
+    "iyz": 0.000000016454346410048508,
+    "izz": 0.000016779840751144743
+  },
+  "center_of_mass_link_m": [-0.00881353249890075, -0.00008269705831665231, 0.0072459311146610165],
+  "inertia_link_kg_m2": {
+    "ixx": 0.000014507730596814,
+    "ixy": -0.00000001853673791831301,
+    "ixz": -0.0000028222767153275006,
+    "iyy": 0.000010993654613147473,
+    "iyz": 0.000000014202413187679596,
+    "izz": 0.000013274299834837316
+  },
+  "principal_inertia_kg_m2": [0.000010993523817459692, 0.000011002179427557961, 0.000016779981799781143]
+}

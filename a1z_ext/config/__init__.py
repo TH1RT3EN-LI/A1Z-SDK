@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass
 from functools import lru_cache
@@ -81,6 +82,24 @@ def get_gripper_max_torque_nm() -> float:
 
 def get_gripper_empty_close_threshold() -> float:
     return float(os.environ.get("A1Z_GRIPPER_EMPTY_CLOSE_THRESHOLD", "0.04"))
+
+
+def get_arm_feedback_startup_timeout_s() -> float:
+    timeout_s = float(os.environ.get("A1Z_ARM_FEEDBACK_STARTUP_TIMEOUT_S", "2.0"))
+    if not math.isfinite(timeout_s) or timeout_s <= 0.0:
+        raise ValueError(
+            "A1Z_ARM_FEEDBACK_STARTUP_TIMEOUT_S must be positive and finite"
+        )
+    return timeout_s
+
+
+def get_can_inter_command_delay_s() -> float:
+    delay_s = float(os.environ.get("A1Z_CAN_INTER_COMMAND_DELAY_S", "0.0001"))
+    if not math.isfinite(delay_s) or delay_s < 0.0:
+        raise ValueError(
+            "A1Z_CAN_INTER_COMMAND_DELAY_S must be finite and non-negative"
+        )
+    return delay_s
 
 
 def get_arm_motion_speed_limits() -> ArmMotionSpeedLimits:

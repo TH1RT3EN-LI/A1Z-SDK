@@ -40,6 +40,7 @@
   "gravity_torque_scale": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
   "max_gravity_torque": [50.0, 50.0, 50.0, 24.0, 10.0, 10.0],
   "torque_clip": [70.0, 70.0, 70.0, 27.0, 10.0, 10.0],
+  "torque_slew_rate_nm_s": [250.0, 250.0, 250.0, 100.0, 40.0, 40.0],
   "isaacsim": {
     "articulation_root_prim": "/World/A1Z_G1Z/Geometry",
     "arm_drive_type": "force",

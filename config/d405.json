@@ -7,7 +7,26 @@
     0.001,
     0.001
   ],
-  "mass_kg": 0.072,
+  "mass_kg": 0.06,
+  "mass_source": "Intel RealSense D400 Series Datasheet 337029, D405 nominal mass 60 g (58-62 g range)",
+  "mass_source_url": "https://www.intelrealsense.com/wp-content/uploads/2022/04/Intel-RealSense-D400-Series-Datasheet-April-2022.pdf",
+  "center_of_mass_xyz_m": [
+    -0.00881353249890075,
+    -0.00008269705831665231,
+    0.0072459311146610165
+  ],
+  "inertia_kg_m2": {
+    "ixx": 0.000014507730596814,
+    "ixy": -0.00000001853673791831301,
+    "ixz": -0.0000028222767153275006,
+    "iyy": 0.000010993654613147473,
+    "iyz": 0.000000014202413187679596,
+    "izz": 0.000013274299834837316
+  },
+  "inertia_estimation": {
+    "method": "uniform effective mass distribution over the watertight D405 STL, rotated into d405_link coordinates",
+    "report": "assets/realsense_d405/d405.mass-properties.json"
+  },
   "mount_offset_xyz_m": [
     0.065054390129681,
     0.0,

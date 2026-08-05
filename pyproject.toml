@@ -15,6 +15,7 @@ hardware = [
     "numpy",
     "pin",
     "python-can>=4.0",
+    "ruckig==0.19.4",
 ]
 dev = [
     "pytest",
